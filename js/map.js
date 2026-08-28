@@ -197,6 +197,40 @@ const Map = (() => {
         star.textContent = "★";
         L.labels.appendChild(star);
       }
+      // 建造指示器
+      if(Game.state.buildQueue){
+        const bq = Game.state.buildQueue.find(b => b.provinceIdx === i);
+        if(bq){
+          const bg = document.createElementNS(NS,"circle");
+          bg.setAttribute("cx",p.x+14); bg.setAttribute("cy",p.y+10);
+          bg.setAttribute("r",5); bg.setAttribute("fill","rgba(0,0,0,.6)");
+          L.labels.appendChild(bg);
+          const ic = document.createElementNS(NS,"text");
+          ic.setAttribute("x",p.x+14); ic.setAttribute("y",p.y+13);
+          ic.setAttribute("text-anchor","middle");
+          ic.setAttribute("font-size","8");
+          ic.setAttribute("fill","#ffb347");
+          ic.textContent = bq.sub==="fort"?"🏰":"🛤";
+          L.labels.appendChild(ic);
+        }
+      }
+      // 资源图标（放大时显示）
+      if(scale >= 1.5){
+        let rx = p.x - 14, ry = p.y + 12;
+        const resItems = [];
+        if(p.resSteel) resItems.push({ic:"⛏",v:p.resSteel,c:"#aaa"});
+        if(p.resOil) resItems.push({ic:"🛢",v:p.resOil,c:"#5a4"});
+        if(p.resAlu) resItems.push({ic:"🔩",v:p.resAlu,c:"#9cf"});
+        if(p.resRub) resItems.push({ic:"🌳",v:p.resRub,c:"#6c6"});
+        resItems.forEach((r,ri)=>{
+          const rt = document.createElementNS(NS,"text");
+          rt.setAttribute("x",rx + ri*10); rt.setAttribute("y",ry);
+          rt.setAttribute("font-size","7");
+          rt.setAttribute("text-anchor","middle");
+          rt.textContent = r.ic;
+          L.labels.appendChild(rt);
+        });
+      }
     });
   }
 
