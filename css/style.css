@@ -96,6 +96,8 @@ button{font-family:var(--font);cursor:pointer}
 #mapSvg .front-line{fill:none;stroke:#ff4444;stroke-width:2.5;stroke-dasharray:8 4;opacity:.7}
 #mapSvg .sel-ring{fill:none;stroke:#ffb347;stroke-width:2.5;stroke-dasharray:6 3;pointer-events:none;animation:sel-pulse 1.5s infinite}
 #mapSvg .hover-ring{fill:none;stroke:#fff;stroke-width:1.5;opacity:.6;pointer-events:none}
+#mapSvg .atk-preview{stroke:#ff6644;stroke-width:2.5;stroke-dasharray:6 3;opacity:.7;pointer-events:none;animation:atk-dash .6s linear infinite}
+@keyframes atk-dash{to{stroke-dashoffset:-18}}
 @keyframes sel-pulse{0%,100%{opacity:.8;stroke-width:2.5}50%{opacity:1;stroke-width:3.5}}
 
 /* 单位计数器（HOI4 风格） */
@@ -274,6 +276,19 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .zoom-ctrl button{width:30px;height:30px;background:rgba(20,28,40,.85);border:1px solid var(--line2);color:var(--muted);
   border-radius:3px;font-size:16px;display:flex;align-items:center;justify-content:center;transition:.1s;cursor:pointer}
 .zoom-ctrl button:hover{border-color:var(--gold);color:var(--text)}
+
+/* ---------- 地图悬停提示 ---------- */
+.map-tooltip{position:absolute;display:none;pointer-events:none;z-index:20;
+  background:rgba(12,16,24,.94);border:1px solid var(--line2);border-radius:3px;
+  padding:8px 12px;font-size:11px;color:var(--text);min-width:160px;max-width:240px;
+  box-shadow:0 4px 16px rgba(0,0,0,.6);line-height:1.6}
+.map-tooltip .tt-title{font-size:13px;font-weight:700;color:var(--gold);margin-bottom:4px;
+  border-bottom:1px solid var(--line2);padding-bottom:4px}
+.map-tooltip .tt-row{display:flex;justify-content:space-between;gap:12px}
+.map-tooltip .tt-label{color:var(--muted)}
+.map-tooltip .tt-val{color:var(--text);font-weight:600}
+.map-tooltip .tt-war{color:var(--red);font-weight:700;margin-top:4px}
+.map-tooltip .tt-ally{color:#5b9bd5;font-weight:700;margin-top:4px}
 
 /* ---------- 速度指示 ---------- */
 .speed-indicator{position:absolute;top:10px;right:10px;background:rgba(20,28,40,.85);border:1px solid var(--line2);

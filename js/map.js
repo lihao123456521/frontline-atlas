@@ -440,6 +440,29 @@ const Map = (() => {
         c.setAttribute("class","hover-ring");
         c.setAttribute("cx",p.x); c.setAttribute("cy",p.y); c.setAttribute("r",18);
         L.hilight.appendChild(c);
+        // 进攻预览箭头
+        if(curSel >= 0){
+          const from = Game.state.provinces[curSel];
+          if(from.owner === Game.state.player && from.garrison.length > 0){
+            const adj = Game.neighbors(curSel).includes(hoverIdx);
+            const canAttack = adj && (!p.owner || Game.isAtWar(Game.state.player, p.owner));
+            if(canAttack){
+              const line = document.createElementNS(NS,"line");
+              line.setAttribute("x1",from.x); line.setAttribute("y1",from.y);
+              line.setAttribute("x2",p.x); line.setAttribute("y2",p.y);
+              line.setAttribute("class","atk-preview");
+              L.hilight.appendChild(line);
+              // 箭头
+              const ang = Math.atan2(p.y-from.y, p.x-from.x);
+              const ax = p.x - Math.cos(ang)*22, ay = p.y - Math.sin(ang)*22;
+              const tri = document.createElementNS(NS,"polygon");
+              tri.setAttribute("points",`${p.x-12},${p.y} ${ax},${ay-6} ${ax},${ay+6}`);
+              tri.setAttribute("fill","#ff6644");
+              tri.setAttribute("opacity","0.7");
+              L.hilight.appendChild(tri);
+            }
+          }
+        }
       }
     }
   }
@@ -581,6 +604,64 @@ const Map = (() => {
   function zoomIn(){ zoomBy(1.3); }
   function zoomOut(){ zoomBy(1/1.3); }
 
+  // ---------- 悬停提示 ----------
+  function updateTooltip(mx, my, ukey, idx){
+    const tip = document.getElementById("mapTooltip");
+    if(!tip) return;
+    const s = Game.state;
+    let html = "";
+    if(ukey){
+      const [idxStr, type] = ukey.split("_");
+      const p = s.provinces[+idxStr];
+      if(p){
+        const c = p.owner ? Game.countries[p.owner] : null;
+        const g = p.garrison.find(d=>d.type===type);
+        const typeName = {infantry:"步兵师",cavalry:"骑兵师",motorized:"摩托化师",light_armor:"轻装甲师",armor:"装甲师",marine:"海军陆战师",paratrooper:"伞兵师",militia:"民兵师"}[type] || type;
+        html = `<div class="tt-title">${typeName} ${g?"×"+p.garrison.filter(d=>d.type===type).length:""}</div>`;
+        html += `<div class="tt-row"><span class="tt-label">所属</span><span class="tt-val">${c?c.name:"中立"}</span></div>`;
+        html += `<div class="tt-row"><span class="tt-label">驻地</span><span class="tt-val">${p.name}${p.isCapital?" ★":""}</span></div>`;
+        if(g){
+          html += `<div class="tt-row"><span class="tt-label">兵力</span><span class="tt-val">${Math.round(g.hp)}/${g.maxHp}</span></div>`;
+          html += `<div class="tt-row"><span class="tt-label">组织度</span><span class="tt-val">${Math.round(g.org)}/${g.maxOrg}</span></div>`;
+          html += `<div class="tt-row"><span class="tt-label">攻击/防御</span><span class="tt-val">${g.atk} / ${g.def}</span></div>`;
+        }
+      }
+    } else if(idx >= 0){
+      const p = s.provinces[idx];
+      const c = p.owner ? Game.countries[p.owner] : null;
+      const terrainName = {plains:"平原",forest:"森林",hills:"丘陵",mountain:"山地",desert:"沙漠",urban:"城市",marsh:"沼泽",jungle:"丛林",arctic:"寒带"}[p.terrain] || p.terrain;
+      html = `<div class="tt-title">${p.name}${p.isCapital?" ★":""}</div>`;
+      html += `<div class="tt-row"><span class="tt-label">所有者</span><span class="tt-val" style="color:${c?c.color:"#888"}">${c?c.name:"中立"}</span></div>`;
+      html += `<div class="tt-row"><span class="tt-label">地形</span><span class="tt-val">${terrainName}</span></div>`;
+      if(p.resSteel||p.resOil||p.resAlu||p.resRub){
+        const res = [];
+        if(p.resSteel) res.push(`⛏${p.resSteel}`);
+        if(p.resOil) res.push(`🛢${p.resOil}`);
+        if(p.resAlu) res.push(`🔩${p.resAlu}`);
+        if(p.resRub) res.push(`🌳${p.resRub}`);
+        html += `<div class="tt-row"><span class="tt-label">资源</span><span class="tt-val">${res.join(" ")}</span></div>`;
+      }
+      if(p.fort>0) html += `<div class="tt-row"><span class="tt-label">要塞</span><span class="tt-val">${p.fort}</span></div>`;
+      if(p.infra>0) html += `<div class="tt-row"><span class="tt-label">基建</span><span class="tt-val">${p.infra}</span></div>`;
+      if(p.garrison.length) html += `<div class="tt-row"><span class="tt-label">驻军</span><span class="tt-val">${p.garrison.length} 个师</span></div>`;
+      if(p.owner && p.owner !== s.player){
+        if(Game.isAtWar(s.player, p.owner)) html += `<div class="tt-war">⚔ 处于战争状态</div>`;
+        else if(s.allies && s.allies[p.owner]) html += `<div class="tt-ally">★ 盟友</div>`;
+      }
+    }
+    if(html){
+      tip.innerHTML = html;
+      tip.style.display = "block";
+      let tx = mx + 16, ty = my + 16;
+      if(tx + 260 > window.innerWidth) tx = mx - 260;
+      if(ty + 200 > window.innerHeight) ty = my - 200;
+      tip.style.left = tx + "px";
+      tip.style.top = ty + "px";
+    } else {
+      tip.style.display = "none";
+    }
+  }
+
   // ---------- 事件绑定 ----------
   function bind(h){
     handlers = h;
@@ -609,7 +690,10 @@ const Map = (() => {
       const sx=pt.x, sy=pt.y;
       const ukey = unitUnderPoint(sx,sy);
       hoverUnitKey = ukey;
-      const idx = ukey ? -1 : provinceUnderPoint(sx,sy);
+      // 悬停兵牌时也获取其省份用于高亮和进攻预览
+      let idx = ukey ? +ukey.split("_")[0] : provinceUnderPoint(sx,sy);
+      // 更新提示框
+      updateTooltip(e.clientX, e.clientY, ukey, ukey ? -1 : idx);
       if(idx !== hoverIdx){
         hoverIdx = idx;
         highlightSeaLinks(idx);
@@ -630,12 +714,11 @@ const Map = (() => {
       }
       dragging=false;
     });
-    wrap.addEventListener("wheel", e=>{
-      e.preventDefault();
-      scale = Math.max(0.6, Math.min(4, scale*(e.deltaY>0?0.92:1.08)));
-      applyTransform();
-    },{passive:false});
     wrap.addEventListener("dblclick", resetView);
+    wrap.addEventListener("mouseleave", ()=>{
+      const tip = document.getElementById("mapTooltip");
+      if(tip) tip.style.display = "none";
+    });
     document.querySelectorAll(".mapmode-btn").forEach(b=>{
       b.addEventListener("click", e=>{ e.stopPropagation(); setMapMode(b.dataset.mode); });
     });
