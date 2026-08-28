@@ -57,6 +57,7 @@ const Game = (function(){
       research: { slots:[null,null,null], progress:{} },
       wt: 0,
       log: [],
+      recentBattles: [],
       over: false,
       result: null,
     };
@@ -349,24 +350,43 @@ const Game = (function(){
       (1+defEff.landDef)*tDef*fB*airMult(toP.owner, toIdx), 1, 1, 0.90, 1.10);
     const aName = country(attackerId).name;
     const dName = toP.owner ? country(toP.owner).name : "中立";
+    const aStrR = Math.round(aStr), dStrR = Math.round(dStr);
+    const ratio = dStrR > 0 ? (aStrR/dStrR) : 99;
+    // 记录最近战斗（供战争面板）
+    if(!state.recentBattles) state.recentBattles = [];
+    const battleRec = { attacker:attackerId, defender:toP.owner, from:fromIdx, to:toIdx,
+      aStr:aStrR, dStr:dStrR, date:fmtDate(state.date), won:false, name:provName(toP) };
     if (aStr > dStr){
+      const aLoss = Math.round(sent.reduce((s,d)=>s+d.hp,0)*0.06);
       sent.forEach(d => { d.hp = Math.max(5, Math.round(d.hp * 0.7)); });
+      const dLoss = Math.round((toP.garrison.reduce((s,d)=>s+d.hp,0)||1) * 0.5);
       const prevOwner = toP.owner;
       toP.garrison = sent;                 // 出击部队占领目标省
       fromP.garrison = keepHome;           // 留守部队归还原省
       toP.owner = attackerId;
+      battleRec.won = true; battleRec.aLoss=aLoss; battleRec.dLoss=dLoss;
+      state.recentBattles.unshift(battleRec);
+      if(state.recentBattles.length>30) state.recentBattles.pop();
       if (attackerId === state.player) state.selectedIdx = toIdx;   // 攻占后自动选中目标省，便于连续推进
       if (prevOwner){
-        log(aName + " 攻占了 " + dName + " 的 " + provName(toP) + "！", "war");
+        log("⚔ " + aName + " 攻占 " + provName(toP) + "！进攻 " + aStrR + " vs 防御 " + dStrR + "（" + ratio.toFixed(2) + "×），我损 " + aLoss + " / 敌损 " + dLoss, "war");
+        if (window.Map) { Map.playAttack(fromIdx, toIdx, true); Map.addCaptureFlash(toIdx); Map.addFloatText(toP.x, toP.y, "-"+dLoss, "enemy"); }
         if (window.UI){ UI.toast(aName + " 攻占了 " + dName + " 的 " + provName(toP) + "！", "war"); UI.sfx("attack"); }
         if (toP.isCapital) eliminateCountry(prevOwner, attackerId);
-      } else { log(aName + " 吞并了中立的 " + provName(toP) + "。", "good");
-        if (window.UI) UI.toast(aName + " 吞并了中立的 " + provName(toP) + "。", "good"); }
+      } else { log("⚔ " + aName + " 吞并中立的 " + provName(toP) + "！进攻 " + aStrR + " vs 防御 " + dStrR + "（" + ratio.toFixed(2) + "×），我损 " + aLoss + " / 敌损 " + dLoss, "good");
+        if (window.Map) { Map.playAttack(fromIdx, toIdx, true); Map.addCaptureFlash(toIdx); Map.addFloatText(toP.x, toP.y, "-"+dLoss, "enemy"); }
+        if (window.UI) UI.toast(aName + " 吞并了中立的 " + provName(toP) + "！", "good"); }
     } else {
+      const aLoss = Math.round(sent.reduce((s,d)=>s+d.hp,0)*0.1);
       sent.forEach(d => { d.hp = Math.max(3, Math.round(d.hp * 0.5)); });
+      const dLoss = Math.round(toP.garrison.reduce((s,d)=>s+d.hp,0)*0.04);
       toP.garrison.forEach(d => { d.hp = Math.max(3, Math.round(d.hp * 0.85)); });
       fromP.garrison = keepHome.concat(sent);   // 出击部队退回（含留守）
-      log(aName + " 对 " + provName(toP) + " 的进攻被 " + dName + " 击退。", "war");
+      battleRec.won = false; battleRec.aLoss=aLoss; battleRec.dLoss=dLoss;
+      state.recentBattles.unshift(battleRec);
+      if(state.recentBattles.length>30) state.recentBattles.pop();
+      log("🛡 " + aName + " 进攻 " + provName(toP) + " 被击退。进攻 " + aStrR + " vs 防御 " + dStrR + "（" + ratio.toFixed(2) + "×），我损 " + aLoss + " / 敌损 " + dLoss, "war");
+      if (window.Map) { Map.playAttack(fromIdx, toIdx, false); Map.addFloatText(fromP.x, fromP.y, "-"+aLoss, "own"); }
       if (window.UI){ UI.toast(aName + " 进攻 " + provName(toP) + " 被击退。", "war"); UI.sfx("attack"); }
       if (attackerId === state.player) state.selectedIdx = fromIdx;   // 失败则保留原省选中，便于重整再攻
     }
@@ -446,6 +466,7 @@ const Game = (function(){
     p.garrison.forEach(d => d.hp = Math.max(3, Math.round(d.hp * gmult)) );
     pruneDead(p);
     log(country(state.player).name + " 空袭了 " + c.name + " 的 " + provName(p) + "，造成破坏！", "war");
+    if (window.Map) { Map.addFloatText(p.x, p.y-10, "💥 空袭", "dmg"); }
     if (window.UI) UI.refresh();
   }
 

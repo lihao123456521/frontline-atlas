@@ -3,199 +3,149 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>钢铁雄心 · Steam 风格战略游戏</title>
+<title>钢铁雄心 · 浏览器版</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-<div id="app">
 
-  <!-- ===================== 开始 / 主菜单界面 ===================== -->
-  <section id="start-screen" class="screen">
-    <div class="start-header">
-      <div class="logo">钢铁雄心<span class="logo-en">HEARTS OF IRON</span></div>
-      <div class="subtitle">简易战略模拟 · Steam 风格单机游戏</div>
-    </div>
-
-    <div class="start-grid">
-      <!-- 左栏：剧本 + 国家（主要内容区） -->
-      <div class="start-col start-col-main">
-        <h2 class="pick-title">选择战役剧本</h2>
-        <div id="scenario-cards" class="scenario-cards"></div>
-
-        <h2 class="pick-title">选择你的国家</h2>
-        <div id="country-cards" class="country-cards"></div>
-      </div>
-
-      <!-- 右栏：开局配置 + 开始按钮（吸顶常驻） -->
-      <div class="start-col start-col-side">
-        <h2 class="pick-title">意识形态</h2>
-        <div class="ideo-wrap">
-          <div id="ideo-select" class="ideo-select">
-            <button class="ideo-btn selected" data-ideo="neu">中立</button>
-            <button class="ideo-btn" data-ideo="dem">民主</button>
-            <button class="ideo-btn" data-ideo="fas">法西斯</button>
-            <button class="ideo-btn" data-ideo="com">共产主义</button>
-          </div>
-        </div>
-
-        <h2 class="pick-title">选择难度</h2>
-        <div class="diff-wrap">
-          <div id="diff-select" class="diff-select"></div>
-          <div id="diff-desc" class="diff-desc"></div>
-        </div>
-
-        <h2 class="pick-title">任命你的首席顾问</h2>
-        <div id="advisor-cards" class="advisor-cards"></div>
-
-        <div class="start-actions">
-          <button id="btn-continue" class="btn btn-blue" hidden>继续上次</button>
-          <button id="btn-start" class="btn btn-green" disabled>开始游戏</button>
-          <button id="btn-help" class="btn btn-blue">玩法说明</button>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===================== 游戏界面 ===================== -->
-  <section id="game-screen" class="screen" hidden>
-    <header id="topbar">
-      <div class="tb-left">
-        <span class="tb-logo">钢铁雄心</span>
-        <button id="btn-menu" class="btn btn-mini">菜单</button>
-      </div>
-      <div class="tb-center">
-        <span id="tb-date" class="tb-date"></span>
-        <span id="tb-country" class="tb-country"></span>
-        <span id="tb-save" class="tb-save"></span>
-        <span id="tb-threat" class="tb-threat peace"></span>
-      </div>
-      <div class="tb-right" id="tb-resources"></div>
-    </header>
-
-    <div id="main">
-      <!-- 左侧：国家状态面板 -->
-      <aside id="left-panel" class="panel"></aside>
-
-      <!-- 中央：地图 + 操作条 -->
-      <section id="center">
-        <div class="map-wrap">
-          <svg id="map"></svg>
-          <div class="map-tools">
-            <button class="mt-btn mt-home-btn" id="mt-focus-player" title="回到我的国家">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"/><path d="M6 10v9h12v-9"/></svg>
-              <span>本国</span>
-            </button>
-            <div class="mt-group">
-              <button class="mt-btn" data-region="world">全球</button>
-              <button class="mt-btn" data-region="europe">欧洲</button>
-              <button class="mt-btn" data-region="asia">亚洲</button>
-              <button class="mt-btn" data-region="americas">美洲</button>
-            </div>
-            <div class="mt-group">
-              <button class="mt-btn mt-mode active" data-mode="political" title="政治地图（归属国色）">政治</button>
-              <button class="mt-btn mt-mode" data-mode="terrain" title="地形地图（地形着色）">地形</button>
-            </div>
-            <div class="mt-group">
-              <button class="mt-btn mt-help-btn" id="mt-help" title="玩法说明">？</button>
-              <button class="mt-btn" id="mt-zoom-in" title="放大">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-              </button>
-              <button class="mt-btn" id="mt-zoom-out" title="缩小">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
-              </button>
-              <button class="mt-btn" id="mt-zoom-reset" title="复位视图">复位</button>
-            </div>
-          </div>
-        <div class="map-legend">
-          <span class="lg-item"><i class="lg-ring lg-enemy"></i>交战</span>
-          <span class="lg-item"><i class="lg-ring lg-ally"></i>同盟</span>
-          <span class="lg-item"><i class="lg-ring lg-front"></i>前线</span>
-          <span class="lg-item"><i class="lg-dot lg-self"></i>本国</span>
-          <span class="lg-item"><i class="lg-star">★</i>首都</span>
-        </div>
-        <div id="map-tip" class="map-tip" hidden></div>
-        </div>
-        <div class="center-bar">
-          <div id="selection-info" class="sel-info">点击地图上的省份进行选择</div>
-          <button id="btn-endturn" class="btn btn-green">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-            结束回合
-          </button>
-        </div>
-      </section>
-
-      <!-- 右侧：外交 / 军事 / 经济 / 科技 -->
-      <aside id="right-panel" class="panel">
-        <div id="province-panel" class="province-panel" hidden></div>
-        <div class="tabs" id="tabs">
-          <button class="tab active" data-tab="diplo">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>
-            <span>外交</span>
-            <span class="tab-badge" id="badge-diplo" hidden></span>
-          </button>
-          <button class="tab" data-tab="mil">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>
-            <span>军事</span>
-          </button>
-          <button class="tab" data-tab="econ">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V9l5 3V9l5 3V9l5 3v9z"/><path d="M3 21h18"/></svg>
-            <span>经济</span>
-            <span class="tab-badge" id="badge-econ" hidden></span>
-          </button>
-          <button class="tab" data-tab="tech">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v5l-5 9a2 2 0 002 3h10a2 2 0 002-3l-5-9V3"/><path d="M7.5 14h9"/></svg>
-            <span>科技</span>
-          </button>
-          <button class="tab" data-tab="focus">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v18"/><path d="M6 4h12l-2.5 4L18 12H6"/></svg>
-            <span>国策</span>
-          </button>
-        </div>
-        <div id="tab-content" class="tab-content"></div>
-      </aside>
-    </div>
-
-    <!-- 底部：事件日志 -->
-    <footer id="logbar">
-      <div class="log-title">事件日志</div>
-      <div id="log" class="log"></div>
-    </footer>
-
-    <!-- 移动端常驻结束回合按钮 -->
-    <button id="btn-endturn-fab" class="btn btn-green endturn-fab" title="结束回合">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-      <span>结束回合</span>
-    </button>
-  </section>
-
-  <!-- 新手引导 -->
-  <div id="tutorial" class="tutorial" hidden>
-    <div class="tut-card">
-      <div class="tut-step" id="tut-step"></div>
-      <div class="tut-text" id="tut-text"></div>
-      <div class="tut-actions">
-        <button class="btn btn-mini" id="tut-skip">跳过</button>
-        <button class="btn btn-green btn-mini" id="tut-next">下一步</button>
-      </div>
-    </div>
+<!-- 开始界面 -->
+<div id="startScreen">
+  <div class="panel">
+    <h1>钢 铁 雄 心</h1>
+    <div class="sub">HEARTS OF IRON · BROWSER EDITION</div>
+    <label>选择国家</label>
+    <select id="selCountry"></select>
+    <label>剧本</label>
+    <select id="selScenario">
+      <option value="1936">1936 · 战争之路</option>
+    </select>
+    <label>难度</label>
+    <select id="selDifficulty">
+      <option value="recruit">新兵</option>
+      <option value="regular" selected>正规</option>
+      <option value="veteran">老兵</option>
+    </select>
+    <div class="diff-desc" id="diffDesc"></div>
+    <button id="btnStart">开始游戏</button>
+    <button id="btnContinue" style="margin-top:10px;background:linear-gradient(180deg,#3a5a3a,#2a4a2a);display:none">继续游戏</button>
   </div>
-
-  <!-- 即时反馈浮层 -->
-  <div id="toast-container" class="toast-container"></div>
-
-  <!-- 宣战 / 被宣战 全屏闪屏反馈 -->
-  <div id="screen-flash" class="screen-flash"></div>
-
-  <!-- 模态弹窗（菜单 / 说明 / 结算） -->
-  <div id="modal" class="modal" hidden>
-    <div class="modal-box" id="modal-box"></div>
-  </div>
-
 </div>
 
+<!-- 顶部栏 -->
+<div id="topbar" class="hidden">
+  <div class="tb-side">
+    <div id="topBarCountry">
+      <div class="flag" id="topBarFlag"></div>
+      <div class="name" id="topBarName"></div>
+    </div>
+    <div class="tb-stat" title="政治权力"><span class="res-ic pp">◈</span><span class="val" id="tbPP">0</span></div>
+    <div class="tb-stat" title="稳定度"><span class="res-ic stab">☮</span><span class="val" id="tbStab">0%</span></div>
+    <div class="tb-stat" title="战争支援度"><span class="res-ic ws">⚔</span><span class="val" id="tbWS">0%</span></div>
+    <div class="tb-stat" title="民用工厂"><span class="res-ic civ">⚙</span><span class="val" id="tbCiv">0</span></div>
+    <div class="tb-stat" title="军用工厂"><span class="res-ic mil">🏭</span><span class="val" id="tbMil">0</span></div>
+    <div class="tb-stat" title="装备"><span class="res-ic equip">🔫</span><span class="val" id="tbEquip">0</span></div>
+    <div class="tb-stat" title="人力"><span class="res-ic man">👤</span><span class="val" id="tbMan">0</span></div>
+    <div class="tb-stat" title="钢铁"><span class="res-ic res">⛏</span><span class="val" id="tbRes">0</span></div>
+    <div class="tb-stat" title="石油"><span class="res-ic oil">🛢</span><span class="val" id="tbOil">0</span></div>
+    <div class="tb-stat" title="稀有材料"><span class="res-ic rare">💎</span><span class="val" id="tbRare">0</span></div>
+  </div>
+  <div id="topBarDate">1936年01月</div>
+  <div id="topBarSpeed">
+    <button data-s="0">❚❚</button>
+    <button data-s="1">1</button>
+    <button data-s="2">2</button>
+    <button data-s="3">3</button>
+    <button data-s="4">4</button>
+    <button data-s="5">▶▶</button>
+  </div>
+  <div id="topBarRight">
+    <button class="tb-btn" id="btnFocus">国策</button>
+    <button class="tb-btn" id="btnTech">科研</button>
+    <button class="tb-btn" id="btnDiplo">外交</button>
+    <button class="tb-btn danger" id="btnSurrender">投降</button>
+  </div>
+</div>
+
+<!-- 地图 -->
+<div id="mapWrap" class="hidden">
+  <svg id="mapSvg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <radialGradient id="oceanGrad" cx="50%" cy="50%" r="70%">
+        <stop offset="0%" stop-color="#0f2236"/>
+        <stop offset="100%" stop-color="#070e18"/>
+      </radialGradient>
+      <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="2.5" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="1.5"/>
+      </filter>
+    </defs>
+    <rect width="1000" height="500" fill="url(#oceanGrad)"/>
+    <g id="layerOcean"></g>
+    <g id="layerLand"></g>
+    <g id="layerTerritory"></g>
+    <g id="layerBorders"></g>
+    <g id="layerSeaLinks"></g>
+    <g id="layerLabels"></g>
+    <g id="layerPlanHL"></g>
+    <g id="layerFronts"></g>
+    <g id="layerPlanArrows"></g>
+    <g id="layerMovePrev"></g>
+    <g id="layerAttackArrows"></g>
+    <g id="layerUnits"></g>
+    <g id="layerBattles"></g>
+    <g id="layerEffects"></g>
+    <g id="layerHilight"></g>
+  </svg>
+  <div class="mapmode-bar">
+    <button class="mapmode-btn on" data-mode="political" title="政治地图">▣</button>
+    <button class="mapmode-btn" data-mode="terrain" title="地形地图">⛰</button>
+    <button class="mapmode-btn" data-mode="diplomatic" title="外交地图">☮</button>
+  </div>
+  <div class="zoom-ctrl">
+    <button id="zoomIn" title="放大">＋</button>
+    <button id="zoomOut" title="缩小">－</button>
+    <button id="zoomReset" title="重置视图">⟲</button>
+  </div>
+  <div class="speed-indicator" id="speedLabel">已暂停</div>
+</div>
+
+<!-- 右侧面板 -->
+<div id="rightPanel" class="hidden">
+  <button class="rp-close" id="rpClose">×</button>
+  <div id="rpContent"></div>
+</div>
+<button id="panelToggle" class="hidden" title="折叠/展开面板">◀</button>
+
+<!-- 底部日志 -->
+<div id="bottomLog" class="hidden">
+  <div id="logTabs">
+    <div class="lt on" data-tab="all">全部</div>
+    <div class="lt" data-tab="battle">战报<span class="badge hidden" id="badgeBattle">0</span></div>
+    <div class="lt" data-tab="diplo">外交</div>
+    <div class="lt" data-tab="event">事件</div>
+    <div class="lt" data-tab="prod">生产</div>
+  </div>
+  <div id="logBody"></div>
+</div>
+
+<!-- 事件弹窗 -->
+<div id="eventModal" class="hidden">
+  <div class="panel">
+    <h2 id="eventTitle"></h2>
+    <p id="eventText"></p>
+    <div id="eventChoices"></div>
+  </div>
+</div>
+
+<!-- 提示框 -->
+<div id="tooltip"></div>
+
 <script src="js/data.js"></script>
-<script src="js/map.js"></script>
 <script src="js/game.js"></script>
+<script src="js/map.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/main.js"></script>
 </body>
