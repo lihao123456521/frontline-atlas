@@ -600,12 +600,25 @@ const UI = (function(){
   /* ---------- 胜负 ---------- */
   function showResult(win, msg){
     setSpeed(0);
+    const s = Game.state;
+    const playerLand = s.provinces.filter(p=>p.owner===s.player).length;
+    const totalLand = s.provinces.length;
+    const totalBattles = s.recentBattles ? s.recentBattles.length : 0;
+    const wonBattles = s.recentBattles ? s.recentBattles.filter(b=>b.won).length : 0;
+    const dateStr = Game.fmtDate ? Game.fmtDate(s.date) : "";
     const m = el("div");
-    m.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:300";
+    m.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:300;animation:fadeIn .5s";
     const box = el("div");
-    box.style.cssText = "background:linear-gradient(160deg,#1e2d3f,#141c28);border:2px solid "+(win?"var(--gold)":"#8a3030")+";border-radius:8px;padding:40px 60px;text-align:center;box-shadow:0 0 60px rgba(0,0,0,.8)";
-    box.innerHTML = `<h1 style="font-size:32px;color:${win?'var(--gold)':'#d9534f'};margin-bottom:12px;letter-spacing:4px">${win?'胜 利':'失 败'}</h1>
+    box.style.cssText = "background:linear-gradient(160deg,#1e2d3f,#141c28);border:2px solid "+(win?"var(--gold)":"#8a3030")+";border-radius:8px;padding:40px 60px;text-align:center;box-shadow:0 0 60px rgba(0,0,0,.8);min-width:400px";
+    box.innerHTML = `<h1 style="font-size:36px;color:${win?'var(--gold)':'#d9534f'};margin-bottom:8px;letter-spacing:6px">${win?'胜 利':'失 败'}</h1>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:20px">${dateStr}</p>
       <p style="color:var(--text);font-size:15px;margin-bottom:24px">${msg}</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-bottom:28px;text-align:left;font-size:13px">
+        <div style="color:var(--muted)">控制领土</div><div style="color:var(--gold);font-weight:700">${playerLand} / ${totalLand} 省 (${Math.round(playerLand/totalLand*100)}%)</div>
+        <div style="color:var(--muted)">战斗次数</div><div style="color:var(--text)">${totalBattles}</div>
+        <div style="color:var(--muted)">获胜战斗</div><div style="color:var(--green)">${wonBattles}</div>
+        <div style="color:var(--muted)">胜率</div><div style="color:${wonBattles/Math.max(1,totalBattles)>=0.5?'var(--green)':'var(--red)'}">${Math.round(wonBattles/Math.max(1,totalBattles)*100)}%</div>
+      </div>
       <button id="btnRestart" style="padding:10px 30px;background:linear-gradient(180deg,var(--panel3),var(--panel2));border:1px solid var(--gold-dim);color:var(--gold);border-radius:4px;font-size:14px;cursor:pointer">返回主菜单</button>`;
     m.appendChild(box);
     document.body.appendChild(m);

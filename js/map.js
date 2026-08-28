@@ -178,10 +178,11 @@ const Map = (() => {
       dot.setAttribute("fill",dotFill);
       dot.setAttribute("class","prov-dot"+(isCap?" capital":"")+(isSel?" sel":""));
       L.labels.appendChild(dot);
-      if(isCap || isSel || isHov){
+      if(isCap || isSel || isHov || scale >= 2.2){
         const t = document.createElementNS(NS,"text");
         t.setAttribute("x",p.x); t.setAttribute("y",p.y-8);
         t.setAttribute("class","prov-label"+(isCap?" capital":""));
+        if(scale >= 2.2 && !isCap && !isSel && !isHov) t.setAttribute("opacity","0.5");
         t.textContent = p.name;
         L.labels.appendChild(t);
       }
@@ -420,6 +421,29 @@ const Map = (() => {
       icon.textContent = "⚔";
       bg.appendChild(icon);
       L.battles.appendChild(bg);
+      // 占领闪光
+      if(e.type === "capture"){
+        const flash = document.createElementNS(NS,"circle");
+        flash.setAttribute("cx",e.gx); flash.setAttribute("cy",e.gy);
+        flash.setAttribute("r", 10 + t*35);
+        flash.setAttribute("fill","none");
+        flash.setAttribute("stroke","#ffd700");
+        flash.setAttribute("stroke-width",3);
+        flash.setAttribute("opacity",(1-t)*0.8);
+        L.battles.appendChild(flash);
+      }
+    });
+    // 浮动文字
+    floatTexts = floatTexts.filter(ft => Date.now() - ft.startTime < 1800);
+    floatTexts.forEach(ft => {
+      const t = (Date.now() - ft.startTime) / 1800;
+      const t_el = document.createElementNS(NS,"text");
+      t_el.setAttribute("class","float-text "+ft.type);
+      t_el.setAttribute("x",ft.x);
+      t_el.setAttribute("y",ft.y - t*20);
+      t_el.setAttribute("opacity", 1-t);
+      t_el.textContent = ft.text;
+      L.battles.appendChild(t_el);
     });
   }
 
@@ -431,27 +455,22 @@ const Map = (() => {
     // 伤害数字
     const txt = won ? "突破!" : "击退";
     addFloatText((a.x+b.x)/2, (a.y+b.y)/2 - 14, txt, won?"vic":"dmg");
+    startAnim();
   }
 
   // ---------- 浮动文字 ----------
+  let floatTexts = [];
   function addFloatText(x,y,text,type){
-    const t = document.createElementNS(NS,"text");
-    t.setAttribute("class","float-text "+(type||"dmg"));
-    t.setAttribute("x",x); t.setAttribute("y",y);
-    t.textContent = text;
-    L.effects.appendChild(t);
-    setTimeout(()=>t.remove(), 1800);
+    floatTexts.push({x,y,text,type:type||"dmg",startTime:Date.now()});
+    startAnim();
   }
 
   // ---------- 占领闪光 ----------
   function addCaptureFlash(idx){
     const p = Game.state.provinces[idx];
     if(!p) return;
-    const c = document.createElementNS(NS,"circle");
-    c.setAttribute("class","capture-flash");
-    c.setAttribute("cx",p.x); c.setAttribute("cy",p.y); c.setAttribute("r",28);
-    L.effects.appendChild(c);
-    setTimeout(()=>c.remove(), 1000);
+    battleEffects.push({gx:p.x, gy:p.y, startTime:Date.now(), won:true, type:"capture", from:idx, to:idx});
+    startAnim();
   }
 
   // ---------- 高亮环 ----------
@@ -763,6 +782,21 @@ const Map = (() => {
 
   // 初始化静态层
   renderLand();
+
+  // 动画循环（仅在有战斗特效时运行，节省性能）
+  let animRunning = false;
+  function animLoop(){
+    animFrame++;
+    renderBattleEffects();
+    if(battleEffects.length > 0){
+      requestAnimationFrame(animLoop);
+    } else {
+      animRunning = false;
+    }
+  }
+  function startAnim(){
+    if(!animRunning){ animRunning = true; requestAnimationFrame(animLoop); }
+  }
 
   return { W,H,proj,owner,countryColor,render,bind,
     showMovePreview,clearMovePreview,showBattlePlan,clearBattlePlan,
