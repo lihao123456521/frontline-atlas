@@ -3,6 +3,40 @@
    ============================================================ */
 const UI = (function(){
   let activeView = "province";  // province / production / research / focus / diplo / war
+  let lastFocusedIdx = -1;      // 上次滚到的省份, 避免每次 refresh 都重滚
+  // 目标系统: 在指定回合数内完成指定任务
+  let objective = null;          // {text, total, current, done, deadline, startedTurn}
+  let objectiveNoticed = false;  // 玩家是否看过"目标"提示 (开始时弹一次)
+
+  // 目标: 计算当前进度 (玩家拥有省份数 - 起始数)
+  function updateObjective(){
+    if(!objective) return;
+    const s = Game.state;
+    if(!s) return;
+    // 目标: 占领 5 个非起始省份 (20 回合内)
+    if (objective.type === "capture"){
+      const playerOwned = s.provinces.filter(p => p.owner === s.player).length;
+      objective.current = Math.max(0, playerOwned - objective.startCount);
+      const turnsLeft = objective.deadline - s.date.year * 12 - s.date.month;
+      if (!objective.done && objective.current >= objective.total){
+        objective.done = true;
+        toast("🎉 目标完成! 占领 " + objective.total + " 个省份!", "good");
+        document.getElementById("objectiveBar").classList.add("done");
+      }
+      // 更新 UI
+      const objBar = document.getElementById("objectiveBar");
+      if (objBar){
+        objBar.classList.remove("hidden");
+        document.getElementById("objText").textContent = objective.text + " (剩 " + Math.max(0, turnsLeft) + " 月)";
+        document.getElementById("objProgress").textContent = "(" + Math.min(objective.current, objective.total) + "/" + objective.total + ")";
+      }
+      // 第一次显示时弹个 toast 提醒
+      if (!objectiveNoticed){
+        objectiveNoticed = true;
+        setTimeout(()=>toast("🎯 目标: " + objective.text, "info"), 500);
+      }
+    }
+  }
   let selectedUnitKey = null;
   let pendingBattle = null;     // {kind:"attack"|"amphib", from, to}
   let sendCount = 0;            // 0=默认(留守1)
@@ -42,28 +76,36 @@ const UI = (function(){
   }
   function pct(v){ return Math.round(v)+"%"; }
 
-  /* ---------- 音效（Web Audio 蜂鸣） ---------- */
+  /* ---------- 音效（Web Audio 蜂鸣）柔和版 ---------- */
   let actx = null;
   function beep(freq, dur, type, vol){
     if(muted) return;
     try{
       if(!actx) actx = new (window.AudioContext||window.webkitAudioContext)();
       const o = actx.createOscillator(), g = actx.createGain();
-      o.type = type||"square"; o.frequency.value = freq;
-      g.gain.value = vol||0.04;
+      // 默认 sine 波 (柔和, 不刺耳), 显式传入可改
+      o.type = type || "sine";
+      o.frequency.value = freq;
+      // ADSR 包络: 5ms 攻击 + 缓慢释放, 避免 click pop
+      const now = actx.currentTime;
+      const peakVol = vol || 0.025;
+      const d = dur || 0.1;
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(peakVol, now + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + d);
       o.connect(g); g.connect(actx.destination);
-      o.start();
-      g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + (dur||0.12));
-      o.stop(actx.currentTime + (dur||0.12));
+      o.start(now);
+      o.stop(now + d + 0.02);
     }catch(e){}
   }
   function sfx(kind){
-    if(kind==="click") beep(600,0.05,"square",0.02);
-    else if(kind==="attack"){ beep(220,0.15,"sawtooth",0.05); setTimeout(()=>beep(160,0.2,"sawtooth",0.04),80); }
-    else if(kind==="build") beep(520,0.1,"triangle",0.03);
-    else if(kind==="tech"){ beep(660,0.1,"triangle",0.03); setTimeout(()=>beep(880,0.15,"triangle",0.03),100); }
-    else if(kind==="event") beep(440,0.2,"sine",0.04);
-    else if(kind==="turn") beep(380,0.08,"sine",0.02);
+    // 全部改用 sine 波, 音量小一点, 持续短一点 — 柔和不刺耳
+    if(kind==="click")  beep(520, 0.05, "sine", 0.018);
+    else if(kind==="attack"){ beep(180, 0.18, "sine", 0.03); setTimeout(()=>beep(140, 0.2, "sine", 0.022), 80); }
+    else if(kind==="build") beep(440, 0.09, "sine", 0.02);
+    else if(kind==="tech"){ beep(560, 0.08, "sine", 0.02); setTimeout(()=>beep(720, 0.12, "sine", 0.02), 90); }
+    else if(kind==="event") beep(380, 0.22, "sine", 0.028);
+    else if(kind==="turn") beep(340, 0.08, "sine", 0.015);
   }
 
   /* ---------- Toast ---------- */
@@ -75,6 +117,16 @@ const UI = (function(){
     if(type==="good"){ t.style.borderColor="#4a8a4a"; t.style.color="#aaffaa"; }
     document.body.appendChild(t);
     setTimeout(()=>{ t.style.opacity="0"; t.style.transition="opacity .4s"; setTimeout(()=>t.remove(),400); }, 2600);
+  }
+  // 回合简报: 在右下角显示该回合的关键事件列表 (4 秒)
+  function showTurnBriefing(date, items){
+    if (!items || !items.length) return;
+    const wrap = el("div", "turn-briefing");
+    const head = `<div class="tb-head">📅 ${date} 简报</div>`;
+    const body = items.map(it => `<div class="tb-item ${it.cls||''}">${it.icon || "•"} ${it.text}</div>`).join("");
+    wrap.innerHTML = head + `<div class="tb-body">${body}</div>`;
+    document.body.appendChild(wrap);
+    setTimeout(()=>{ wrap.classList.add("fade"); setTimeout(()=>wrap.remove(), 400); }, 5500);
   }
 
   /* ---------- 屏幕闪烁 ---------- */
@@ -154,6 +206,21 @@ const UI = (function(){
       $("zoomReset").addEventListener("click", ()=>Map.resetView());
     }
     activeView = "province";
+    // 初始化目标系统: 占领 5 个非起始省份 (20 个月内)
+    const s = Game.state;
+    const playerStart = s.provinces.filter(p => p.owner === s.player).length;
+    objective = {
+      type: "capture",
+      text: "占领 5 个非起始省份",
+      total: 5,
+      current: 0,
+      startCount: playerStart,
+      deadline: s.date.year * 12 + s.date.month + 20,
+      done: false,
+    };
+    objectiveNoticed = false;
+    const objBar = document.getElementById("objectiveBar");
+    if (objBar) objBar.classList.remove("hidden", "done");
     refresh();
     setTimeout(()=>Map.focusPlayer(), 200);
     sfx("tech");
@@ -236,16 +303,21 @@ const UI = (function(){
     const isAmphib = kind==="amphib";
     const prev = Game.battlePreview(from, to, sendCount>=1?sendCount:undefined);
     const winPct = Math.round(prev.win*100);
+    const winColor = winPct>=60?'#6fbf6f':winPct>=40?'#f0ad4e':'#d9534f';
     const box = el("div","rp-section fade-in");
     box.innerHTML = `<h3>${isAmphib?"🌊 两栖登陆":"⚔ 进攻计划"}</h3>`;
+    // 大胜率显示
+    const winBox = el("div","battle-win-box");
+    winBox.style.cssText = "text-align:center;padding:14px 8px;margin:8px 0;background:linear-gradient(180deg,rgba(0,0,0,.3),rgba(0,0,0,.1));border:1px solid " + winColor + ";border-radius:3px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.5),0 0 12px " + winColor + "44";
+    winBox.innerHTML = `<div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">预期胜率</div><div style="font-size:32px;font-weight:bold;color:${winColor};font-family:var(--font-display);text-shadow:0 0 12px ${winColor}66">${winPct}%</div><div style="font-size:10px;color:var(--muted);margin-top:4px">${winPct>=60?'优势在我':winPct>=40?'胜负五五开':'形势不利'}</div>`;
+    box.appendChild(winBox);
     const info = el("div");
     info.innerHTML = `
       <div class="rp-row"><span class="k">从</span><span class="v">${fromP.name}</span></div>
-      <div class="rp-row"><span class="k">目标</span><span class="v" style="color:#ff8080">${toP.name}</span></div>
+      <div class="rp-row"><span class="k">目标</span><span class="v" style="color:#ff8080">${toP.name}${toP.isCapital?' ★':''}</span></div>
       <div class="rp-row"><span class="k">地形</span><span class="v">${TERRAIN[toP.terrain].name}（防御×${TERRAIN[toP.terrain].def}）</span></div>
       <div class="rp-row"><span class="k">我方进攻</span><span class="v" style="color:#ffaa66">${Math.round(prev.aStr)}</span></div>
       <div class="rp-row"><span class="k">敌方防御</span><span class="v" style="color:#ff8080">${Math.round(prev.dStr)}</span></div>
-      <div class="rp-row"><span class="k">胜率</span><span class="v" style="color:${winPct>=60?'#6fbf6f':winPct>=40?'#f0ad4e':'#d9534f'};font-size:15px">${winPct}%</span></div>
     `;
     box.appendChild(info);
     // 派兵数量
@@ -275,6 +347,9 @@ const UI = (function(){
     const btnCancel = el("button","rp-btn","取消");
     btnCancel.addEventListener("click",()=>{ pendingBattle=null; refresh(); });
     box.appendChild(btnCancel);
+    // 提示: 战后结果会出现在右下角"战报"标签
+    const tip = el("div",null,"<div style='margin-top:6px;font-size:10px;color:var(--muted);font-style:italic'>战斗结果会显示在底部「战报」标签</div>");
+    box.appendChild(tip);
     rp.appendChild(box);
   }
 
@@ -282,8 +357,119 @@ const UI = (function(){
     const s = Game.state;
     const idx = s.selectedIdx;
     if(idx < 0){
-      rp.appendChild(el("div","rp-section",`<h3>省份信息</h3><p style="color:var(--muted);padding:8px 0">点击地图上的省份查看详情。</p>`));
+      // 全国概览: 没选省份时, 显示国家总览 (本月收入/总兵力/总工厂/最近战报)
+      renderCountryOverview(rp);
       return;
+    }
+
+  // 全国概览面板
+  function renderCountryOverview(rp){
+    const s = Game.state;
+    const player = Game.country(s.player);
+    const myProvs = s.provinces.filter(p => p.owner === s.player);
+    const totalArmy = myProvs.reduce((sum, p) => sum + p.garrison.length, 0);
+    const inc = Game.incomePreview();
+    const box1 = el("div","rp-section fade-in");
+    box1.innerHTML = `<h3>📊 全国概览</h3>`;
+    box1.innerHTML += `
+      <div class="rp-row"><span class="k">🇩🇪 省份</span><span class="v">${myProvs.length} 个</span></div>
+      <div class="rp-row"><span class="k">💂 军队</span><span class="v">${totalArmy} 个师</span></div>
+      <div class="rp-row"><span class="k">🏭 工厂</span><span class="v">⚙ ${player.civ} 民用 / 🏭 ${player.mil} 军用</span></div>
+      <div class="rp-row"><span class="k">📈 稳定度</span><span class="v" style="color:${player.stability>=70?'#7ad27a':player.stability>=40?'#f0ad4e':'#e15a55'}">${Math.round(player.stability)}%</span></div>
+      <div class="rp-row"><span class="k">⚔ 战争支援</span><span class="v" style="color:${player.warSupport>=70?'#7ad27a':player.warSupport>=40?'#f0ad4e':'#e15a55'}">${Math.round(player.warSupport)}%</span></div>
+    `;
+    rp.appendChild(box1);
+
+    // 本月预计收入
+    const box2 = el("div","rp-section");
+    box2.innerHTML = `<h4>📦 本月预计收入</h4>
+      <div class="rp-row"><span class="k">⛏ 钢铁</span><span class="v" style="color:#d8b060">+${inc.res}</span></div>
+      <div class="rp-row"><span class="k">🛢 石油</span><span class="v" style="color:#6ab0e8">+${inc.oil}</span></div>
+      <div class="rp-row"><span class="k">🔫 装备</span><span class="v" style="color:#b0b8c0">+${inc.eq}</span></div>
+      <div class="rp-row"><span class="k">👤 人力</span><span class="v" style="color:#80c8e0">+${inc.mp}</span></div>
+      <div class="rp-row"><span class="k">💠 政治</span><span class="v" style="color:#c4a0ff">+${inc.pp}</span></div>
+    `;
+    rp.appendChild(box2);
+
+    // 正在进行的战争
+    const myWars = s.wars.filter(w => (w.a === s.player || w.b === s.player) && (w.a === s.player ? country(w.b).alive : country(w.a).alive));
+    if (myWars.length){
+      const wb = el("div","rp-section");
+      wb.innerHTML = `<h4>⚔ 正在交战</h4>`;
+      myWars.forEach(w => {
+        const enemyId = w.a === s.player ? w.b : w.a;
+        const score = Game.computeWarscore(enemyId);
+        const row = el("div","rp-row");
+        row.innerHTML = `<span class="k">${flagHTML(enemyId, 16)} ${Game.country(enemyId).name}</span>
+          <span class="v" style="color:${score>=0?'#7ad27a':'#e15a55'}">战争分 ${score>=0?'+':''}${score}</span>`;
+        wb.appendChild(row);
+      });
+      rp.appendChild(wb);
+    }
+
+    // 最近战报 (简版)
+    if (s.recentBattles && s.recentBattles.length){
+      const rb = el("div","rp-section");
+      rb.innerHTML = `<h4>📋 最近战报</h4>`;
+      s.recentBattles.slice(0, 4).forEach(b => {
+        const r = el("div","battle-item");
+        const won = b.won ? '<span style="color:#7ad27a">胜</span>' : '<span style="color:#e15a55">败</span>';
+        r.innerHTML = `<span class="bi-icon">⚔</span>
+          <span style="flex:1;font-size:11px">${won} ${b.name} <span style="color:var(--muted);font-size:10px">· ${b.date||''}</span></span>`;
+        rb.appendChild(r);
+      });
+      rp.appendChild(rb);
+    }
+
+    // 提示: 选省份看详情
+    const tip = el("div", null, `<div style="padding:8px 4px;font-size:11px;color:var(--muted);font-style:italic;border-top:1px solid rgba(255,255,255,.06);margin-top:4px">点击地图上任意省份查看详情 · 选己方有驻军省份开始准备进攻</div>`);
+    rp.appendChild(tip);
+  }
+    const p0 = Game.province(idx);
+    // 顶部攻击教程: 己方有驻军时提示可攻击邻国
+    if (p0.owner === s.player && p0.garrison.length > 0){
+      const nbrs = Game.neighbors(idx);
+      const enemyNbrs = nbrs.filter(n => {
+        const q = Game.province(n);
+        if (!q) return false;
+        if (q.owner === s.player) return false;
+        if (q.owner && Game.isAllied(s.player, q.owner)) return false;
+        return true;
+      });
+      if (enemyNbrs.length){
+        // 分类邻国: 已开战(可攻击) vs 未开战(需先宣战) vs 中立(可吞并)
+        const atWar = enemyNbrs.filter(n => Game.isAtWar(s.player, Game.province(n).owner));
+        const atPeace = enemyNbrs.filter(n => !Game.isAtWar(s.player, Game.province(n).owner));
+        const tip = atWar.length
+          ? `地图上 <span class="ah-orange">橙色箭头</span> = 可攻击邻国(已开战),点击开始`
+          : `邻国 <b>未开战</b>:需先 <b>宣战</b>(下方按钮)才能进攻。中立省份(无主)可点击直接吞并`;
+        const hint = el("div","attack-hint-banner");
+        hint.innerHTML = `<div class="ah-title">⚔ 准备进攻</div>
+          <div class="ah-body">${tip}</div>`;
+        rp.appendChild(hint);
+        // 对未开战的每个邻国显示一个"宣战"按钮
+        if (atPeace.length){
+          const seen = new Set();
+          atPeace.forEach(n => {
+            const q = Game.province(n);
+            if (!q.owner || seen.has(q.owner)) return;
+            seen.add(q.owner);
+            const c = Game.country(q.owner);
+            const isJustified = (s.justifies[Game.state.player + "|" + q.owner] || 0) > 0;
+            const btn = el("button", "rp-btn primary", isJustified
+              ? `⚔ 对 ${c.name} 宣战 (已正当化)`
+              : `📜 正当化对 ${c.name} 战争 (20PP)`);
+            btn.addEventListener("click", () => {
+              Game.diploAction(isJustified ? "declare" : "justify", q.owner);
+              sfx("click");
+            });
+            const wrap = el("div");
+            wrap.style.cssText = "margin-top:6px";
+            wrap.appendChild(btn);
+            hint.appendChild(wrap);
+          });
+        }
+      }
     }
     const p = Game.province(idx);
     const c = p.owner ? Game.country(p.owner) : null;
@@ -585,7 +771,9 @@ const UI = (function(){
   /* ---------- 事件弹窗 ---------- */
   function showEvent(ev){
     $("eventTitle").textContent = ev.title;
-    $("eventText").textContent = ev.text;
+    // 加历史背景 (如果 ev.history 存在)
+    const histHtml = ev.history ? `<div style="margin-top:10px;padding:8px 10px;background:rgba(214,182,90,.08);border-left:2px solid var(--brass-d);font-size:11px;line-height:1.6;color:var(--text-2);font-style:italic">📜 历史背景：${ev.history}</div>` : "";
+    $("eventText").innerHTML = `<div>${ev.text}</div>${histHtml}`;
     const ch = $("eventChoices");
     ch.innerHTML = "";
     (ev.choices||[{label:"确定"}]).forEach((c,i)=>{
@@ -730,13 +918,30 @@ const UI = (function(){
     renderTopbar();
     renderRightPanel();
     renderLog();
-    // 作战计划箭头
+    updateObjective();
+    Map.setSelect(s.selectedIdx);
+    // 选中省份变化时, 只在视口外才平滑滚到屏幕中央
+    if (s.selectedIdx >= 0 && s.selectedIdx !== lastFocusedIdx){
+      if (!Map.isProvinceInView(s.selectedIdx)){
+        Map.focusProvince(s.selectedIdx, true);
+      }
+      lastFocusedIdx = s.selectedIdx;
+    } else if (s.selectedIdx < 0){
+      lastFocusedIdx = -1;
+    }
+    // 作战计划 vs 可攻击邻国: 二选一
     if(pendingBattle){
       Map.showBattlePlan({attacks:[{from:pendingBattle.from, to:pendingBattle.to}]});
+    } else if (s.selectedIdx >= 0){
+      const p = Game.province(s.selectedIdx);
+      if (p && p.owner === s.player && p.garrison.length > 0){
+        Map.showAttackable(s.selectedIdx);
+      } else {
+        Map.clearAttackable();
+      }
     } else {
-      Map.clearBattlePlan();
+      Map.clearAttackable();
     }
-    Map.setSelect(s.selectedIdx);
     saved = false;
   }
   function markSaved(){ saved = true; }
@@ -799,5 +1004,5 @@ const UI = (function(){
     mapWrap.addEventListener("mouseleave", ()=>{ $("tooltip").style.display="none"; });
   }
 
-  return { init, refresh, toast, sfx, showEvent, closeEvent, showResult, screenFlash, markSaved, setSpeed };
+  return { init, refresh, toast, sfx, showEvent, closeEvent, showResult, screenFlash, markSaved, setSpeed, showTurnBriefing };
 })();

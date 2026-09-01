@@ -11,6 +11,7 @@ const Map = (() => {
   const L = {
     ocean:     document.getElementById("layerOcean"),
     land:      document.getElementById("layerLand"),
+    countryFills: document.getElementById("layerCountryFills"),
     territory: document.getElementById("layerTerritory"),
     borders:   document.getElementById("layerBorders"),
     seaLinks:  document.getElementById("layerSeaLinks"),
@@ -75,54 +76,82 @@ const Map = (() => {
     }
   }
 
-  // ---------- 领土色块 ----------
+  // ---------- 国家填色层 (同国所有 cell 合并 fill, 形成"国色块") ----------
+  function renderCountryFills(){
+    L.countryFills.innerHTML = "";
+    const playerId = Game.state.player;
+    const groups = {};  // owner -> [poly]
+    Game.state.provinces.forEach((p) => {
+      if (!p.poly) return;
+      const key = p.owner || "__neutral__";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(p.poly);
+    });
+    Object.keys(groups).forEach(key => {
+      const d = groups[key].join(" ");
+      const path = document.createElementNS(NS,"path");
+      path.setAttribute("d", d);
+      path.setAttribute("fill", key === "__neutral__" ? "#4a4a4a" : countryColor(key));
+      path.setAttribute("fill-rule", "nonzero");
+      // 玩家国家特殊
+      if (key === playerId) path.setAttribute("class", "country-fill player-country");
+      else path.setAttribute("class", "country-fill");
+      L.countryFills.appendChild(path);
+    });
+  }
+  // ---------- 真实世界国家轮廓 (手画简化版, 替代 Voronoi) ----------
+  function renderCountryShapes(){
+    L.countryFills.innerHTML = "";
+    if(typeof COUNTRY_SHAPES === "undefined") return;
+    const playerId = Game.state.player;
+    Object.keys(COUNTRY_SHAPES).forEach(cid => {
+      const c = countryColor(cid);
+      const path = document.createElementNS(NS,"path");
+      path.setAttribute("d", COUNTRY_SHAPES[cid].d);
+      path.setAttribute("fill", c);
+      path.setAttribute("class", "country-fill" + (cid === playerId ? " player-country" : ""));
+      L.countryFills.appendChild(path);
+    });
+  }
   function renderTerritory(){
     L.territory.innerHTML = "";
-    const r = 26;
+    if (typeof COUNTRY_SHAPES !== "undefined") return;  // 真实国家壳模式: 跳过 Voronoi 填色, 省份细节由 renderProvinces 画
+    const playerId = Game.state.player;
     Game.state.provinces.forEach((p, i) => {
-      const c = document.createElementNS(NS,"circle");
-      c.setAttribute("cx",p.x); c.setAttribute("cy",p.y); c.setAttribute("r",r);
-      let fill, opacity = 0.5;
+      if (!p.poly) return;
+      const path = document.createElementNS(NS,"path");
+      path.setAttribute("d", p.poly);
+      let fill, opacity = 0.55, stroke = "rgba(0,0,0,.7)", sw = 0.8, extraClass = "";
       if(mapMode === "terrain"){
         fill = TERRAIN[p.terrain] ? TERRAIN[p.terrain].color : "#3b5a2b";
-        opacity = 0.85;
+        opacity = 0.7;
+        stroke = "rgba(0,0,0,.5)";
       } else if(mapMode === "diplomatic"){
         const rel = p.owner ? relationTo(p.owner) : "neutral";
         if(rel==="player") fill = Game.state.countries[Game.state.player].color;
         else if(rel==="enemy") fill = "#8a2020";
         else if(rel==="ally") fill = "#2a5a8a";
         else fill = "#3a3a3a";
-        opacity = 0.6;
+        opacity = 0.7;
       } else {
-        fill = p.owner ? countryColor(p.owner) : "#2a3a2a";
-        opacity = p.owner ? 0.5 : 0.3;
+        fill = p.owner ? countryColor(p.owner) : "#0d160d";
+        opacity = p.owner ? 0.55 : 0.3;
+        stroke = p.owner ? "rgba(0,0,0,.65)" : "rgba(0,0,0,.5)";
+        if (p.owner === playerId) extraClass = " player-territory";
       }
-      c.setAttribute("fill",fill);
-      c.setAttribute("opacity",opacity);
-      c.setAttribute("class","territory");
-      L.territory.appendChild(c);
+      path.setAttribute("fill",fill);
+      path.setAttribute("opacity",opacity);
+      path.setAttribute("stroke",stroke);
+      path.setAttribute("stroke-width",sw);
+      path.setAttribute("stroke-linejoin","round");
+      path.setAttribute("class","territory" + extraClass);
+      L.territory.appendChild(path);
     });
   }
 
-  // ---------- 国界 ----------
+  // ---------- 国界 (Voronoi 多边形已经画了, 这里画战时前线高亮) ----------
   function renderBorders(){
     L.borders.innerHTML = "";
-    const drawn = new Set();
-    Game.state.provinces.forEach((p, i) => {
-      for(const j of Game.state.adj[i]){
-        if(j <= i) continue;
-        const k = i+"|"+j;
-        if(drawn.has(k)) continue; drawn.add(k);
-        const q = Game.state.provinces[j];
-        if(p.owner && q.owner && p.owner === q.owner) continue;
-        const ln = document.createElementNS(NS,"line");
-        ln.setAttribute("x1",p.x); ln.setAttribute("y1",p.y);
-        ln.setAttribute("x2",q.x); ln.setAttribute("y2",q.y);
-        const intl = p.owner && q.owner;
-        ln.setAttribute("class","border"+(intl?" international":""));
-        L.borders.appendChild(ln);
-      }
-    });
   }
 
   // ---------- 海路 ----------
@@ -168,20 +197,23 @@ const Map = (() => {
     Game.state.provinces.forEach((p, i) => {
       provHits.push({idx:i,x:p.x,y:p.y});
       const isCap = p.isCapital;
+      const isPlayerCap = isCap && p.owner === Game.state.player;
       const isSel = i === Game.state.selectedIdx;
       const isHov = i === hoverIdx;
       const dot = document.createElementNS(NS,"circle");
       dot.setAttribute("cx",p.x); dot.setAttribute("cy",p.y);
-      dot.setAttribute("r", isCap ? 4.5 : (isHov||isSel?3.5:2.2));
+      dot.setAttribute("r", isCap ? 3.5 : (isHov||isSel?3:1.8));
       let dotFill = p.owner ? darken(countryColor(p.owner),60) : "#4a5a4a";
       if(mapMode === "terrain") dotFill = "#1a1a1a";
       dot.setAttribute("fill",dotFill);
       dot.setAttribute("class","prov-dot"+(isCap?" capital":"")+(isSel?" sel":""));
       L.labels.appendChild(dot);
-      if(isCap || isSel || isHov || scale >= 2.2){
+      // 玩家首都永远显示标签; 其他首都/选中/悬停/高缩放也显示
+      if(isPlayerCap || isCap || isSel || isHov || scale >= 2.2){
         const t = document.createElementNS(NS,"text");
-        t.setAttribute("x",p.x); t.setAttribute("y",p.y-8);
+        t.setAttribute("x",p.x); t.setAttribute("y",p.y-9);
         t.setAttribute("class","prov-label"+(isCap?" capital":""));
+        if(isPlayerCap) t.setAttribute("font-weight","bold");
         if(scale >= 2.2 && !isCap && !isSel && !isHov) t.setAttribute("opacity","0.5");
         t.textContent = p.name;
         L.labels.appendChild(t);
@@ -262,8 +294,8 @@ const Map = (() => {
     L.units.innerHTML = "";
     unitHits = [];
     // 根据缩放级别调整计数器大小
-    const detailed = scale >= 1.3;
-    const bw = detailed ? 32 : 22, bh = detailed ? 24 : 16;
+    const detailed = scale >= 1.5;
+    const bw = detailed ? 28 : 18, bh = detailed ? 20 : 13;
     Game.state.provinces.forEach((p, i) => {
       if(!p.garrison.length) return;
       // 按类型聚合
@@ -569,6 +601,59 @@ const Map = (() => {
       }
     }
   }
+  // 显示从己方省份出发的可攻击邻国(选中时调用, 提示玩家下一步)
+  function showAttackable(fromIdx){
+    L.planHL.innerHTML = ""; L.planArr.innerHTML = "";
+    battlePlan = null;
+    if(fromIdx < 0) return;
+    const s = Game.state;
+    const fromP = s.provinces[fromIdx];
+    if(!fromP || fromP.owner !== s.player || fromP.garrison.length === 0) return;
+    // 邻接省份: 异国/无主 且 不是结盟 (可以攻击或吞并)
+    const nbrs = Game.neighbors(fromIdx);
+    nbrs.forEach(j => {
+      const p = s.provinces[j];
+      if(!p) return;
+      // 同国或结盟 — 不能攻击
+      if (p.owner === s.player) return;
+      if (p.owner && Game.isAllied(s.player, p.owner)) return;
+      // 海岸/海路也支持 (简化为只显示陆上)
+      const a = fromP, b = p;
+      const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy) || 1;
+      const ux=dx/len, uy=dy/len, gap=15;
+      const g = document.createElementNS(NS,"g");
+      g.setAttribute("class","attackable-arrow");
+      const line = document.createElementNS(NS,"line");
+      line.setAttribute("x1",a.x+ux*gap); line.setAttribute("y1",a.y+uy*gap);
+      line.setAttribute("x2",b.x-ux*gap); line.setAttribute("y2",b.y-uy*gap);
+      line.setAttribute("stroke", p.owner ? "#ff8c2a" : "#7ad27a");  // 异国红, 无主绿
+      line.setAttribute("stroke-width","2");
+      line.setAttribute("stroke-dasharray","4 3");
+      g.appendChild(line);
+      const ah=7, angle=Math.atan2(dy,dx), tx=b.x-ux*gap, ty=b.y-uy*gap;
+      const tri = document.createElementNS(NS,"polygon");
+      tri.setAttribute("points",`${tx},${ty} ${tx-ah*Math.cos(angle-0.4)},${ty-ah*Math.sin(angle-0.4)} ${tx-ah*Math.cos(angle+0.4)},${ty-ah*Math.sin(angle+0.4)}`);
+      tri.setAttribute("fill", p.owner ? "#ff8c2a" : "#7ad27a");
+      g.appendChild(tri);
+      L.planArr.appendChild(g);
+    });
+    // 强调己方省份(大圆环)
+    if(nbrs.length){
+      const ring = document.createElementNS(NS,"circle");
+      ring.setAttribute("cx", fromP.x);
+      ring.setAttribute("cy", fromP.y);
+      ring.setAttribute("r", 18);
+      ring.setAttribute("fill","none");
+      ring.setAttribute("stroke","#ffc266");
+      ring.setAttribute("stroke-width","2");
+      ring.setAttribute("stroke-dasharray","4 2");
+      ring.setAttribute("class","attackable-ring");
+      L.planHL.appendChild(ring);
+    }
+  }
+  function clearAttackable(){
+    L.planHL.innerHTML = ""; L.planArr.innerHTML = "";
+  }
   function clearBattlePlan(){ battlePlan=null; L.planHL.innerHTML=""; L.planArr.innerHTML=""; }
 
   // ---------- 主渲染 ----------
@@ -577,7 +662,8 @@ const Map = (() => {
     if(!Game.state) return;
     animFrame++;
     if(!seaLinksDrawn){ renderSeaLinks(); seaLinksDrawn = true; }
-    renderTerritory();
+    renderCountryShapes();   // 真实手画国家轮廓 (替代 Voronoi)
+    renderTerritory();      // Voronoi 边 + 省份细节 (不画国家层, 由 countryFills 画)
     renderBorders();
     renderProvinces();
     renderFronts();
@@ -631,13 +717,59 @@ const Map = (() => {
     Game.state.provinces.forEach(p => { if(p.owner===cid){sx+=p.x;sy+=p.y;n++;} });
     if(!n) return;
     const cx=sx/n, cy=sy/n;
+    // 优先选玩家首都作为焦点
+    const cap = Game.state.provinces.find(p => p.owner === cid && p.isCapital);
+    const tx = cap ? cap.x : cx, ty = cap ? cap.y : cy;
     const r = svg.getBoundingClientRect();
-    const vbCx = W/2, vbCy = H/2;
-    scale = 1.8;
-    panX = (vbCx - cx) * (r.width/W) * scale;
-    panY = (vbCy - cy) * (r.height/H) * scale;
+    if (r.width < 10) return; // 还未渲染好
+    // 玩家首都放在屏幕 1/3 偏上 (而不是正中央, 留出右侧面板空间感)
+    const targetVx = W * 0.40, targetVy = H * 0.45;
+    scale = 1.6;
+    // transform: translate(panX,panY) scale(s)
+    // 屏幕位置 = s * viewBox_pos + (panX,panY)
+    // 要 viewBox (tx, ty) 显示在屏幕 (targetVx * r.width/W, targetVy * r.height/H):
+    // panX = targetVx * r.width/W - s * tx
+    panX = targetVx * r.width / W - scale * tx;
+    panY = targetVy * r.height / H - scale * ty;
     applyTransform();
     focused = true;
+  }
+  // 选中省份时, 平滑滚到屏幕中央
+  function focusProvince(idx, animate){
+    const p = Game.state.provinces[idx];
+    if(!p) return;
+    const r = svg.getBoundingClientRect();
+    if (r.width < 10) return;
+    const targetVx = W * 0.42, targetVy = H * 0.50;
+    const targetPanX = targetVx * r.width / W - scale * p.x;
+    const targetPanY = targetVy * r.height / H - scale * p.y;
+    if (animate){
+      const startX = panX, startY = panY, dur = 280;
+      const t0 = performance.now();
+      (function step(){
+        const t = Math.min(1, (performance.now() - t0) / dur);
+        const k = 0.5 - Math.cos(t * Math.PI) / 2;  // ease-in-out
+        panX = startX + (targetPanX - startX) * k;
+        panY = startY + (targetPanY - startY) * k;
+        applyTransform();
+        if (t < 1) requestAnimationFrame(step);
+      })();
+    } else {
+      panX = targetPanX; panY = targetPanY; applyTransform();
+    }
+  }
+  // 检查某省份的 viewBox 位置是否在当前视口内 (含一定边距)
+  function isProvinceInView(idx, margin){
+    const p = Game.state.provinces[idx];
+    if(!p) return true;
+    margin = margin || 30;  // 视口外扩 30px 边距
+    const r = svg.getBoundingClientRect();
+    if (r.width < 10) return true;
+    // viewBox 坐标: (p.x, p.y)
+    // 屏幕坐标: panX + scale * p.x (水平)
+    const sx = panX + scale * p.x;
+    const sy = panY + scale * p.y;
+    return sx >= margin && sx <= r.width - margin && sy >= margin && sy <= r.height - margin;
   }
   function resetView(){ panX=0;panY=0;scale=1;applyTransform(); focused=false; }
   function zoomBy(factor, cx, cy){
@@ -800,7 +932,8 @@ const Map = (() => {
 
   return { W,H,proj,owner,countryColor,render,bind,
     showMovePreview,clearMovePreview,showBattlePlan,clearBattlePlan,
+    showAttackable,clearAttackable,
     setHover,setSelect,unitUnderPoint,provinceUnderPoint,
     addFloatText,addCaptureFlash,setMapMode,
-    playAttack,focusPlayer,focusCountry,resetView,zoomIn,zoomOut };
+    playAttack,focusPlayer,focusCountry,focusProvince,isProvinceInView,resetView,zoomIn,zoomOut };
 })();

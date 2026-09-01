@@ -27,7 +27,8 @@
     </select>
     <div class="diff-desc" id="diffDesc"></div>
     <button id="btnStart">开始游戏</button>
-    <button id="btnContinue" style="margin-top:10px;background:linear-gradient(180deg,#3a5a3a,#2a4a2a);display:none">继续游戏</button>
+    <button id="btnContinue" class="btn-continue" style="display:none">继续游戏</button>
+    <div class="ribbon">THE GRAND CAMPAIGN</div>
   </div>
 </div>
 
@@ -38,26 +39,33 @@
       <div class="flag" id="topBarFlag"></div>
       <div class="name" id="topBarName"></div>
     </div>
-    <div class="tb-stat" title="政治权力"><span class="res-ic pp">◈</span><span class="val" id="tbPP">0</span></div>
-    <div class="tb-stat" title="稳定度"><span class="res-ic stab">☮</span><span class="val" id="tbStab">0%</span></div>
-    <div class="tb-stat" title="战争支援度"><span class="res-ic ws">⚔</span><span class="val" id="tbWS">0%</span></div>
-    <div class="tb-stat" title="民用工厂"><span class="res-ic civ">⚙</span><span class="val" id="tbCiv">0</span></div>
-    <div class="tb-stat" title="军用工厂"><span class="res-ic mil">🏭</span><span class="val" id="tbMil">0</span></div>
-    <div class="tb-stat" title="装备"><span class="res-ic equip">🔫</span><span class="val" id="tbEquip">0</span></div>
-    <div class="tb-stat" title="人力"><span class="res-ic man">👤</span><span class="val" id="tbMan">0</span></div>
-    <div class="tb-stat" title="钢铁"><span class="res-ic res">⛏</span><span class="val" id="tbRes">0</span></div>
-    <div class="tb-stat" title="石油"><span class="res-ic oil">🛢</span><span class="val" id="tbOil">0</span></div>
-    <div class="tb-stat" title="稀有材料"><span class="res-ic rare">💎</span><span class="val" id="tbRare">0</span></div>
+    <div class="tb-group" title="内政">
+      <div class="tb-stat" title="政治权力"><span class="res-ic pp">◈</span><span class="val" id="tbPP">0</span></div>
+      <div class="tb-stat" title="稳定度"><span class="res-ic stab">☮</span><span class="val" id="tbStab">0%</span></div>
+      <div class="tb-stat" title="战争支援度"><span class="res-ic ws">⚔</span><span class="val" id="tbWS">0%</span></div>
+    </div>
+    <div class="tb-group" title="工业">
+      <div class="tb-stat" title="民用工厂"><span class="res-ic civ">⚙</span><span class="val" id="tbCiv">0</span></div>
+      <div class="tb-stat" title="军用工厂"><span class="res-ic mil">🏭</span><span class="val" id="tbMil">0</span></div>
+      <div class="tb-stat" title="装备"><span class="res-ic equip">🔫</span><span class="val" id="tbEquip">0</span></div>
+      <div class="tb-stat" title="人力"><span class="res-ic man">👤</span><span class="val" id="tbMan">0</span></div>
+    </div>
+    <div class="tb-group" title="战略资源">
+      <div class="tb-stat" title="钢铁"><span class="res-ic res">⛏</span><span class="val" id="tbRes">0</span></div>
+      <div class="tb-stat" title="石油"><span class="res-ic oil">🛢</span><span class="val" id="tbOil">0</span></div>
+      <div class="tb-stat" title="稀有材料"><span class="res-ic rare">💎</span><span class="val" id="tbRare">0</span></div>
+    </div>
   </div>
   <div id="topBarDate">1936年01月</div>
   <div id="topBarSpeed">
-    <button data-s="0">❚❚</button>
-    <button data-s="1">1</button>
-    <button data-s="2">2</button>
-    <button data-s="3">3</button>
-    <button data-s="4">4</button>
-    <button data-s="5">▶▶</button>
+    <button data-s="0" title="暂停 (Space)">❚❚</button>
+    <button data-s="1" title="慢速 (1)">1</button>
+    <button data-s="2" title="正常 (2)">2</button>
+    <button data-s="3" title="快速 (3)">3</button>
+    <button data-s="4" title="极速 (4)">4</button>
+    <button data-s="5" title="跳到下回合">▶▶</button>
   </div>
+  <div id="hotkeyHelp" title="键盘快捷键">?</div>
   <div id="topBarRight">
     <button class="tb-btn" id="btnFocus">国策</button>
     <button class="tb-btn" id="btnTech">科研</button>
@@ -68,12 +76,45 @@
 
 <!-- 地图 -->
 <div id="mapWrap" class="hidden">
+  <!-- 开局引导: 选中省份后自动消失 -->
+  <div id="mapHint" class="map-hint">
+    <div class="mh-title">指挥您的国家</div>
+    <div class="mh-body">
+      点击地图上 <b>任意一个省份</b> 即可开始<br>
+      <span class="mh-tip">提示：点击自己国家（金色）省份查看详情，或点击邻国发起进攻</span>
+    </div>
+    <button id="mapHintClose" class="mh-close">知道了</button>
+  </div>
+  <!-- 顶部目标提示条 -->
+  <div id="objectiveBar" class="objective-bar hidden">
+    <span class="obj-icon">🎯</span>
+    <span class="obj-text">目标: <span id="objText">占领 3 个邻国省份</span></span>
+    <span class="obj-progress" id="objProgress">(0/3)</span>
+  </div>
   <svg id="mapSvg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
     <defs>
-      <radialGradient id="oceanGrad" cx="50%" cy="50%" r="70%">
-        <stop offset="0%" stop-color="#0f2236"/>
-        <stop offset="100%" stop-color="#070e18"/>
+      <radialGradient id="oceanGrad" cx="50%" cy="50%" r="75%">
+        <stop offset="0%" stop-color="#1a3a5a"/>
+        <stop offset="60%" stop-color="#0d2240"/>
+        <stop offset="100%" stop-color="#06101e"/>
       </radialGradient>
+      <!-- 海洋微弱波纹:轻噪点 -->
+      <filter id="oceanNoise" x="0%" y="0%" width="100%" height="100%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" stitchTiles="stitch"/>
+        <feColorMatrix values="0 0 0 0 0.20
+                                0 0 0 0 0.40
+                                0 0 0 0 0.65
+                                0 0 0 0.06 0"/>
+        <feComposite in2="SourceGraphic" operator="in"/>
+      </filter>
+      <filter id="landNoise" x="0%" y="0%" width="100%" height="100%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="5" stitchTiles="stitch"/>
+        <feColorMatrix values="0 0 0 0 0
+                                0 0 0 0 0
+                                0 0 0 0 0
+                                0 0 0 0.22 0"/>
+        <feComposite in2="SourceGraphic" operator="in"/>
+      </filter>
       <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
         <feGaussianBlur stdDeviation="2.5" result="b"/>
         <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
@@ -83,8 +124,10 @@
       </filter>
     </defs>
     <rect width="1000" height="500" fill="url(#oceanGrad)"/>
+    <rect width="1000" height="500" fill="url(#oceanGrad)" filter="url(#oceanNoise)" opacity=".55"/>
     <g id="layerOcean"></g>
     <g id="layerLand"></g>
+    <g id="layerCountryFills"></g>
     <g id="layerTerritory"></g>
     <g id="layerBorders"></g>
     <g id="layerSeaLinks"></g>
@@ -145,6 +188,8 @@
 <div id="tooltip"></div>
 
 <script src="js/data.js"></script>
+<script src="js/data_world.js"></script>
+<script src="js/data_provinces.js"></script>
 <script src="js/game.js"></script>
 <script src="js/map.js"></script>
 <script src="js/ui.js"></script>

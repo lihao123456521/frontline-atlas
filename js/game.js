@@ -84,15 +84,19 @@ const Game = (function(){
       else if (pim.foe.includes(o.ideo)) setRelation(playerId, o.id, -20);
     });
 
-    // 省份
+    // 省份 + Voronoi 多边形 (PROVINCE_POLYS 由 data_provinces.js 提供)
+    const polyById = {};
+    (typeof PROVINCE_POLYS !== "undefined" ? PROVINCE_POLYS : []).forEach(p => { polyById[p.id] = p; });
     PROVINCES_DEF.forEach(d => {
       const pr = resOf(d.lon, d.lat);
       const xy = proj(d.lon, d.lat);
+      const poly = polyById[d.id];
       state.provinces.push({
         id:d.id, name:d.name, lon:d.lon, lat:d.lat, x:xy.x, y:xy.y,
         owner:d.owner, originalOwner:d.owner, terrain:d.terrain || "plain",
         resource: pr.res + (d.cap?3:0), oil:pr.oil, rare:pr.rare,
         isCapital: !!d.cap, coastal: !!d.coastal, fort:d.cap?1:0, infra:0, garrison:[],
+        poly: poly ? poly.d : "",
       });
     });
 
@@ -101,10 +105,11 @@ const Game = (function(){
     // 首都索引
     COUNTRIES.forEach(c => { country(c.id).capitalIdx = provinceById(c.capital); });
 
-    // 初始驻军
+    // 初始驻军: 只有首都 3 步兵, 其他非中立省份 1 步兵 (玩家可以主动扩军)
     state.provinces.forEach(p => {
+      if (!p.owner) return;  // 中立省份不预置
       if (p.isCapital) p.garrison = [makeDivision("infantry"),makeDivision("infantry"),makeDivision("infantry")];
-      else if (p.resource >= 3) p.garrison = [makeDivision("infantry")];
+      else p.garrison = [makeDivision("infantry")];
     });
     COUNTRIES.forEach(c => computeManpower(c.id));
     applyScenario(scenario);
@@ -684,10 +689,42 @@ const Game = (function(){
     aiTurn();
     eventTick();
     checkScriptedEvents();
+    // 收集该回合简报事件
+    const briefItems = collectBriefingItems(state.log, state.player);
     log("—— " + fmtDate(state.date) + " ——", "info");
     checkVictory();
     autosave();
-    if (window.UI){ UI.markSaved(); UI.refresh(); }
+    if (window.UI){
+      UI.markSaved();
+      UI.refresh();
+      if (briefItems.length && UI.showTurnBriefing) UI.showTurnBriefing(fmtDate(state.date), briefItems);
+    }
+  }
+  // 收集该回合"重大事件" 用于简报: 玩家行动/敌人行动/宣战
+  function collectBriefingItems(log, playerId){
+    const items = [];
+    const playerName = country(playerId).name;
+    // 扫最近 12 条 log
+    const recent = log.slice(-12);
+    recent.forEach(e => {
+      const t = e.text;
+      if (t.includes("攻占") || t.includes("夺取")) {
+        if (t.includes(playerName)) items.push({ icon: "🏆", text: t, cls: "good" });
+      } else if (t.includes("向你宣战") || t.includes("向 "+playerName+" 宣战")) {
+        items.push({ icon: "⚔", text: t, cls: "war" });
+      } else if (t.includes("正当化")) {
+        items.push({ icon: "⚠", text: t, cls: "info" });
+      } else if (t.match(/被击退|被攻/)) {
+        items.push({ icon: "💥", text: t, cls: "war" });
+      }
+    });
+    // 去重 (同一事件可能 log 两次)
+    const seen = new Set();
+    return items.filter(it => {
+      if (seen.has(it.text)) return false;
+      seen.add(it.text);
+      return true;
+    }).slice(0, 5);
   }
 
   function applyIncome(id){
@@ -780,11 +817,25 @@ const Game = (function(){
           log(country(a).name + " 开始对 " + country(state.player).name + " 的正当化战争（约" + turns + "回合后宣战）。", "war");
           if (window.UI) UI.toast(country(a).name + " 正在正当化对你的战争，约 " + turns + " 回合后宣战！", "war");
         }
-        if (Math.random() < 0.03){
-          const others = COUNTRIES.filter(o => o.id !== a && o.id !== state.player && country(o.id).alive && !isAtWar(a, o.id) && !(state.alliances[relKey(a,o.id)]))
-            .map(o => o.id);
-          if (others.length && !state.justifies[jKey(a, others[0])])
-            state.justifies[jKey(a, others[0])] = 6;
+        // AI 之间互相正当化 (世界生动起来): 10% 概率 (原 3% 太低)
+        if (Math.random() < 0.10){
+          const others = COUNTRIES.filter(o =>
+            o.id !== a && o.id !== state.player
+            && country(o.id).alive
+            && !isAtWar(a, o.id)
+            && !isAllied(a, o.id)
+            && relation(a, o.id) < 30
+            && !state.justifies[jKey(a, o.id)]
+          ).map(o => o.id);
+          if (others.length){
+            // 优先选关系最差或最弱的
+            others.sort((x, y) => relation(a, x) - relation(a, y));
+            const target = others[0];
+            const turns = state.wt >= 25 ? 4 : 8;
+            state.justifies[jKey(a, target)] = turns;
+            log(country(a).name + " 开始对 " + country(target).name + " 的正当化战争。", "war");
+            if (window.UI) UI.toast(country(a).name + " 正在正当化对 " + country(target).name + " 的战争！", "war");
+          }
         }
       }
     });
@@ -845,7 +896,8 @@ const Game = (function(){
         const tgt = targets[0];
         const atk = strengthOf(o.p.garrison.slice(0, o.p.garrison.length-1), "atk", 1, 1, 1, 1, 1);
         const def = defendStrength(tgt);
-        if (atk > def * 1.15) doAssault(id, o.i, state.provinces.indexOf(tgt), 0);  // 仅在占优时出手，避免送兵
+        // AI 战时更主动 (1.05x 优势就出手)
+        if (atk > def * 1.05) doAssault(id, o.i, state.provinces.indexOf(tgt), 0);
         return;
       }
       if (state.coastal[o.i] && seaAdj(o.i).length){
@@ -877,7 +929,7 @@ const Game = (function(){
       }
     });
   }
-  // 未交战时：吞并相邻中立 + 趁强攻击弱邻（每月≤2 省，避免滚雪球）
+  // 未交战时：吞并相邻中立 + 趁强攻击弱邻(玩家 OR 其他 AI; 排除结盟国)
   function aiExpand(id){
     const ai = country(id);
     let expanded = 0;
@@ -886,18 +938,29 @@ const Game = (function(){
       if (expanded >= 2) break;
       if (o.p.garrison.length === 0) continue;
       const adj = neighbors(o.i);
+      // 优先吞并中立
       const neutrals = adj.filter(n => province(n).owner === null)
         .sort((a,b) => defendStrength(province(a)) - defendStrength(province(b)));
       if (neutrals.length){ doAssault(id, o.i, neutrals[0], 0); expanded++; continue; }
+      // 其次: 攻弱邻 (玩家 OR 其他 AI; 排除结盟)
       const foes = adj.filter(n => {
         const q = province(n);
-        return q.owner && q.owner !== id && q.owner !== state.player && country(q.owner).alive;
+        if (!q.owner) return false;
+        if (q.owner === id) return false;
+        if (q.owner === state.player) return true;
+        if (country(q.owner).alive && !isAllied(id, q.owner)) return true;
+        return false;
       }).sort((a,b) => defendStrength(province(a)) - defendStrength(province(b)));
       if (foes.length){
         const tgt = foes[0];
+        const tgtP = province(tgt);
         const atk = strengthOf(o.p.garrison, "atk", 1, 1, 1, 1, 1);
-        const def = defendStrength(province(tgt));
-        if (atk > def * 1.25){ doAssault(id, o.i, tgt, 0); expanded++; }
+        const def = defendStrength(tgtP);
+        // 攻弱邻阈值 1.15x (1.25 → 1.15 让 AI 更主动)
+        if (atk > def * 1.15){
+          doAssault(id, o.i, tgt, 0);
+          expanded++;
+        }
       }
     }
   }

@@ -1,2 +1,8 @@
 ﻿data_full.txt
 *.tmp
+
+# 测试/调试用
+.check/
+
+# 依赖
+node_modules/
