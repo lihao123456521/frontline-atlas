@@ -4,7 +4,7 @@
 window.addEventListener("DOMContentLoaded", () => {
   window.UI = UI;
   window.Game = Game;
-  window.Map = Map;
+  window.MapView = MapView;
   UI.init();
 
   // 开局引导: 点击关闭按钮, 或第一次选省份时自动消失
@@ -21,21 +21,15 @@ window.addEventListener("DOMContentLoaded", () => {
     };
   }
 
-  // 键盘快捷键 (开始界面: Enter 开始)
+  // 键盘快捷键 (开始界面: Enter 开始; 游戏内 Esc 关面板 — 变速键由 ui.js 统一处理)
   document.addEventListener("keydown", e => {
     const startScreen = document.getElementById("startScreen");
     if (startScreen && !startScreen.classList.contains("hidden")){
       if (e.key === "Enter"){ e.preventDefault(); document.getElementById("btnStart").click(); }
       return;
     }
-    // 游戏中
     if (Game.state && !Game.state.over){
       if (e.key === "Escape"){ e.preventDefault(); document.getElementById("rpClose").click(); closeHotkeyPanel(); }
-      if (e.key === "1"){ document.querySelector('#topBarSpeed button[data-s="1"]').click(); }
-      if (e.key === "2"){ document.querySelector('#topBarSpeed button[data-s="2"]').click(); }
-      if (e.key === "3"){ document.querySelector('#topBarSpeed button[data-s="3"]').click(); }
-      if (e.key === "4"){ document.querySelector('#topBarSpeed button[data-s="4"]').click(); }
-      if (e.key === " "){ e.preventDefault(); document.querySelector('#topBarSpeed button[data-s="0"]').click(); }
     }
   });
 
@@ -62,7 +56,9 @@ window.addEventListener("DOMContentLoaded", () => {
       <div class="hotkey-row"><span class="hk">Enter</span><span class="desc">开始游戏 (开始界面)</span></div>
       <div class="hotkey-row"><span class="hk">Space</span><span class="desc">暂停 / 继续</span></div>
       <div class="hotkey-row"><span class="hk">1 / 2 / 3 / 4</span><span class="desc">慢速 / 正常 / 快速 / 极速</span></div>
-      <div class="hotkey-row"><span class="hk">Esc</span><span class="desc">关闭面板 / 弹窗</span></div>
+      <div class="hotkey-row"><span class="hk">5</span><span class="desc">跳到下个月</span></div>
+      <div class="hotkey-row"><span class="hk">0</span><span class="desc">暂停</span></div>
+      <div class="hotkey-row"><span class="hk">Esc</span><span class="desc">关闭面板</span></div>
       <div class="hotkey-row" style="margin-top:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:6px"><span class="desc" style="color:var(--muted);font-size:11px">💡 鼠标操作: 点自己国家省份 → 点邻国 → 进攻</span></div>
     `;
     document.body.appendChild(div);
@@ -77,7 +73,7 @@ window.addEventListener("DOMContentLoaded", () => {
   function animLoop(ts){
     if(Game.state && !Game.state.over){
       if(ts - lastFx > 80){
-        Map.render();
+        MapView.render();
         lastFx = ts;
       }
     }

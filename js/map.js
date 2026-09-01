@@ -3,7 +3,7 @@
    - 真实海岸线填充 / 领土色块 / 国界 / 战线
    - HOI4 风格单位计数器 / 战斗特效 / 动画
    ============================================================ */
-const Map = (() => {
+const MapView = (() => {
   const W = 1000, H = 500;
   const svg = document.getElementById("mapSvg");
   const NS = "http://www.w3.org/2000/svg";
@@ -100,16 +100,44 @@ const Map = (() => {
     });
   }
   // ---------- 真实世界国家轮廓 (手画简化版, 替代 Voronoi) ----------
+  // 政治模式=归属国色；外交模式=阵营关系色；地形模式=该国省份的主导地形色
+  function shapeColorFor(cid){
+    const s = Game.state;
+    const known = !!s.countries[cid];
+    if(mapMode === "diplomatic"){
+      if(!known) return "#3a3f44";                       // 非 playable 国家：暗灰
+      const rel = relationTo(cid);
+      if(rel === "player") return "#3f8fd6";             // 玩家：高亮亮蓝
+      if(rel === "enemy") return "#8a2020";              // 敌国：暗红
+      if(rel === "ally") return "#2f8a4f";               // 盟友：绿
+      return "#4a4f55";
+    }
+    if(mapMode === "terrain"){
+      // 该国所有省份的主导地形色（无省份信息时退回暗色）
+      const terrCount = {};
+      let best = null, bestN = 0, total = 0;
+      s.provinces.forEach(p => {
+        if(p.owner !== cid) return;
+        terrCount[p.terrain] = (terrCount[p.terrain]||0)+1;
+        total++;
+        if(terrCount[p.terrain] > bestN){ bestN = terrCount[p.terrain]; best = p.terrain; }
+      });
+      if(!total) return "#4a4f55";
+      const t = TERRAIN[best];
+      return t ? t.color : "#4a4f55";
+    }
+    // political
+    return known ? s.countries[cid].color : "#555";
+  }
   function renderCountryShapes(){
     L.countryFills.innerHTML = "";
     if(typeof COUNTRY_SHAPES === "undefined") return;
     const playerId = Game.state.player;
     Object.keys(COUNTRY_SHAPES).forEach(cid => {
-      const c = countryColor(cid);
       const path = document.createElementNS(NS,"path");
       path.setAttribute("d", COUNTRY_SHAPES[cid].d);
-      path.setAttribute("fill", c);
-      path.setAttribute("class", "country-fill" + (cid === playerId ? " player-country" : ""));
+      path.setAttribute("fill", shapeColorFor(cid));
+      path.setAttribute("class", "country-fill" + (mapMode === "political" && cid === playerId ? " player-country" : ""));
       L.countryFills.appendChild(path);
     });
   }
@@ -251,15 +279,15 @@ const Map = (() => {
       if(scale >= 1.5){
         let rx = p.x - 14, ry = p.y + 12;
         const resItems = [];
-        if(p.resSteel) resItems.push({ic:"⛏",v:p.resSteel,c:"#aaa"});
-        if(p.resOil) resItems.push({ic:"🛢",v:p.resOil,c:"#5a4"});
-        if(p.resAlu) resItems.push({ic:"🔩",v:p.resAlu,c:"#9cf"});
-        if(p.resRub) resItems.push({ic:"🌳",v:p.resRub,c:"#6c6"});
+        if(p.resource) resItems.push({ic:"⛏",c:"#aaa"});
+        if(p.oil) resItems.push({ic:"🛢",c:"#5a4"});
+        if(p.rare) resItems.push({ic:"💎",c:"#9cf"});
         resItems.forEach((r,ri)=>{
           const rt = document.createElementNS(NS,"text");
           rt.setAttribute("x",rx + ri*10); rt.setAttribute("y",ry);
           rt.setAttribute("font-size","7");
           rt.setAttribute("text-anchor","middle");
+          rt.setAttribute("fill",r.c);
           rt.textContent = r.ic;
           L.labels.appendChild(rt);
         });
@@ -711,6 +739,23 @@ const Map = (() => {
   }
 
   // ---------- 聚焦 ----------
+  // 可视区锚点：SVG 以 center 原点做 translate+scale，viewBox 经 letterbox 映射进元素框，
+  // 世界→屏幕比例 k = scale * min(wrapW/W, wrapH/H)；世界中心 (500,250) 对应元素框中心。
+  // 屏幕坐标 = wrap中心 + pan + k*(世界坐标 - 世界中心)。右侧面板宽度计入可视区。
+  function visibleAnchor(){
+    let wr = wrap ? wrap.getBoundingClientRect() : null;
+    if(!wr || wr.width < 10) wr = svg.getBoundingClientRect();
+    const rp = document.getElementById("rightPanel");
+    const panelW = (rp && !rp.classList.contains("collapsed")) ? rp.offsetWidth : 0;
+    const k = scale * Math.min(wr.width / W, wr.height / H);
+    return {
+      cx: wr.left + wr.width / 2,
+      cy: wr.top + wr.height / 2,
+      vx: wr.left + (wr.width - panelW) / 2,
+      vy: wr.top + wr.height / 2,
+      k,
+    };
+  }
   function focusPlayer(){ focusCountry(Game.state.player); }
   function focusCountry(cid){
     let sx=0,sy=0,n=0;
@@ -720,29 +765,24 @@ const Map = (() => {
     // 优先选玩家首都作为焦点
     const cap = Game.state.provinces.find(p => p.owner === cid && p.isCapital);
     const tx = cap ? cap.x : cx, ty = cap ? cap.y : cy;
-    const r = svg.getBoundingClientRect();
-    if (r.width < 10) return; // 还未渲染好
-    // 玩家首都放在屏幕 1/3 偏上 (而不是正中央, 留出右侧面板空间感)
-    const targetVx = W * 0.40, targetVy = H * 0.45;
     scale = 1.6;
-    // transform: translate(panX,panY) scale(s)
-    // 屏幕位置 = s * viewBox_pos + (panX,panY)
-    // 要 viewBox (tx, ty) 显示在屏幕 (targetVx * r.width/W, targetVy * r.height/H):
-    // panX = targetVx * r.width/W - s * tx
-    panX = targetVx * r.width / W - scale * tx;
-    panY = targetVy * r.height / H - scale * ty;
-    applyTransform();
+    panTo(tx, ty, 0.5, 0.45);
     focused = true;
+  }
+  // 平移使世界点 (tx,ty) 位于可视区相对位置 (fx,fy)
+  function panTo(tx, ty, fx, fy){
+    const a = visibleAnchor();
+    panX = a.vx - a.cx - a.k * (tx - W / 2);
+    panY = a.vy - a.cy - a.k * (ty - H / 2);
+    applyTransform();
   }
   // 选中省份时, 平滑滚到屏幕中央
   function focusProvince(idx, animate){
     const p = Game.state.provinces[idx];
     if(!p) return;
-    const r = svg.getBoundingClientRect();
-    if (r.width < 10) return;
-    const targetVx = W * 0.42, targetVy = H * 0.50;
-    const targetPanX = targetVx * r.width / W - scale * p.x;
-    const targetPanY = targetVy * r.height / H - scale * p.y;
+    const a = visibleAnchor();
+    const targetPanX = a.vx - a.cx - a.k * (p.x - W / 2);
+    const targetPanY = a.vy - a.cy - a.k * (p.y - H / 2);
     if (animate){
       const startX = panX, startY = panY, dur = 280;
       const t0 = performance.now();
@@ -758,18 +798,18 @@ const Map = (() => {
       panX = targetPanX; panY = targetPanY; applyTransform();
     }
   }
-  // 检查某省份的 viewBox 位置是否在当前视口内 (含一定边距)
+  // 检查某省份是否在当前可视区内 (含边距；右侧面板遮挡区不算可视)
   function isProvinceInView(idx, margin){
     const p = Game.state.provinces[idx];
     if(!p) return true;
     margin = margin || 30;  // 视口外扩 30px 边距
-    const r = svg.getBoundingClientRect();
-    if (r.width < 10) return true;
-    // viewBox 坐标: (p.x, p.y)
-    // 屏幕坐标: panX + scale * p.x (水平)
-    const sx = panX + scale * p.x;
-    const sy = panY + scale * p.y;
-    return sx >= margin && sx <= r.width - margin && sy >= margin && sy <= r.height - margin;
+    const a = visibleAnchor();
+    const sx = a.cx + panX + a.k * (p.x - W / 2);
+    const sy = a.cy + panY + a.k * (p.y - H / 2);
+    const rp = document.getElementById("rightPanel");
+    const panelW = (rp && !rp.classList.contains("collapsed")) ? rp.offsetWidth : 0;
+    return sx >= margin && sx <= window.innerWidth - panelW - margin
+        && sy >= margin && sy <= window.innerHeight - margin;
   }
   function resetView(){ panX=0;panY=0;scale=1;applyTransform(); focused=false; }
   function zoomBy(factor, cx, cy){
@@ -799,9 +839,9 @@ const Map = (() => {
       const [idxStr, type] = ukey.split("_");
       const p = s.provinces[+idxStr];
       if(p){
-        const c = p.owner ? Game.countries[p.owner] : null;
+        const c = p.owner ? Game.country(p.owner) : null;
         const g = p.garrison.find(d=>d.type===type);
-        const typeName = {infantry:"步兵师",cavalry:"骑兵师",motorized:"摩托化师",light_armor:"轻装甲师",armor:"装甲师",marine:"海军陆战师",paratrooper:"伞兵师",militia:"民兵师"}[type] || type;
+        const typeName = UNIT_TYPES[type] ? UNIT_TYPES[type].name : type;
         html = `<div class="tt-title">${typeName} ${g?"×"+p.garrison.filter(d=>d.type===type).length:""}</div>`;
         html += `<div class="tt-row"><span class="tt-label">所属</span><span class="tt-val">${c?c.name:"中立"}</span></div>`;
         html += `<div class="tt-row"><span class="tt-label">驻地</span><span class="tt-val">${p.name}${p.isCapital?" ★":""}</span></div>`;
@@ -813,17 +853,16 @@ const Map = (() => {
       }
     } else if(idx >= 0){
       const p = s.provinces[idx];
-      const c = p.owner ? Game.countries[p.owner] : null;
-      const terrainName = {plains:"平原",forest:"森林",hills:"丘陵",mountain:"山地",desert:"沙漠",urban:"城市",marsh:"沼泽",jungle:"丛林",arctic:"寒带"}[p.terrain] || p.terrain;
+      const c = p.owner ? Game.country(p.owner) : null;
+      const terrainName = TERRAIN[p.terrain] ? TERRAIN[p.terrain].name : p.terrain;
       html = `<div class="tt-title">${p.name}${p.isCapital?" ★":""}</div>`;
       html += `<div class="tt-row"><span class="tt-label">所有者</span><span class="tt-val" style="color:${c?c.color:"#888"}">${c?c.name:"中立"}</span></div>`;
       html += `<div class="tt-row"><span class="tt-label">地形</span><span class="tt-val">${terrainName}</span></div>`;
-      if(p.resSteel||p.resOil||p.resAlu||p.resRub){
+      if(p.resource || p.oil || p.rare){
         const res = [];
-        if(p.resSteel) res.push(`⛏${p.resSteel}`);
-        if(p.resOil) res.push(`🛢${p.resOil}`);
-        if(p.resAlu) res.push(`🔩${p.resAlu}`);
-        if(p.resRub) res.push(`🌳${p.resRub}`);
+        if(p.resource) res.push(`⛏${p.resource}`);
+        if(p.oil) res.push(`🛢${p.oil}`);
+        if(p.rare) res.push(`💎${p.rare}`);
         html += `<div class="tt-row"><span class="tt-label">资源</span><span class="tt-val">${res.join(" ")}</span></div>`;
       }
       if(p.fort>0) html += `<div class="tt-row"><span class="tt-label">要塞</span><span class="tt-val">${p.fort}</span></div>`;
@@ -831,7 +870,7 @@ const Map = (() => {
       if(p.garrison.length) html += `<div class="tt-row"><span class="tt-label">驻军</span><span class="tt-val">${p.garrison.length} 个师</span></div>`;
       if(p.owner && p.owner !== s.player){
         if(Game.isAtWar(s.player, p.owner)) html += `<div class="tt-war">⚔ 处于战争状态</div>`;
-        else if(s.allies && s.allies[p.owner]) html += `<div class="tt-ally">★ 盟友</div>`;
+        else if(s.alliances && s.alliances[relKey(s.player, p.owner)]) html += `<div class="tt-ally">★ 盟友</div>`;
       }
     }
     if(html){
@@ -861,6 +900,8 @@ const Map = (() => {
     }, {passive:false});
 
     wrap.addEventListener("mousedown", e=>{
+      // UI 控件（按钮/引导/目标条）上的按下不作为地图拖拽起点，避免点击泄漏为选省
+      if(e.target.closest("button, .mapmode-bar, .zoom-ctrl, .map-hint, .objective-bar")) return;
       if(e.button===0){ dragging=true; dragMoved=false; lastX=e.clientX; lastY=e.clientY; }
     });
     window.addEventListener("mousemove", e=>{
@@ -873,6 +914,13 @@ const Map = (() => {
       }
       const pt = clientToSvg(e.clientX, e.clientY);
       const sx=pt.x, sy=pt.y;
+      // 悬停在 UI 控件上时不算命中省份（避免按钮上浮出省份提示）
+      if(e.target.closest("button, .mapmode-bar, .zoom-ctrl, .map-hint, .objective-bar")){
+        hoverUnitKey = null;
+        if(hoverIdx !== -1){ hoverIdx = -1; if(handlers.provinceHover) handlers.provinceHover(-1); render(); }
+        updateTooltip(e.clientX, e.clientY, null, -1);
+        return;
+      }
       const ukey = unitUnderPoint(sx,sy);
       hoverUnitKey = ukey;
       // 悬停兵牌时也获取其省份用于高亮和进攻预览

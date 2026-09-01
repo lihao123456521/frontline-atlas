@@ -30,10 +30,11 @@ const UI = (function(){
         document.getElementById("objText").textContent = objective.text + " (剩 " + Math.max(0, turnsLeft) + " 月)";
         document.getElementById("objProgress").textContent = "(" + Math.min(objective.current, objective.total) + "/" + objective.total + ")";
       }
-      // 第一次显示时弹个 toast 提醒
+      // 首次出现时高亮一下目标条（不再额外弹 toast，避免与常驻目标条重叠）
       if (!objectiveNoticed){
         objectiveNoticed = true;
-        setTimeout(()=>toast("🎯 目标: " + objective.text, "info"), 500);
+        const bar = document.getElementById("objectiveBar");
+        if (bar){ bar.classList.add("flash"); setTimeout(()=>bar.classList.remove("flash"), 1600); }
       }
     }
   }
@@ -151,6 +152,12 @@ const UI = (function(){
       o.value = s.id; o.textContent = s.name;
       sc.appendChild(o);
     });
+    function updateScen(){
+      const s = SCENARIOS.find(x => x.id === sc.value);
+      $("scenDesc").textContent = s ? s.desc : "";
+    }
+    sc.addEventListener("change", updateScen);
+    updateScen();
     function updateDiff(){
       const d = DIFFICULTY[$("selDifficulty").value];
       $("diffDesc").textContent = d ? d.desc : "";
@@ -175,15 +182,15 @@ const UI = (function(){
     $("bottomLog").classList.remove("hidden");
     $("panelToggle").classList.remove("hidden");
     if(!mapBound){
-      Map.bind(mapHandlers());
+      MapView.bind(mapHandlers());
       mapBound = true;
-      $("zoomIn").addEventListener("click", ()=>Map.zoomIn());
-      $("zoomOut").addEventListener("click", ()=>Map.zoomOut());
-      $("zoomReset").addEventListener("click", ()=>Map.resetView());
+      $("zoomIn").addEventListener("click", ()=>MapView.zoomIn());
+      $("zoomOut").addEventListener("click", ()=>MapView.zoomOut());
+      $("zoomReset").addEventListener("click", ()=>MapView.resetView());
     }
     activeView = "province";
     refresh();
-    setTimeout(()=>Map.focusPlayer(), 200);
+    setTimeout(()=>MapView.focusPlayer(), 200);
     sfx("tech");
   }
 
@@ -199,11 +206,11 @@ const UI = (function(){
     $("bottomLog").classList.remove("hidden");
     $("panelToggle").classList.remove("hidden");
     if(!mapBound){
-      Map.bind(mapHandlers());
+      MapView.bind(mapHandlers());
       mapBound = true;
-      $("zoomIn").addEventListener("click", ()=>Map.zoomIn());
-      $("zoomOut").addEventListener("click", ()=>Map.zoomOut());
-      $("zoomReset").addEventListener("click", ()=>Map.resetView());
+      $("zoomIn").addEventListener("click", ()=>MapView.zoomIn());
+      $("zoomOut").addEventListener("click", ()=>MapView.zoomOut());
+      $("zoomReset").addEventListener("click", ()=>MapView.resetView());
     }
     activeView = "province";
     // 初始化目标系统: 占领 5 个非起始省份 (20 个月内)
@@ -222,7 +229,7 @@ const UI = (function(){
     const objBar = document.getElementById("objectiveBar");
     if (objBar) objBar.classList.remove("hidden", "done");
     refresh();
-    setTimeout(()=>Map.focusPlayer(), 200);
+    setTimeout(()=>MapView.focusPlayer(), 200);
     sfx("tech");
   }
 
@@ -294,6 +301,16 @@ const UI = (function(){
     else if(activeView==="focus") renderFocusView(rp);
     else if(activeView==="diplo") renderDiploView(rp);
     else if(activeView==="war") renderWarView(rp);
+  }
+
+  /* ---------- 进攻计划入口（供 UI 与 Game.onMapClick 两条路径共用） ---------- */
+  function beginBattle(kind, toIdx){
+    const s = Game.state;
+    if(!s || s.selectedIdx < 0) return;
+    pendingBattle = { kind, from: s.selectedIdx, to: toIdx };
+    sendCount = 0;
+    activeView = "province";
+    refresh();
   }
 
   function renderBattlePlan(rp){
@@ -392,7 +409,7 @@ const UI = (function(){
     rp.appendChild(box2);
 
     // 正在进行的战争
-    const myWars = s.wars.filter(w => (w.a === s.player || w.b === s.player) && (w.a === s.player ? country(w.b).alive : country(w.a).alive));
+    const myWars = s.wars.filter(w => (w.a === s.player || w.b === s.player) && (w.a === s.player ? Game.country(w.b).alive : Game.country(w.a).alive));
     if (myWars.length){
       const wb = el("div","rp-section");
       wb.innerHTML = `<h4>⚔ 正在交战</h4>`;
@@ -791,21 +808,23 @@ const UI = (function(){
     const s = Game.state;
     const playerLand = s.provinces.filter(p=>p.owner===s.player).length;
     const totalLand = s.provinces.length;
-    const totalBattles = s.recentBattles ? s.recentBattles.length : 0;
+    const totalBattles = s.battles || 0;
     const wonBattles = s.recentBattles ? s.recentBattles.filter(b=>b.won).length : 0;
-    const dateStr = Game.fmtDate ? Game.fmtDate(s.date) : "";
+    const dateStr = typeof fmtDate === "function" ? fmtDate(s.date) : "";
+    const months = (s.date.year - 1936) * 12 + (s.date.month - 1);
+    const years = (months / 12).toFixed(1);
     const m = el("div");
     m.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:300;animation:fadeIn .5s";
     const box = el("div");
     box.style.cssText = "background:linear-gradient(160deg,#1e2d3f,#141c28);border:2px solid "+(win?"var(--gold)":"#8a3030")+";border-radius:8px;padding:40px 60px;text-align:center;box-shadow:0 0 60px rgba(0,0,0,.8);min-width:400px";
     box.innerHTML = `<h1 style="font-size:36px;color:${win?'var(--gold)':'#d9534f'};margin-bottom:8px;letter-spacing:6px">${win?'胜 利':'失 败'}</h1>
-      <p style="color:var(--muted);font-size:12px;margin-bottom:20px">${dateStr}</p>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:20px">${dateStr} · 历时 ${years} 年</p>
       <p style="color:var(--text);font-size:15px;margin-bottom:24px">${msg}</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-bottom:28px;text-align:left;font-size:13px">
         <div style="color:var(--muted)">控制领土</div><div style="color:var(--gold);font-weight:700">${playerLand} / ${totalLand} 省 (${Math.round(playerLand/totalLand*100)}%)</div>
         <div style="color:var(--muted)">战斗次数</div><div style="color:var(--text)">${totalBattles}</div>
-        <div style="color:var(--muted)">获胜战斗</div><div style="color:var(--green)">${wonBattles}</div>
-        <div style="color:var(--muted)">胜率</div><div style="color:${wonBattles/Math.max(1,totalBattles)>=0.5?'var(--green)':'var(--red)'}">${Math.round(wonBattles/Math.max(1,totalBattles)*100)}%</div>
+        <div style="color:var(--muted)">近期获胜</div><div style="color:var(--green)">${wonBattles}</div>
+        <div style="color:var(--muted)">世界紧张度</div><div style="color:${s.wt>=60?'var(--red)':'var(--text)'}">${Math.round(s.wt)}%</div>
       </div>
       <button id="btnRestart" style="padding:10px 30px;background:linear-gradient(180deg,var(--panel3),var(--panel2));border:1px solid var(--gold-dim);color:var(--gold);border-radius:4px;font-size:14px;cursor:pointer">返回主菜单</button>`;
     m.appendChild(box);
@@ -919,11 +938,11 @@ const UI = (function(){
     renderRightPanel();
     renderLog();
     updateObjective();
-    Map.setSelect(s.selectedIdx);
+    MapView.setSelect(s.selectedIdx);
     // 选中省份变化时, 只在视口外才平滑滚到屏幕中央
     if (s.selectedIdx >= 0 && s.selectedIdx !== lastFocusedIdx){
-      if (!Map.isProvinceInView(s.selectedIdx)){
-        Map.focusProvince(s.selectedIdx, true);
+      if (!MapView.isProvinceInView(s.selectedIdx)){
+        MapView.focusProvince(s.selectedIdx, true);
       }
       lastFocusedIdx = s.selectedIdx;
     } else if (s.selectedIdx < 0){
@@ -931,16 +950,16 @@ const UI = (function(){
     }
     // 作战计划 vs 可攻击邻国: 二选一
     if(pendingBattle){
-      Map.showBattlePlan({attacks:[{from:pendingBattle.from, to:pendingBattle.to}]});
+      MapView.showBattlePlan({attacks:[{from:pendingBattle.from, to:pendingBattle.to}]});
     } else if (s.selectedIdx >= 0){
       const p = Game.province(s.selectedIdx);
       if (p && p.owner === s.player && p.garrison.length > 0){
-        Map.showAttackable(s.selectedIdx);
+        MapView.showAttackable(s.selectedIdx);
       } else {
-        Map.clearAttackable();
+        MapView.clearAttackable();
       }
     } else {
-      Map.clearAttackable();
+      MapView.clearAttackable();
     }
     saved = false;
   }
@@ -949,9 +968,16 @@ const UI = (function(){
   /* ---------- 初始化 ---------- */
   function init(){
     initStartScreen();
-    // 速度控制
+    // 速度控制（▶▶ = 单步推进一个月，不改变当前速度）
     document.querySelectorAll("#topBarSpeed button").forEach(b=>{
-      b.addEventListener("click",()=>{ setSpeed(+b.dataset.s); sfx("click"); });
+      b.addEventListener("click",()=>{
+        const v = +b.dataset.s;
+        if(v === 5){
+          if(Game.state && !Game.state.over){ Game.endTurn(); sfx("turn"); }
+          return;
+        }
+        setSpeed(v); sfx("click");
+      });
     });
     setSpeed(0);
     // 顶栏按钮
@@ -983,11 +1009,13 @@ const UI = (function(){
         sfx("click");
       });
     });
-    // 键盘快捷键
+    // 键盘快捷键（历史事件弹窗打开时不响应，避免误操作）
     document.addEventListener("keydown",e=>{
-      if(!Game.state) return;
+      if(!Game.state || Game.state.over) return;
+      if($("eventModal") && !$("eventModal").classList.contains("hidden")) return;
       if(e.code==="Space"){ e.preventDefault(); setSpeed(speed===0?1:0); }
-      if(e.key>="1"&&e.key<="5"){ setSpeed(+e.key); }
+      if(e.key>="1"&&e.key<="4"){ setSpeed(+e.key); }
+      if(e.key==="5"){ if(!$("startScreen") || $("startScreen").classList.contains("hidden")){ Game.endTurn(); sfx("turn"); } }
       if(e.key==="0"){ setSpeed(0); }
     });
     // 提示框跟随鼠标
@@ -1004,5 +1032,5 @@ const UI = (function(){
     mapWrap.addEventListener("mouseleave", ()=>{ $("tooltip").style.display="none"; });
   }
 
-  return { init, refresh, toast, sfx, showEvent, closeEvent, showResult, screenFlash, markSaved, setSpeed, showTurnBriefing };
+  return { init, refresh, toast, sfx, showEvent, closeEvent, showResult, screenFlash, markSaved, setSpeed, showTurnBriefing, beginBattle };
 })();

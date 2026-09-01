@@ -58,6 +58,7 @@ const Game = (function(){
       wt: 0,
       log: [],
       recentBattles: [],
+      battles: 0,
       over: false,
       result: null,
     };
@@ -236,7 +237,7 @@ const Game = (function(){
           if (toP.owner === state.player){ moveUnits(prev, idx); return; }   // 友方省份：即时调动
           if (!toP.owner || isAtWar(state.player, toP.owner)){
             state.selectedIdx = prev;             // 出发省保持选中，作为策划弹窗的 from
-            if (window.UI){ UI.showBattlePlan("attack", idx); UI.refresh(); }
+            if (window.UI){ UI.beginBattle("attack", idx); }
             return;
           }
           state.selectedIdx = idx;
@@ -248,7 +249,7 @@ const Game = (function(){
           if (toP.owner === state.player){ moveUnits(prev, idx); return; }
           if (!toP.owner || isAtWar(state.player, toP.owner)){
             state.selectedIdx = prev;             // 出发省保持选中
-            if (window.UI){ UI.showBattlePlan("amphib", idx); UI.refresh(); }
+            if (window.UI){ UI.beginBattle("amphib", idx); }
             return;
           }
           state.selectedIdx = idx;
@@ -268,7 +269,7 @@ const Game = (function(){
         const fromIdx = froms[0];
         if (toP.owner === null || isAtWar(state.player, toP.owner)){
           state.selectedIdx = fromIdx;
-          if (window.UI){ UI.showBattlePlan(seaFroms.includes(fromIdx) ? "amphib" : "attack", idx); UI.refresh(); }
+          if (window.UI){ UI.beginBattle(seaFroms.includes(fromIdx) ? "amphib" : "attack", idx); }
           return;
         }
         state.selectedIdx = idx;
@@ -357,8 +358,9 @@ const Game = (function(){
     const dName = toP.owner ? country(toP.owner).name : "中立";
     const aStrR = Math.round(aStr), dStrR = Math.round(dStr);
     const ratio = dStrR > 0 ? (aStrR/dStrR) : 99;
-    // 记录最近战斗（供战争面板）
+    // 记录最近战斗（供战争面板）与全局战斗计数（供结算）
     if(!state.recentBattles) state.recentBattles = [];
+    state.battles = (state.battles || 0) + 1;
     const battleRec = { attacker:attackerId, defender:toP.owner, from:fromIdx, to:toIdx,
       aStr:aStrR, dStr:dStrR, date:fmtDate(state.date), won:false, name:provName(toP) };
     if (aStr > dStr){
@@ -375,11 +377,11 @@ const Game = (function(){
       if (attackerId === state.player) state.selectedIdx = toIdx;   // 攻占后自动选中目标省，便于连续推进
       if (prevOwner){
         log("⚔ " + aName + " 攻占 " + provName(toP) + "！进攻 " + aStrR + " vs 防御 " + dStrR + "（" + ratio.toFixed(2) + "×），我损 " + aLoss + " / 敌损 " + dLoss, "war");
-        if (window.Map) { Map.playAttack(fromIdx, toIdx, true); Map.addCaptureFlash(toIdx); Map.addFloatText(toP.x, toP.y, "-"+dLoss, "enemy"); }
+        if (window.MapView) { MapView.playAttack(fromIdx, toIdx, true); MapView.addCaptureFlash(toIdx); MapView.addFloatText(toP.x, toP.y, "-"+dLoss, "enemy"); }
         if (window.UI){ UI.toast(aName + " 攻占了 " + dName + " 的 " + provName(toP) + "！", "war"); UI.sfx("attack"); }
         if (toP.isCapital) eliminateCountry(prevOwner, attackerId);
       } else { log("⚔ " + aName + " 吞并中立的 " + provName(toP) + "！进攻 " + aStrR + " vs 防御 " + dStrR + "（" + ratio.toFixed(2) + "×），我损 " + aLoss + " / 敌损 " + dLoss, "good");
-        if (window.Map) { Map.playAttack(fromIdx, toIdx, true); Map.addCaptureFlash(toIdx); Map.addFloatText(toP.x, toP.y, "-"+dLoss, "enemy"); }
+        if (window.MapView) { MapView.playAttack(fromIdx, toIdx, true); MapView.addCaptureFlash(toIdx); MapView.addFloatText(toP.x, toP.y, "-"+dLoss, "enemy"); }
         if (window.UI) UI.toast(aName + " 吞并了中立的 " + provName(toP) + "！", "good"); }
     } else {
       const aLoss = Math.round(sent.reduce((s,d)=>s+d.hp,0)*0.1);
@@ -391,7 +393,7 @@ const Game = (function(){
       state.recentBattles.unshift(battleRec);
       if(state.recentBattles.length>30) state.recentBattles.pop();
       log("🛡 " + aName + " 进攻 " + provName(toP) + " 被击退。进攻 " + aStrR + " vs 防御 " + dStrR + "（" + ratio.toFixed(2) + "×），我损 " + aLoss + " / 敌损 " + dLoss, "war");
-      if (window.Map) { Map.playAttack(fromIdx, toIdx, false); Map.addFloatText(fromP.x, fromP.y, "-"+aLoss, "own"); }
+      if (window.MapView) { MapView.playAttack(fromIdx, toIdx, false); MapView.addFloatText(fromP.x, fromP.y, "-"+aLoss, "own"); }
       if (window.UI){ UI.toast(aName + " 进攻 " + provName(toP) + " 被击退。", "war"); UI.sfx("attack"); }
       if (attackerId === state.player) state.selectedIdx = fromIdx;   // 失败则保留原省选中，便于重整再攻
     }
@@ -471,7 +473,7 @@ const Game = (function(){
     p.garrison.forEach(d => d.hp = Math.max(3, Math.round(d.hp * gmult)) );
     pruneDead(p);
     log(country(state.player).name + " 空袭了 " + c.name + " 的 " + provName(p) + "，造成破坏！", "war");
-    if (window.Map) { Map.addFloatText(p.x, p.y-10, "💥 空袭", "dmg"); }
+    if (window.MapView) { MapView.addFloatText(p.x, p.y-10, "💥 空袭", "dmg"); }
     if (window.UI) UI.refresh();
   }
 

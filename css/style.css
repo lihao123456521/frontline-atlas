@@ -1212,3 +1212,7 @@ body::before{
 }
 #panelToggle:hover{color:var(--gold);background:linear-gradient(180deg,var(--panel-4),var(--panel-3))}
 #rightPanel.collapsed ~ #panelToggle{right:0}
+
+/* 目标条首次提示闪烁 */
+.objective-bar.flash{animation:objFlash 1.6s ease-out}
+@keyframes objFlash{0%,100%{box-shadow:0 4px 12px rgba(0,0,0,.5)}40%{box-shadow:0 0 0 2px var(--brass-hi),0 0 18px rgba(214,182,90,.55)}}
