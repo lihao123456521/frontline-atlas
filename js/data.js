@@ -7,6 +7,15 @@
 // 等距圆柱投影：经纬度 -> SVG 像素（viewBox 1000×500）
 function proj(lon, lat){ return { x:(lon+180)/360*1000, y:(90-lat)/180*500 }; }
 
+// ============ 欧洲战场限定 ============
+// 参战国家（其余国家视为"剧场之外"，开局即不算主要对手）
+const EUROPEAN_COUNTRIES = ["ger", "sov", "uk", "fra", "ita"];
+// 欧洲地理边界（经纬度），用于过滤省份
+const EUROPE_BOUNDS = { lonMin: -12, lonMax: 50, latMin: 36, latMax: 72 };
+function inEurope(lon, lat){ return lon >= EUROPE_BOUNDS.lonMin && lon <= EUROPE_BOUNDS.lonMax && lat >= EUROPE_BOUNDS.latMin && lat <= EUROPE_BOUNDS.latMax; }
+// 欧洲战场的地图视口（世界坐标，含留白）
+const EUROPE_VIEW = { x: 455, y: 60, w: 195, h: 105 };
+
 // 可选国家（capital 为省份 id；ideo 为 AI 默认意识形态）
 const COUNTRIES = [
   { id:"ger", name:"德国",  color:"#4a69bd", capital:"ger_berlin",  ideo:"fas",

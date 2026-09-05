@@ -86,9 +86,10 @@ const Game = (function(){
     });
 
     // 省份 + Voronoi 多边形 (PROVINCE_POLYS 由 data_provinces.js 提供)
+    // 只保留欧洲战场省份（欧洲限定模式）
     const polyById = {};
     (typeof PROVINCE_POLYS !== "undefined" ? PROVINCE_POLYS : []).forEach(p => { polyById[p.id] = p; });
-    PROVINCES_DEF.forEach(d => {
+    PROVINCES_DEF.filter(d => inEurope(d.lon, d.lat)).forEach(d => {
       const pr = resOf(d.lon, d.lat);
       const xy = proj(d.lon, d.lat);
       const poly = polyById[d.id];
@@ -99,6 +100,11 @@ const Game = (function(){
         isCapital: !!d.cap, coastal: !!d.coastal, fort:d.cap?1:0, infra:0, garrison:[],
         poly: poly ? poly.d : "",
       });
+    });
+
+    // 欧洲之外的主要国家视为出局（不属于本剧场）
+    COUNTRIES.forEach(c => {
+      if (!EUROPEAN_COUNTRIES.includes(c.id)) country(c.id).alive = false;
     });
 
     buildGraph();
@@ -377,11 +383,11 @@ const Game = (function(){
       if (attackerId === state.player) state.selectedIdx = toIdx;   // 攻占后自动选中目标省，便于连续推进
       if (prevOwner){
         log("⚔ " + aName + " 攻占 " + provName(toP) + "！进攻 " + aStrR + " vs 防御 " + dStrR + "（" + ratio.toFixed(2) + "×），我损 " + aLoss + " / 敌损 " + dLoss, "war");
-        if (window.MapView) { MapView.playAttack(fromIdx, toIdx, true); MapView.addCaptureFlash(toIdx); MapView.addFloatText(toP.x, toP.y, "-"+dLoss, "enemy"); }
+        if (window.MapView) { MapView.playAttack(fromIdx, toIdx, true, prevOwner); MapView.addCaptureFlash(toIdx); MapView.addFloatText(toP.x, toP.y, "-"+dLoss, "enemy"); }
         if (window.UI){ UI.toast(aName + " 攻占了 " + dName + " 的 " + provName(toP) + "！", "war"); UI.sfx("attack"); }
         if (toP.isCapital) eliminateCountry(prevOwner, attackerId);
       } else { log("⚔ " + aName + " 吞并中立的 " + provName(toP) + "！进攻 " + aStrR + " vs 防御 " + dStrR + "（" + ratio.toFixed(2) + "×），我损 " + aLoss + " / 敌损 " + dLoss, "good");
-        if (window.MapView) { MapView.playAttack(fromIdx, toIdx, true); MapView.addCaptureFlash(toIdx); MapView.addFloatText(toP.x, toP.y, "-"+dLoss, "enemy"); }
+        if (window.MapView) { MapView.playAttack(fromIdx, toIdx, true, null); MapView.addCaptureFlash(toIdx); MapView.addFloatText(toP.x, toP.y, "-"+dLoss, "enemy"); }
         if (window.UI) UI.toast(aName + " 吞并了中立的 " + provName(toP) + "！", "good"); }
     } else {
       const aLoss = Math.round(sent.reduce((s,d)=>s+d.hp,0)*0.1);
@@ -393,7 +399,7 @@ const Game = (function(){
       state.recentBattles.unshift(battleRec);
       if(state.recentBattles.length>30) state.recentBattles.pop();
       log("🛡 " + aName + " 进攻 " + provName(toP) + " 被击退。进攻 " + aStrR + " vs 防御 " + dStrR + "（" + ratio.toFixed(2) + "×），我损 " + aLoss + " / 敌损 " + dLoss, "war");
-      if (window.MapView) { MapView.playAttack(fromIdx, toIdx, false); MapView.addFloatText(fromP.x, fromP.y, "-"+aLoss, "own"); }
+      if (window.MapView) { MapView.playAttack(fromIdx, toIdx, false, toP.owner); MapView.addFloatText(fromP.x, fromP.y, "-"+aLoss, "own"); }
       if (window.UI){ UI.toast(aName + " 进攻 " + provName(toP) + " 被击退。", "war"); UI.sfx("attack"); }
       if (attackerId === state.player) state.selectedIdx = fromIdx;   // 失败则保留原省选中，便于重整再攻
     }
@@ -899,7 +905,7 @@ const Game = (function(){
         const atk = strengthOf(o.p.garrison.slice(0, o.p.garrison.length-1), "atk", 1, 1, 1, 1, 1);
         const def = defendStrength(tgt);
         // AI 战时更主动 (1.05x 优势就出手)
-        if (atk > def * 1.05) doAssault(id, o.i, state.provinces.indexOf(tgt), 0);
+        if (atk > def * 1.15) doAssault(id, o.i, state.provinces.indexOf(tgt), 0);
         return;
       }
       if (state.coastal[o.i] && seaAdj(o.i).length){
@@ -932,19 +938,20 @@ const Game = (function(){
     });
   }
   // 未交战时：吞并相邻中立 + 趁强攻击弱邻(玩家 OR 其他 AI; 排除结盟国)
+  // 欧洲战场省份密集：对主要国家每月最多扩张 1 省，避免小国几个月内被吞
   function aiExpand(id){
     const ai = country(id);
-    let expanded = 0;
+    let neutralsTaken = 0, majorsHit = 0;
     const aiProv = state.provinces.map((p,i)=>({p,i})).filter(o => o.p.owner === id);
     for (const o of aiProv){
-      if (expanded >= 2) break;
+      if (neutralsTaken >= 2 && majorsHit >= 1) break;
       if (o.p.garrison.length === 0) continue;
       const adj = neighbors(o.i);
-      // 优先吞并中立
+      // 优先吞并中立（每月至多 2 省）
       const neutrals = adj.filter(n => province(n).owner === null)
         .sort((a,b) => defendStrength(province(a)) - defendStrength(province(b)));
-      if (neutrals.length){ doAssault(id, o.i, neutrals[0], 0); expanded++; continue; }
-      // 其次: 攻弱邻 (玩家 OR 其他 AI; 排除结盟)
+      if (neutrals.length && neutralsTaken < 2){ doAssault(id, o.i, neutrals[0], 0); neutralsTaken++; continue; }
+      // 其次: 攻弱邻 (玩家 OR 其他 AI; 排除结盟) — 每月至多 1 省，且需 1.35x 优势
       const foes = adj.filter(n => {
         const q = province(n);
         if (!q.owner) return false;
@@ -953,15 +960,15 @@ const Game = (function(){
         if (country(q.owner).alive && !isAllied(id, q.owner)) return true;
         return false;
       }).sort((a,b) => defendStrength(province(a)) - defendStrength(province(b)));
-      if (foes.length){
+      if (foes.length && majorsHit < 1){
         const tgt = foes[0];
         const tgtP = province(tgt);
         const atk = strengthOf(o.p.garrison, "atk", 1, 1, 1, 1, 1);
         const def = defendStrength(tgtP);
-        // 攻弱邻阈值 1.15x (1.25 → 1.15 让 AI 更主动)
-        if (atk > def * 1.15){
+        // 攻打有主省份需 1.35x 优势（欧洲拥挤，避免滚雪球太快）
+        if (atk > def * 1.35){
           doAssault(id, o.i, tgt, 0);
-          expanded++;
+          majorsHit++;
         }
       }
     }

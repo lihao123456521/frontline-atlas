@@ -5,8 +5,12 @@
    ============================================================ */
 const MapView = (() => {
   const W = 1000, H = 500;
+  // 欧洲战场视口：地图锁定在欧洲区域（EUROPE_VIEW 由 data.js 提供）
+  // 欧洲战场相机范围（世界坐标）：viewBox 保持全世界，由缩放/平移钳制锁定欧洲
+  const VB = (typeof EUROPE_VIEW !== "undefined") ? EUROPE_VIEW : { x: 0, y: 0, w: W, h: H };
   const svg = document.getElementById("mapSvg");
   const NS = "http://www.w3.org/2000/svg";
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
   const L = {
     ocean:     document.getElementById("layerOcean"),
@@ -230,7 +234,7 @@ const MapView = (() => {
       const isHov = i === hoverIdx;
       const dot = document.createElementNS(NS,"circle");
       dot.setAttribute("cx",p.x); dot.setAttribute("cy",p.y);
-      dot.setAttribute("r", isCap ? 3.5 : (isHov||isSel?3:1.8));
+      dot.setAttribute("r", isCap ? 1.5 : (isHov||isSel?1.3:0.8));
       let dotFill = p.owner ? darken(countryColor(p.owner),60) : "#4a5a4a";
       if(mapMode === "terrain") dotFill = "#1a1a1a";
       dot.setAttribute("fill",dotFill);
@@ -239,7 +243,7 @@ const MapView = (() => {
       // 玩家首都永远显示标签; 其他首都/选中/悬停/高缩放也显示
       if(isPlayerCap || isCap || isSel || isHov || scale >= 2.2){
         const t = document.createElementNS(NS,"text");
-        t.setAttribute("x",p.x); t.setAttribute("y",p.y-9);
+        t.setAttribute("x",p.x); t.setAttribute("y",p.y-3.8);
         t.setAttribute("class","prov-label"+(isCap?" capital":""));
         if(isPlayerCap) t.setAttribute("font-weight","bold");
         if(scale >= 2.2 && !isCap && !isSel && !isHov) t.setAttribute("opacity","0.5");
@@ -249,9 +253,9 @@ const MapView = (() => {
       // 首都金星标记
       if(isCap){
         const star = document.createElementNS(NS,"text");
-        star.setAttribute("x",p.x); star.setAttribute("y",p.y+4);
+        star.setAttribute("x",p.x); star.setAttribute("y",p.y+1.8);
         star.setAttribute("text-anchor","middle");
-        star.setAttribute("font-size","9");
+        star.setAttribute("font-size","3.4");
         star.setAttribute("fill","#ffd700");
         star.setAttribute("stroke","#000");
         star.setAttribute("stroke-width","0.3");
@@ -263,29 +267,29 @@ const MapView = (() => {
         const bq = Game.state.buildQueue.find(b => b.provinceIdx === i);
         if(bq){
           const bg = document.createElementNS(NS,"circle");
-          bg.setAttribute("cx",p.x+14); bg.setAttribute("cy",p.y+10);
-          bg.setAttribute("r",5); bg.setAttribute("fill","rgba(0,0,0,.6)");
+          bg.setAttribute("cx",p.x+6); bg.setAttribute("cy",p.y+4.5);
+          bg.setAttribute("r",2.2); bg.setAttribute("fill","rgba(0,0,0,.6)");
           L.labels.appendChild(bg);
           const ic = document.createElementNS(NS,"text");
-          ic.setAttribute("x",p.x+14); ic.setAttribute("y",p.y+13);
+          ic.setAttribute("x",p.x+6); ic.setAttribute("y",p.y+5.7);
           ic.setAttribute("text-anchor","middle");
-          ic.setAttribute("font-size","8");
+          ic.setAttribute("font-size","3.2");
           ic.setAttribute("fill","#ffb347");
           ic.textContent = bq.sub==="fort"?"🏰":"🛤";
           L.labels.appendChild(ic);
         }
       }
       // 资源图标（放大时显示）
-      if(scale >= 1.5){
-        let rx = p.x - 14, ry = p.y + 12;
+      if(scale >= 8){
+        let rx = p.x - 6, ry = p.y + 5;
         const resItems = [];
         if(p.resource) resItems.push({ic:"⛏",c:"#aaa"});
         if(p.oil) resItems.push({ic:"🛢",c:"#5a4"});
         if(p.rare) resItems.push({ic:"💎",c:"#9cf"});
         resItems.forEach((r,ri)=>{
           const rt = document.createElementNS(NS,"text");
-          rt.setAttribute("x",rx + ri*10); rt.setAttribute("y",ry);
-          rt.setAttribute("font-size","7");
+          rt.setAttribute("x",rx + ri*4); rt.setAttribute("y",ry);
+          rt.setAttribute("font-size","2.8");
           rt.setAttribute("text-anchor","middle");
           rt.setAttribute("fill",r.c);
           rt.textContent = r.ic;
@@ -331,11 +335,11 @@ const MapView = (() => {
       p.isCapital ||
       i === hoverIdx || i === selIdx ||
       (hoverUnitKey && hoverUnitKey.startsWith(i + "_"));
-    const detailed = scale >= 1.5;
-    const bw = detailed ? 28 : 18, bh = detailed ? 20 : 13;
+    const detailed = scale >= 7.5;
+    const bw = detailed ? 8 : 5, bh = detailed ? 6 : 3.5;
     Game.state.provinces.forEach((p, i) => {
       if(!p.garrison.length) return;
-      if(scale < 2.2 && !isImportant(p, i)) return;   // 次要省份：放大后才显示
+      if(scale < 8 && !isImportant(p, i)) return;   // 次要省份：放大后才显示
       // 按类型聚合
       const groups = {};
       p.garrison.forEach(d => {
@@ -371,8 +375,8 @@ const MapView = (() => {
           ge.appendChild(ig);
           const cnt = document.createElementNS(NS,"text");
           cnt.setAttribute("class","unit-count");
-          cnt.setAttribute("x",bw-3); cnt.setAttribute("y",10);
-          cnt.setAttribute("font-size","9");
+          cnt.setAttribute("x",bw-1.2); cnt.setAttribute("y",3.4);
+          cnt.setAttribute("font-size","3");
           cnt.textContent = g.count;
           ge.appendChild(cnt);
           const hpW = bw-6;
@@ -393,18 +397,18 @@ const MapView = (() => {
           const ch = UNIT_SHORT[g.type] || "?";
           const glyphColor = rel==="enemy" ? "#ff8080" : rel==="ally" ? "#80c0ff" : (UNIT_GLYPH_COLOR[g.type]||"#ccc");
           const t = document.createElementNS(NS,"text");
-          t.setAttribute("x",bw/2); t.setAttribute("y",bh/2+4);
+          t.setAttribute("x",bw/2); t.setAttribute("y",bh/2+1.1);
           t.setAttribute("text-anchor","middle");
-          t.setAttribute("font-size","10");
+          t.setAttribute("font-size","3");
           t.setAttribute("font-weight","bold");
           t.setAttribute("fill",glyphColor);
           t.textContent = ch;
           ge.appendChild(t);
           if(g.count > 1){
             const c = document.createElementNS(NS,"text");
-            c.setAttribute("x",bw-2); c.setAttribute("y",6);
+            c.setAttribute("x",bw-0.8); c.setAttribute("y",1.9);
             c.setAttribute("text-anchor","end");
-            c.setAttribute("font-size","7");
+            c.setAttribute("font-size","2.4");
             c.setAttribute("fill","#fff");
             c.textContent = g.count;
             ge.appendChild(c);
@@ -413,8 +417,8 @@ const MapView = (() => {
           const hpPct = g.hp/g.maxHp;
           if(hpPct < 0.99){
             const hpBar = document.createElementNS(NS,"rect");
-            hpBar.setAttribute("x",2); hpBar.setAttribute("y",bh-3);
-            hpBar.setAttribute("width",Math.max(0,(bw-4)*hpPct)); hpBar.setAttribute("height",1.5);
+            hpBar.setAttribute("x",0.8); hpBar.setAttribute("y",bh-1.1);
+            hpBar.setAttribute("width",Math.max(0,(bw-1.6)*hpPct)); hpBar.setAttribute("height",0.55);
             hpBar.setAttribute("fill", hpPct<0.35?"#d9534f":hpPct<0.65?"#f0ad4e":"#5cb85c");
             ge.appendChild(hpBar);
           }
@@ -441,7 +445,41 @@ const MapView = (() => {
     });
   }
 
-  // ---------- 战斗特效（瞬时战斗的动画反馈） ----------
+  // ---------- 战斗特效（出征行军 → 两军对垒 → 战果） ----------
+  // 时间轴 1.5s：0~0.38 进攻方士兵从出发省向目标行军；
+  // 0.30~0.85 双方士兵在中点对垒白刃战（攻方节奏突刺 + 交锋火花）；
+  // 0.85~1 战败一方倒下淡出。叠加脉冲环 / 攻击箭头 / 占领金光 / 浮动战果文字。
+  const MARCH_T = 0.38, CLASH_T = 0.85;
+  // 迷你士兵剪影：头 + 躯干 + 双腿 + 持枪手臂
+  function soldierGlyph(color){
+    const g = document.createElementNS(NS,"g");
+    const head = document.createElementNS(NS,"circle");
+    head.setAttribute("cx",0); head.setAttribute("cy",-3.1); head.setAttribute("r",1.15);
+    head.setAttribute("fill",color);
+    g.appendChild(head);
+    const body = document.createElementNS(NS,"path");
+    body.setAttribute("d","M0,-1.8 L0,0.8 M0,0.8 L-1.25,3.1 M0,0.8 L1.25,3.1 M0,-1 L1.9,-1.9 L3.1,-3.2");
+    body.setAttribute("fill","none");
+    body.setAttribute("stroke",color);
+    body.setAttribute("stroke-width","1.15");
+    body.setAttribute("stroke-linecap","round");
+    body.setAttribute("stroke-linejoin","round");
+    g.appendChild(body);
+    return g;
+  }
+  // 在 (x,y) 放置一个朝向 angle 的士兵（flipY 用于守方反向）
+  function placeSoldier(color, x, y, angle, fallT){
+    const g = soldierGlyph(color);
+    const sc = 0.62;
+    const tr = `translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${(angle*180/Math.PI).toFixed(1)}) scale(${sc})`;
+    if(fallT > 0){
+      g.setAttribute("opacity", (1 - fallT).toFixed(2));
+      g.setAttribute("transform", tr + ` rotate(${(fallT*80).toFixed(0)}) scale(${(1 - fallT*0.25).toFixed(2)})`);
+    } else {
+      g.setAttribute("transform", tr);
+    }
+    return g;
+  }
   function renderBattleEffects(){
     L.battles.innerHTML = "";
     L.atkArr.innerHTML = "";
@@ -449,57 +487,96 @@ const MapView = (() => {
     battleEffects = battleEffects.filter(e => now - e.startTime < 1500);
     battleEffects.forEach(e => {
       const t = (now - e.startTime) / 1500;
-      // 攻击箭头
       const a = Game.state.provinces[e.from], b = Game.state.provinces[e.to];
-      if(a && b){
-        const alpha = 1 - t;
+      if(a && b && e.attC){
+        const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy) || 1;
+        const ux=dx/len, uy=dy/len, angle=Math.atan2(dy,dx);
+        const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+        // 攻击箭头（整段存在，透明度随时间衰减）
+        const gap=20, alpha = 1 - Math.max(0, (t-CLASH_T)/(1-CLASH_T));
         const g = document.createElementNS(NS,"g");
-        g.setAttribute("opacity", alpha);
-        const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy);
-        const ux=dx/len, uy=dy/len, gap=24;
+        g.setAttribute("opacity", alpha.toFixed(2));
         const line = document.createElementNS(NS,"line");
         line.setAttribute("x1",a.x+ux*gap); line.setAttribute("y1",a.y+uy*gap);
-        line.setAttribute("x2",b.x-ux*gap); line.setAttribute("y2",b.y-uy*gap);
-        line.setAttribute("stroke", e.won ? "#ff6b4a" : "#888");
-        line.setAttribute("stroke-width",2.5);
+        line.setAttribute("x2",mx-ux*10); line.setAttribute("y2",my-uy*10);
+        line.setAttribute("stroke", e.attC);
+        line.setAttribute("stroke-width",2.2);
         line.setAttribute("stroke-dasharray","8 5");
         line.setAttribute("stroke-dashoffset", -(animFrame*0.8)%13);
+        line.setAttribute("opacity",0.75);
         g.appendChild(line);
-        const ah=10, angle=Math.atan2(dy,dx), tx=b.x-ux*gap, ty=b.y-uy*gap;
-        const tri = document.createElementNS(NS,"polygon");
-        tri.setAttribute("points",`${tx},${ty} ${tx-ah*Math.cos(angle-0.4)},${ty-ah*Math.sin(angle-0.4)} ${tx-ah*Math.cos(angle+0.4)},${ty-ah*Math.sin(angle+0.4)}`);
-        tri.setAttribute("fill", e.won ? "#ff6b4a" : "#888");
-        g.appendChild(tri);
         L.atkArr.appendChild(g);
+
+        const perpX = -uy, perpY = ux;
+        const gapM = 8;
+        if(t < MARCH_T){
+          // ---- 出征行军：一列士兵沿路线推进 ----
+          const marchT = t / MARCH_T;
+          for(let i=0;i<5;i++){
+            const p = marchT*1.15 - i*0.075;
+            if(p < 0 || p > 1) continue;
+            const px = a.x + ux*(gap + p*(len-gap*2-gapM)) - perpY*0;
+            const py = a.y + uy*(gap + p*(len-gap*2-gapM));
+            // 行军摆动：轻微左右摇摆模拟步伐
+            const sway = Math.sin(animFrame*0.5 + i)*0.8;
+            L.battles.appendChild(placeSoldier(e.attC, px + perpX*sway, py + perpY*sway, angle, 0));
+          }
+        } else {
+          // ---- 两军对垒白刃战 ----
+          const ct = (t - MARCH_T) / (CLASH_T - MARCH_T);          // 对垒进度 0..1
+          const rt = Math.max(0, (t - CLASH_T) / (1 - CLASH_T));   // 战果进度
+          const lunge = Math.sin(animFrame*0.9)*0.9 + 0.5;         // 攻方突刺
+          // 攻方 3 人（胜：压上；败：战果阶段后撤倒下）
+          for(let i=-1;i<=1;i++){
+            const bx = mx - ux*(2.6+lunge) + perpX*i*1.7;
+            const by = my - uy*(2.6+lunge) + perpY*i*1.7;
+            L.battles.appendChild(placeSoldier(e.attC, bx, by, angle, e.won ? 0 : rt));
+          }
+          // 守方 3 人（面向攻方；败：倒下淡出）
+          for(let i=-1;i<=1;i++){
+            const bx = mx + ux*2.6 + perpX*i*1.7;
+            const by = my + uy*2.6 + perpY*i*1.7;
+            L.battles.appendChild(placeSoldier(e.defC, bx, by, angle+Math.PI, e.won ? rt : 0));
+          }
+          // 交锋火花：中点随机短亮线
+          if(t < CLASH_T && animFrame % 2 === 0){
+            for(let s=0;s<3;s++){
+              const sa = Math.random()*Math.PI*2, sl = 0.8 + Math.random()*1.2;
+              const sx0 = mx + Math.cos(sa)*1, sy0 = my + Math.sin(sa)*1;
+              const sp = document.createElementNS(NS,"line");
+              sp.setAttribute("x1",sx0); sp.setAttribute("y1",sy0);
+              sp.setAttribute("x2",sx0+Math.cos(sa)*sl); sp.setAttribute("y2",sy0+Math.sin(sa)*sl);
+              sp.setAttribute("stroke","#ffe08a");
+              sp.setAttribute("stroke-width",0.55);
+              sp.setAttribute("stroke-linecap","round");
+              L.battles.appendChild(sp);
+            }
+          }
+        }
       }
-      // 脉冲环 + 剑图标
+      // 脉冲环（战斗位置）
       const bg = document.createElementNS(NS,"g");
       bg.setAttribute("transform",`translate(${e.gx},${e.gy})`);
-      bg.setAttribute("opacity", 1-t);
+      bg.setAttribute("opacity", (1-t).toFixed(2));
       for(let r=0;r<2;r++){
         const ring = document.createElementNS(NS,"circle");
-        ring.setAttribute("r", 8 + t*22);
+        ring.setAttribute("r", 3 + t*9);
         ring.setAttribute("fill","none");
         ring.setAttribute("stroke", e.won ? "#ff8c2a" : "#aaa");
         ring.setAttribute("stroke-width",2);
-        ring.setAttribute("opacity", 1-t);
+        ring.setAttribute("opacity", (1-t).toFixed(2));
         bg.appendChild(ring);
       }
-      const icon = document.createElementNS(NS,"text");
-      icon.setAttribute("text-anchor","middle"); icon.setAttribute("y",6);
-      icon.setAttribute("font-size","18"); icon.setAttribute("fill", e.won?"#ffaa33":"#ccc");
-      icon.textContent = "⚔";
-      bg.appendChild(icon);
       L.battles.appendChild(bg);
       // 占领闪光
       if(e.type === "capture"){
         const flash = document.createElementNS(NS,"circle");
         flash.setAttribute("cx",e.gx); flash.setAttribute("cy",e.gy);
-        flash.setAttribute("r", 10 + t*35);
+        flash.setAttribute("r", 4 + t*14);
         flash.setAttribute("fill","none");
         flash.setAttribute("stroke","#ffd700");
         flash.setAttribute("stroke-width",3);
-        flash.setAttribute("opacity",(1-t)*0.8);
+        flash.setAttribute("opacity",((1-t)*0.8).toFixed(2));
         L.battles.appendChild(flash);
       }
     });
@@ -511,17 +588,21 @@ const MapView = (() => {
       t_el.setAttribute("class","float-text "+ft.type);
       t_el.setAttribute("x",ft.x);
       t_el.setAttribute("y",ft.y - t*20);
-      t_el.setAttribute("opacity", 1-t);
+      t_el.setAttribute("opacity", (1-t).toFixed(2));
       t_el.textContent = ft.text;
       L.battles.appendChild(t_el);
     });
   }
 
-  // 供 game.js 调用：播放进攻特效
-  function playAttack(fromIdx, toIdx, won){
+  // 供 game.js 调用：播放进攻特效（defId 用于守方士兵着色）
+  function playAttack(fromIdx, toIdx, won, defId){
     const a = Game.state.provinces[fromIdx], b = Game.state.provinces[toIdx];
     if(!a || !b) return;
-    battleEffects.push({from:fromIdx, to:toIdx, gx:(a.x+b.x)/2, gy:(a.y+b.y)/2, startTime:Date.now(), won});
+    battleEffects.push({
+      from:fromIdx, to:toIdx, gx:(a.x+b.x)/2, gy:(a.y+b.y)/2, startTime:Date.now(), won,
+      attC: countryColor(a.owner) || "#9aa1a8",
+      defC: defId ? (countryColor(defId) || "#9aa1a8") : "#9aa1a8",
+    });
     // 伤害数字
     const txt = won ? "突破!" : "击退";
     addFloatText((a.x+b.x)/2, (a.y+b.y)/2 - 14, txt, won?"vic":"dmg");
@@ -552,7 +633,7 @@ const MapView = (() => {
       if(p){
         const c = document.createElementNS(NS,"circle");
         c.setAttribute("class","sel-ring");
-        c.setAttribute("cx",p.x); c.setAttribute("cy",p.y); c.setAttribute("r",20);
+        c.setAttribute("cx",p.x); c.setAttribute("cy",p.y); c.setAttribute("r",8);
         L.hilight.appendChild(c);
       }
     }
@@ -561,7 +642,7 @@ const MapView = (() => {
       if(p){
         const c = document.createElementNS(NS,"circle");
         c.setAttribute("class","hover-ring");
-        c.setAttribute("cx",p.x); c.setAttribute("cy",p.y); c.setAttribute("r",18);
+        c.setAttribute("cx",p.x); c.setAttribute("cy",p.y); c.setAttribute("r",7);
         L.hilight.appendChild(c);
         // 进攻预览箭头
         if(curSel >= 0){
@@ -577,9 +658,9 @@ const MapView = (() => {
               L.hilight.appendChild(line);
               // 箭头
               const ang = Math.atan2(p.y-from.y, p.x-from.x);
-              const ax = p.x - Math.cos(ang)*22, ay = p.y - Math.sin(ang)*22;
+              const ax = p.x - Math.cos(ang)*9, ay = p.y - Math.sin(ang)*9;
               const tri = document.createElementNS(NS,"polygon");
-              tri.setAttribute("points",`${p.x-12},${p.y} ${ax},${ay-6} ${ax},${ay+6}`);
+              tri.setAttribute("points",`${p.x-4.5},${p.y} ${ax},${ay-2.5} ${ax},${ay+2.5}`);
               tri.setAttribute("fill","#ff6644");
               tri.setAttribute("opacity","0.7");
               L.hilight.appendChild(tri);
@@ -624,13 +705,13 @@ const MapView = (() => {
         if(!a||!b) continue;
         const g = document.createElementNS(NS,"g");
         const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy);
-        const ux=dx/len, uy=dy/len, gap=22;
+        const ux=dx/len, uy=dy/len, gap=9;
         const line = document.createElementNS(NS,"line");
         line.setAttribute("x1",a.x+ux*gap); line.setAttribute("y1",a.y+uy*gap);
         line.setAttribute("x2",b.x-ux*gap); line.setAttribute("y2",b.y-uy*gap);
         line.setAttribute("class","plan-arrow");
         g.appendChild(line);
-        const ah=9, angle=Math.atan2(dy,dx), tx=b.x-ux*gap, ty=b.y-uy*gap;
+        const ah=3.6, angle=Math.atan2(dy,dx), tx=b.x-ux*gap, ty=b.y-uy*gap;
         const tri = document.createElementNS(NS,"polygon");
         tri.setAttribute("points",`${tx},${ty} ${tx-ah*Math.cos(angle-0.4)},${ty-ah*Math.sin(angle-0.4)} ${tx-ah*Math.cos(angle+0.4)},${ty-ah*Math.sin(angle+0.4)}`);
         tri.setAttribute("fill","#5b9bd5");
@@ -658,17 +739,17 @@ const MapView = (() => {
       // 海岸/海路也支持 (简化为只显示陆上)
       const a = fromP, b = p;
       const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy) || 1;
-      const ux=dx/len, uy=dy/len, gap=15;
+      const ux=dx/len, uy=dy/len, gap=6;
       const g = document.createElementNS(NS,"g");
       g.setAttribute("class","attackable-arrow");
       const line = document.createElementNS(NS,"line");
       line.setAttribute("x1",a.x+ux*gap); line.setAttribute("y1",a.y+uy*gap);
       line.setAttribute("x2",b.x-ux*gap); line.setAttribute("y2",b.y-uy*gap);
       line.setAttribute("stroke", p.owner ? "#ff8c2a" : "#7ad27a");  // 异国红, 无主绿
-      line.setAttribute("stroke-width","2");
+      line.setAttribute("stroke-width","1.1");
       line.setAttribute("stroke-dasharray","4 3");
       g.appendChild(line);
-      const ah=7, angle=Math.atan2(dy,dx), tx=b.x-ux*gap, ty=b.y-uy*gap;
+      const ah=3, angle=Math.atan2(dy,dx), tx=b.x-ux*gap, ty=b.y-uy*gap;
       const tri = document.createElementNS(NS,"polygon");
       tri.setAttribute("points",`${tx},${ty} ${tx-ah*Math.cos(angle-0.4)},${ty-ah*Math.sin(angle-0.4)} ${tx-ah*Math.cos(angle+0.4)},${ty-ah*Math.sin(angle+0.4)}`);
       tri.setAttribute("fill", p.owner ? "#ff8c2a" : "#7ad27a");
@@ -680,10 +761,10 @@ const MapView = (() => {
       const ring = document.createElementNS(NS,"circle");
       ring.setAttribute("cx", fromP.x);
       ring.setAttribute("cy", fromP.y);
-      ring.setAttribute("r", 18);
+      ring.setAttribute("r", 7);
       ring.setAttribute("fill","none");
       ring.setAttribute("stroke","#ffc266");
-      ring.setAttribute("stroke-width","2");
+      ring.setAttribute("stroke-width","0.9");
       ring.setAttribute("stroke-dasharray","4 2");
       ring.setAttribute("class","attackable-ring");
       L.planHL.appendChild(ring);
@@ -727,7 +808,7 @@ const MapView = (() => {
     return null;
   }
   function provinceUnderPoint(sx,sy){
-    let best=-1, bd=16;
+    let best=-1, bd=6;
     for(const p of provHits){
       const d = Math.hypot(p.x-sx,p.y-sy);
       if(d<bd){bd=d;best=p.idx;}
@@ -750,8 +831,8 @@ const MapView = (() => {
 
   // ---------- 聚焦 ----------
   // 可视区锚点：SVG 以 center 原点做 translate+scale，viewBox 经 letterbox 映射进元素框，
-  // 世界→屏幕比例 k = scale * min(wrapW/W, wrapH/H)；世界中心 (500,250) 对应元素框中心。
-  // 屏幕坐标 = wrap中心 + pan + k*(世界坐标 - 世界中心)。右侧面板宽度计入可视区。
+  // 世界→屏幕比例 k = scale * min(wrapW/VB.w, wrapH/VB.h)；viewBox 中心对应元素框中心。
+  // 屏幕坐标 = wrap中心 + pan + k*(世界坐标 - VB中心)。右侧面板宽度计入可视区。
   function visibleAnchor(){
     let wr = wrap ? wrap.getBoundingClientRect() : null;
     if(!wr || wr.width < 10) wr = svg.getBoundingClientRect();
@@ -763,8 +844,20 @@ const MapView = (() => {
       cy: wr.top + wr.height / 2,
       vx: wr.left + (wr.width - panelW) / 2,
       vy: wr.top + wr.height / 2,
+      vcx: W / 2,
+      vcy: H / 2,
       k,
     };
+  }
+  // 平移越界钳制：视图中心不允许移出欧洲视口（地图锁定欧洲战场）
+  function clampPan(){
+    // 视图中心限制在欧洲范围内
+    const a = visibleAnchor();
+    // 屏幕中心对应的世界坐标（注意 pan 的符号方向）
+    const wx = a.vcx - panX / a.k, wy = a.vcy - panY / a.k;
+    panX -= (clamp(wx, VB.x, VB.x + VB.w) - wx) * a.k;
+    panY -= (clamp(wy, VB.y, VB.y + VB.h) - wy) * a.k;
+    // （VB = 欧洲相机范围，世界坐标）
   }
   function focusPlayer(){ focusCountry(Game.state.player); }
   function focusCountry(cid){
@@ -775,15 +868,16 @@ const MapView = (() => {
     // 优先选玩家首都作为焦点
     const cap = Game.state.provinces.find(p => p.owner === cid && p.isCapital);
     const tx = cap ? cap.x : cx, ty = cap ? cap.y : cy;
-    scale = 2.0;
+    scale = 7;
     panTo(tx, ty, 0.5, 0.45);
     focused = true;
   }
   // 平移使世界点 (tx,ty) 位于可视区相对位置 (fx,fy)
   function panTo(tx, ty, fx, fy){
     const a = visibleAnchor();
-    panX = a.vx - a.cx - a.k * (tx - W / 2);
-    panY = a.vy - a.cy - a.k * (ty - H / 2);
+    panX = a.vx - a.cx - a.k * (tx - a.vcx);
+    panY = a.vy - a.cy - a.k * (ty - a.vcy);
+    clampPan();
     applyTransform();
   }
   // 选中省份时, 平滑滚到屏幕中央
@@ -791,8 +885,8 @@ const MapView = (() => {
     const p = Game.state.provinces[idx];
     if(!p) return;
     const a = visibleAnchor();
-    const targetPanX = a.vx - a.cx - a.k * (p.x - W / 2);
-    const targetPanY = a.vy - a.cy - a.k * (p.y - H / 2);
+    const targetPanX = a.vx - a.cx - a.k * (p.x - a.vcx);
+    const targetPanY = a.vy - a.cy - a.k * (p.y - a.vcy);
     if (animate){
       const startX = panX, startY = panY, dur = 280;
       const t0 = performance.now();
@@ -801,6 +895,7 @@ const MapView = (() => {
         const k = 0.5 - Math.cos(t * Math.PI) / 2;  // ease-in-out
         panX = startX + (targetPanX - startX) * k;
         panY = startY + (targetPanY - startY) * k;
+        clampPan();
         applyTransform();
         if (t < 1) requestAnimationFrame(step);
       })();
@@ -814,16 +909,23 @@ const MapView = (() => {
     if(!p) return true;
     margin = margin || 30;  // 视口外扩 30px 边距
     const a = visibleAnchor();
-    const sx = a.cx + panX + a.k * (p.x - W / 2);
-    const sy = a.cy + panY + a.k * (p.y - H / 2);
+    const sx = a.cx + panX + a.k * (p.x - a.vcx);
+    const sy = a.cy + panY + a.k * (p.y - a.vcy);
     const rp = document.getElementById("rightPanel");
     const panelW = (rp && !rp.classList.contains("collapsed")) ? rp.offsetWidth : 0;
     return sx >= margin && sx <= window.innerWidth - panelW - margin
         && sy >= margin && sy <= window.innerHeight - margin;
   }
-  function resetView(){ panX=0;panY=0;scale=1;applyTransform(); focused=false; }
+  function resetView(){
+    // 复位 = 欧洲全境视角
+    scale = 6.5;
+    const a = visibleAnchor();
+    panX = a.vx - a.cx;
+    panY = a.vy - a.cy;
+    clampPan(); applyTransform(); focused = false;
+  }
   function zoomBy(factor, cx, cy){
-    const newScale = Math.max(0.8, Math.min(4, scale * factor));
+    const newScale = Math.max(3, Math.min(12, scale * factor));  // 欧洲战场：3=纵观全欧, 6.5=填满视口, 12=省级
     if(cx !== undefined && cy !== undefined){
       // Zoom toward cursor position
       const r = wrap.getBoundingClientRect();
@@ -833,6 +935,7 @@ const MapView = (() => {
       panY = my - (my - panY) * (newScale/scale);
     }
     scale = newScale;
+    clampPan();
     applyTransform();
     render();
   }

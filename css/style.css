@@ -426,13 +426,13 @@ body::before{
 #mapSvg .prov-dot.capital{stroke:var(--gold);stroke-width:1.6;filter:drop-shadow(0 0 4px rgba(214,182,90,.5))}
 #mapSvg .prov-dot.sel{stroke:#fff;stroke-width:2.5;filter:drop-shadow(0 0 6px rgba(255,255,255,.6))}
 #mapSvg .prov-label{
-  fill:rgba(220,225,235,.75);font-size:8px;text-anchor:middle;pointer-events:none;
+  fill:rgba(220,225,235,.8);font-size:2.6px;text-anchor:middle;pointer-events:none;
   text-shadow:0 0 4px #000,0 0 4px #000,0 1px 2px #000;font-weight:500;
   paint-order:stroke;stroke:rgba(0,0,0,.6);stroke-width:2;stroke-linejoin:round;
   letter-spacing:.3px;
 }
 #mapSvg .prov-label.capital{
-  fill:#ffe8a0;font-size:10px;font-weight:bold;
+  fill:#ffe8a0;font-size:3.4px;font-weight:bold;
   paint-order:stroke;stroke:rgba(0,0,0,.8);stroke-width:2.5;
 }
 #mapSvg .prov-label-bg{
@@ -441,9 +441,9 @@ body::before{
   rx:2;ry:2;
 }
 #mapSvg .country-label{
-  fill:rgba(255,255,255,.7);font-size:10px;text-anchor:middle;pointer-events:none;
+  fill:rgba(255,255,255,.7);font-size:3.4px;text-anchor:middle;pointer-events:none;
   font-family:var(--font-display);
-  font-weight:bold;letter-spacing:1.5px;
+  font-weight:bold;letter-spacing:.6px;
   text-shadow:0 0 5px #000,0 0 3px #000,0 1px 2px #000;
   paint-order:stroke;stroke:rgba(0,0,0,.85);stroke-width:3.5;stroke-linejoin:round;
 }
@@ -508,8 +508,8 @@ body::before{
 
 /* 伤害弹出数字 */
 #mapSvg .float-text{
-  font-size:14px;font-weight:bold;text-anchor:middle;pointer-events:none;
-  paint-order:stroke;stroke:rgba(0,0,0,.7);stroke-width:2.5;
+  font-size:4.5px;font-weight:bold;text-anchor:middle;pointer-events:none;
+  paint-order:stroke;stroke:rgba(0,0,0,.7);stroke-width:1;
   animation:float-up 1.8s ease-out forwards;
 }
 #mapSvg .float-text.dmg{fill:#ff6b4a}
@@ -525,7 +525,7 @@ body::before{
    右侧面板
    ============================================================ */
 #rightPanel{
-  position:fixed;top:54px;right:0;bottom:200px;width:320px;
+  position:fixed;top:54px;right:0;bottom:150px;width:320px;
   background:
     linear-gradient(180deg,rgba(20,26,36,.98) 0%,rgba(14,18,26,.98) 100%);
   border-left:2px solid var(--brass);
@@ -860,7 +860,7 @@ body::before{
    底部日志
    ============================================================ */
 #bottomLog{
-  position:fixed;left:0;right:0;bottom:0;height:200px;
+  position:fixed;left:0;right:0;bottom:0;height:150px;
   background:linear-gradient(0deg,rgba(8,11,16,.98) 0%,rgba(20,28,40,.95) 100%);
   border-top:2px solid var(--brass);
   box-shadow:

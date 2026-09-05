@@ -142,7 +142,8 @@ const UI = (function(){
   /* ---------- 开始界面 ---------- */
   function initStartScreen(){
     const sel = $("selCountry");
-    COUNTRIES.forEach(c => {
+    // 欧洲战场限定：只列欧洲参战国
+    COUNTRIES.filter(c => EUROPEAN_COUNTRIES.includes(c.id)).forEach(c => {
       const o = document.createElement("option");
       o.value = c.id; o.textContent = c.name;
       sel.appendChild(o);
@@ -166,7 +167,8 @@ const UI = (function(){
     sel.addEventListener("change", updateCountry);
     updateCountry();
     const sc = $("selScenario");
-    SCENARIOS.forEach(s => {
+    // 欧洲战场限定：隐藏欧洲之外（太平洋战争等）的剧本
+    SCENARIOS.filter(s => !s.player || EUROPEAN_COUNTRIES.includes(s.player)).forEach(s => {
       const o = document.createElement("option");
       o.value = s.id; o.textContent = s.name;
       sc.appendChild(o);
