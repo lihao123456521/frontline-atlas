@@ -6,3 +6,4 @@
 
 # 依赖
 node_modules/
+.video_agent/
