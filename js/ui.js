@@ -65,7 +65,8 @@ const UI = (function(){
     return "#"+((r<<16)|(g<<8)|b).toString(16).padStart(6,"0");
   }
   function flagHTML(cid, size){
-    const c = Game.country(cid);
+    // 游戏未开始时回退到静态国家数据（开始界面预览可用）
+    const c = (Game.state && Game.state.countries[cid]) || COUNTRIES.find(x => x.id === cid);
     if(!c) return "";
     size = size||22;
     const h = Math.round(size*20/28);
@@ -146,6 +147,24 @@ const UI = (function(){
       o.value = c.id; o.textContent = c.name;
       sel.appendChild(o);
     });
+    // 国家预览卡：随下拉切换显示旗帜、定位与开局数据
+    function updateCountry(){
+      const c = COUNTRIES.find(x => x.id === sel.value);
+      const box = $("countryPreview");
+      if(!c || !box) return;
+      box.innerHTML = `
+        <div class="cp-head">${flagHTML(c.id, 40)}
+          <div class="cp-intro"><div class="cp-name">${c.name}</div><div class="cp-desc">${c.desc}</div></div>
+        </div>
+        <div class="cp-stats">
+          <span>工厂 <b>${c.startCiv} 民 / ${c.startMil} 军</b></span>
+          <span>资源 <b>${c.startRes}</b></span>
+          <span>稳定 <b>${c.stability}</b></span>
+          <span>战争支援 <b>${c.warSupport}</b></span>
+        </div>`;
+    }
+    sel.addEventListener("change", updateCountry);
+    updateCountry();
     const sc = $("selScenario");
     SCENARIOS.forEach(s => {
       const o = document.createElement("option");

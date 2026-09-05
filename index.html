@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>钢铁雄心 · 浏览器版</title>
-<link rel="stylesheet" href="css/style.css?v=8">
+<link rel="stylesheet" href="css/style.css?v=10">
 </head>
 <body>
 
@@ -15,6 +15,7 @@
     <div class="sub">HEARTS OF IRON · BROWSER EDITION</div>
     <label>选择国家</label>
     <select id="selCountry"></select>
+    <div id="countryPreview" class="country-preview"></div>
     <label>剧本</label>
     <select id="selScenario"></select>
     <div class="diff-desc" id="scenDesc"></div>
@@ -39,20 +40,20 @@
       <div class="name" id="topBarName"></div>
     </div>
     <div class="tb-group" title="内政">
-      <div class="tb-stat" title="政治权力"><span class="res-ic pp">◈</span><span class="val" id="tbPP">0</span></div>
-      <div class="tb-stat" title="稳定度"><span class="res-ic stab">☮</span><span class="val" id="tbStab">0%</span></div>
-      <div class="tb-stat" title="战争支援度"><span class="res-ic ws">⚔</span><span class="val" id="tbWS">0%</span></div>
+      <div class="tb-stat" title="政治权力"><span class="res-ic pp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4.5v9L12 20l-8-4.5v-9z" opacity=".55"/><path d="M12 6l4.5 2.5v5L12 16l-4.5-2.5v-5z"/></svg></span><span class="val" id="tbPP">0</span></div>
+      <div class="tb-stat" title="稳定度"><span class="res-ic stab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg></span><span class="val" id="tbStab">0%</span></div>
+      <div class="tb-stat" title="战争支援度"><span class="res-ic ws"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l13 13M19 5L6 18"/><path d="M14.5 19.5l5-5M4.5 14.5l5 5"/></svg></span><span class="val" id="tbWS">0%</span></div>
     </div>
     <div class="tb-group" title="工业">
-      <div class="tb-stat" title="民用工厂"><span class="res-ic civ">⚙</span><span class="val" id="tbCiv">0</span></div>
-      <div class="tb-stat" title="军用工厂"><span class="res-ic mil">🏭</span><span class="val" id="tbMil">0</span></div>
-      <div class="tb-stat" title="装备"><span class="res-ic equip">🔫</span><span class="val" id="tbEquip">0</span></div>
-      <div class="tb-stat" title="人力"><span class="res-ic man">👤</span><span class="val" id="tbMan">0</span></div>
+      <div class="tb-stat" title="民用工厂"><span class="res-ic civ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V9l5 3V9l5 3V9l5 3v9z"/><path d="M3 21h18"/></svg></span><span class="val" id="tbCiv">0</span></div>
+      <div class="tb-stat" title="军用工厂"><span class="res-ic mil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 21V10l6 4v-4l6 4v-4l6 4v7z"/><path d="M3 21h18"/></svg></span><span class="val" id="tbMil">0</span></div>
+      <div class="tb-stat" title="装备"><span class="res-ic equip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="6.5"/><path d="M12 2.5V7M12 17v4.5M2.5 12H7M17 12h4.5"/></svg></span><span class="val" id="tbEquip">0</span></div>
+      <div class="tb-stat" title="人力"><span class="res-ic man"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20c0-3.4 3-5.6 6.5-5.6s6.5 2.2 6.5 5.6"/></svg></span><span class="val" id="tbMan">0</span></div>
     </div>
     <div class="tb-group" title="战略资源">
-      <div class="tb-stat" title="钢铁"><span class="res-ic res">⛏</span><span class="val" id="tbRes">0</span></div>
-      <div class="tb-stat" title="石油"><span class="res-ic oil">🛢</span><span class="val" id="tbOil">0</span></div>
-      <div class="tb-stat" title="稀有材料"><span class="res-ic rare">💎</span><span class="val" id="tbRare">0</span></div>
+      <div class="tb-stat" title="钢铁"><span class="res-ic res"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="13" width="16" height="5" rx="1"/><rect x="7" y="6" width="10" height="5" rx="1"/></svg></span><span class="val" id="tbRes">0</span></div>
+      <div class="tb-stat" title="石油"><span class="res-ic oil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3c4 5 6.5 8 6.5 11a6.5 6.5 0 11-13 0c0-3 2.5-6 6.5-11z"/></svg></span><span class="val" id="tbOil">0</span></div>
+      <div class="tb-stat" title="稀有材料"><span class="res-ic rare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 4h10l4 6-9 11L3 10z"/><path d="M3 10h18M12 21L8 10l4-6 4 6z" opacity=".5"/></svg></span><span class="val" id="tbRare">0</span></div>
     </div>
   </div>
   <div id="topBarDate">1936年01月</div>
@@ -186,12 +187,12 @@
 <!-- 提示框 -->
 <div id="tooltip"></div>
 
-<script src="js/data.js?v=8"></script>
-<script src="js/data_world.js?v=8"></script>
-<script src="js/data_provinces.js?v=8"></script>
-<script src="js/game.js?v=8"></script>
-<script src="js/map.js?v=8"></script>
-<script src="js/ui.js?v=8"></script>
-<script src="js/main.js?v=8"></script>
+<script src="js/data.js?v=10"></script>
+<script src="js/data_world.js?v=10"></script>
+<script src="js/data_provinces.js?v=10"></script>
+<script src="js/game.js?v=10"></script>
+<script src="js/map.js?v=10"></script>
+<script src="js/ui.js?v=10"></script>
+<script src="js/main.js?v=10"></script>
 </body>
 </html>

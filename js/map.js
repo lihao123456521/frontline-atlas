@@ -318,14 +318,24 @@ const MapView = (() => {
   }
 
   // ---------- 单位计数器 ----------
+  // 只对"重要"省份画大兵牌：本国 / 与玩家交战 / 驻军≥2 / 首都 / 选中 / 悬停。
+  // 次要省份在低缩放下不显示（放大到 2.2 以上才补牌），避免欧洲单位牌挤成一团。
   function renderUnits(){
     L.units.innerHTML = "";
     unitHits = [];
-    // 根据缩放级别调整计数器大小
+    const s = Game.state;
+    const isImportant = (p, i) =>
+      p.owner === s.player ||
+      (p.owner && Game.isAtWar(s.player, p.owner)) ||
+      p.garrison.length >= 2 ||
+      p.isCapital ||
+      i === hoverIdx || i === selIdx ||
+      (hoverUnitKey && hoverUnitKey.startsWith(i + "_"));
     const detailed = scale >= 1.5;
     const bw = detailed ? 28 : 18, bh = detailed ? 20 : 13;
     Game.state.provinces.forEach((p, i) => {
       if(!p.garrison.length) return;
+      if(scale < 2.2 && !isImportant(p, i)) return;   // 次要省份：放大后才显示
       // 按类型聚合
       const groups = {};
       p.garrison.forEach(d => {
@@ -765,7 +775,7 @@ const MapView = (() => {
     // 优先选玩家首都作为焦点
     const cap = Game.state.provinces.find(p => p.owner === cid && p.isCapital);
     const tx = cap ? cap.x : cx, ty = cap ? cap.y : cy;
-    scale = 1.6;
+    scale = 2.0;
     panTo(tx, ty, 0.5, 0.45);
     focused = true;
   }
