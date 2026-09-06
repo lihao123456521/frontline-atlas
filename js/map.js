@@ -133,13 +133,40 @@ const MapView = (() => {
     // political
     return known ? s.countries[cid].color : "#555";
   }
+  // ---------- 国家轮廓平滑 ----------
+  // 手画国家形状是折线多边形（M/Q 数据，控制点=前一点），拐角生硬。
+  // Chaikin 角点切分 ×2：把每个拐角替换为两个 25%/75% 点，迭代后呈自然曲线。
+  // 结果按原始 d 缓存，只算一次。
+  const shapeSmoothCache = {};
+  function smoothShapeD(d, iter){
+    if (shapeSmoothCache[d]) return shapeSmoothCache[d];
+    iter = iter || 2;
+    const nums = d.match(/-?\d+(?:\.\d+)?/g);
+    if (!nums || nums.length < 6) return d;
+    const pts = [[+nums[0], +nums[1]]];
+    for (let i = 2; i + 3 < nums.length; i += 4) pts.push([+nums[i+2], +nums[i+3]]);
+    for (let k = 0; k < iter; k++){
+      const out = [];
+      const n = pts.length;
+      for (let i = 0; i < n; i++){
+        const a = pts[i], b = pts[(i+1)%n];
+        out.push([a[0]*0.75 + b[0]*0.25, a[1]*0.75 + b[1]*0.25]);
+        out.push([a[0]*0.25 + b[0]*0.75, a[1]*0.25 + b[1]*0.75]);
+      }
+      pts.length = 0;
+      for (const q of out) pts.push(q);
+    }
+    const sd = "M" + pts.map(p => p[0].toFixed(2) + " " + p[1].toFixed(2)).join("L") + "Z";
+    shapeSmoothCache[d] = sd;
+    return sd;
+  }
   function renderCountryShapes(){
     L.countryFills.innerHTML = "";
     if(typeof COUNTRY_SHAPES === "undefined") return;
     const playerId = Game.state.player;
     Object.keys(COUNTRY_SHAPES).forEach(cid => {
       const path = document.createElementNS(NS,"path");
-      path.setAttribute("d", COUNTRY_SHAPES[cid].d);
+      path.setAttribute("d", smoothShapeD(COUNTRY_SHAPES[cid].d));
       path.setAttribute("fill", shapeColorFor(cid));
       path.setAttribute("class", "country-fill" + (mapMode === "political" && cid === playerId ? " player-country" : ""));
       L.countryFills.appendChild(path);
@@ -917,11 +944,12 @@ const MapView = (() => {
         && sy >= margin && sy <= window.innerHeight - margin;
   }
   function resetView(){
-    // 复位 = 欧洲全境视角
+    // 复位 = 欧洲全境视角：欧洲中心对准可视区中心
     scale = 6.5;
     const a = visibleAnchor();
-    panX = a.vx - a.cx;
-    panY = a.vy - a.cy;
+    const ebx = VB.x + VB.w / 2, eby = VB.y + VB.h / 2;
+    panX = a.vx - a.cx - a.k * (ebx - a.vcx);
+    panY = a.vy - a.cy - a.k * (eby - a.vcy);
     clampPan(); applyTransform(); focused = false;
   }
   function zoomBy(factor, cx, cy){
