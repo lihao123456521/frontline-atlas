@@ -124,6 +124,7 @@ const UI = (function(){
   // 回合简报: 在右下角显示该回合的关键事件列表 (4 秒)
   function showTurnBriefing(date, items){
     if (!items || !items.length) return;
+    document.querySelectorAll(".turn-briefing").forEach(b => b.remove());   // 只显示最新简报
     const wrap = el("div", "turn-briefing");
     const head = `<div class="tb-head">📅 ${date} 简报</div>`;
     const body = items.map(it => `<div class="tb-item ${it.cls||''}">${it.icon || "•"} ${it.text}</div>`).join("");
@@ -363,7 +364,9 @@ const UI = (function(){
     const winPct = Math.round(prev.win*100);
     const winColor = winPct>=60?'#6fbf6f':winPct>=40?'#f0ad4e':'#d9534f';
     const box = el("div","rp-section fade-in");
-    box.innerHTML = `<h3>${isAmphib?"🌊 两栖登陆":"⚔ 进攻计划"}</h3>`;
+    const targetAtWar = !toP.owner || Game.isAtWar(s.player, toP.owner);
+    box.innerHTML = `<h3>${isAmphib?"🌊 两栖登陆":"⚔ 进攻计划"}</h3>`
+      + (targetAtWar ? "" : `<div style="margin-top:6px;padding:7px 9px;background:rgba(214,85,74,.12);border:1px dashed #aa5050;border-radius:3px;font-size:11px;line-height:1.6;color:#ffb0b0">⚠ <b>${Game.country(toP.owner).name}</b> 尚未交战。直接出兵即为<b>不宣而战</b>：稳定度 -8、世界紧张度 +10。先在外交页『正当化战争』再宣战可避免惩罚。</div>`);
     // 出兵路线选择：目标相邻的所有己方驻军省（多路可选，点击切换出发地）
     const origins = [];
     Game.neighbors(to).forEach(n=>{
@@ -441,7 +444,7 @@ const UI = (function(){
       });
       box.appendChild(allBtn);
     }
-    const btnAtk = el("button","rp-btn primary", isAmphib?"🚀 发起登陆":"⚔ 发起进攻");
+    const btnAtk = el("button","rp-btn primary", isAmphib ? (targetAtWar?"🚀 发起登陆":"🚀 两栖不宣而战") : (targetAtWar?"⚔ 发起进攻":"⚔ 不宣而战（稳定 -8）"));
     btnAtk.addEventListener("click",()=>{
       if(isAmphib) Game.amphibious(from, to, sendCount>=1?sendCount:undefined);
       else Game.doAssault(s.player, from, to, 0, sendCount>=1?sendCount:undefined);
@@ -545,8 +548,8 @@ const UI = (function(){
         const atWar = enemyNbrs.filter(n => Game.isAtWar(s.player, Game.province(n).owner));
         const atPeace = enemyNbrs.filter(n => !Game.isAtWar(s.player, Game.province(n).owner));
         const tip = atWar.length
-          ? `地图上 <span class="ah-orange">橙色箭头</span> = 可攻击邻国(已开战),点击开始`
-          : `邻国 <b>未开战</b>:需先 <b>宣战</b>(下方按钮)才能进攻。中立省份(无主)可点击直接吞并`;
+          ? `地图上 <span class="ah-orange">橙色箭头</span> = 可攻击邻国(已开战)，点击开始`
+          : `邻国 <b>未开战</b>：点击它可直接<b>不宣而战</b>（稳定 -8），或先『正当化战争』再宣战以避免惩罚`;
         const hint = el("div","attack-hint-banner");
         hint.innerHTML = `<div class="ah-title">⚔ 准备进攻</div>
           <div class="ah-body">${tip}</div>`;
@@ -978,22 +981,20 @@ const UI = (function(){
                 if(sendAllMode){ sendAllMode=false; toast("全军已出动。","good"); }
                 sfx("click"); return;
               }
-              if(!p.owner || Game.isAtWar(s.player, p.owner)){
+              if(p.owner!==s.player){
                 pendingBattle = {kind:"attack", from:s.selectedIdx, to:idx};
                 sendCount=0; activeView="province"; refresh(); return;
               }
-              toast("需先宣战才能进攻。","war");
             } else if(seaAdj && Game.coastalOf(s.selectedIdx) && Game.coastalOf(idx)){
               if(p.owner===s.player){
                 Game.moveUnits(s.selectedIdx, idx, sendAllMode ? fromP.garrison.length : undefined);
                 if(sendAllMode){ sendAllMode=false; toast("全军已出动。","good"); }
                 sfx("click"); return;
               }
-              if(!p.owner || Game.isAtWar(s.player, p.owner)){
+              if(p.owner!==s.player){
                 pendingBattle = {kind:"amphib", from:s.selectedIdx, to:idx};
                 sendCount=0; activeView="province"; refresh(); return;
               }
-              toast("需先宣战才能登陆。","war");
             }
           }
         }

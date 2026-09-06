@@ -62,6 +62,7 @@ const Game = (function(){
       bombCd: {},
       pendingPeace: null,
       peaceRejected: {},
+      monthsElapsed: 0,
       over: false,
       result: null,
     };
@@ -252,26 +253,14 @@ const Game = (function(){
       if (fromP.owner === state.player && fromP.garrison.length > 0){
         if (landAdj){
           if (toP.owner === state.player){ moveUnits(prev, idx); return; }   // 友方省份：即时调动
-          if (!toP.owner || isAtWar(state.player, toP.owner)){
-            state.selectedIdx = prev;             // 出发省保持选中，作为策划弹窗的 from
-            if (window.UI){ UI.beginBattle("attack", idx); }
-            return;
-          }
-          state.selectedIdx = idx;
-          log("需先与 " + country(toP.owner).name + " 宣战才能进攻。", "war");
-          if (window.UI) UI.refresh();
+          state.selectedIdx = prev;             // 出发省保持选中，作为策划弹窗的 from
+          if (window.UI){ UI.beginBattle("attack", idx); }
           return;
         }
         if (seaLinked && coastalOf(prev) && coastalOf(idx)){
           if (toP.owner === state.player){ moveUnits(prev, idx); return; }
-          if (!toP.owner || isAtWar(state.player, toP.owner)){
-            state.selectedIdx = prev;             // 出发省保持选中
-            if (window.UI){ UI.beginBattle("amphib", idx); }
-            return;
-          }
-          state.selectedIdx = idx;
-          log("需先与 " + country(toP.owner).name + " 宣战才能两栖登陆。", "war");
-          if (window.UI) UI.refresh();
+          state.selectedIdx = prev;             // 出发省保持选中
+          if (window.UI){ UI.beginBattle("amphib", idx); }
           return;
         }
       }
@@ -283,15 +272,8 @@ const Game = (function(){
       const seaFroms  = seaAdj(idx).filter(ni => { const q = province(ni); return q.owner === state.player && q.garrison.length > 0 && coastalOf(ni) && coastalOf(idx); });
       const froms = landFroms.concat(seaFroms);
       if (froms.length){
-        const fromIdx = froms[0];
-        if (toP.owner === null || isAtWar(state.player, toP.owner)){
-          state.selectedIdx = fromIdx;
-          if (window.UI){ UI.beginBattle(seaFroms.includes(fromIdx) ? "amphib" : "attack", idx); }
-          return;
-        }
-        state.selectedIdx = idx;
-        log("需先与 " + country(toP.owner).name + " 宣战才能进攻。", "war");
-        if (window.UI) UI.refresh();
+        state.selectedIdx = froms[0];
+        if (window.UI){ UI.beginBattle(seaFroms.includes(froms[0]) ? "amphib" : "attack", idx); }
         return;
       }
     }
@@ -355,6 +337,17 @@ const Game = (function(){
   function doAssault(attackerId, fromIdx, toIdx, navBonus, sendCount){
     const fromP = province(fromIdx), toP = province(toIdx);
     if (fromP.garrison.length === 0) return;
+    // 不宣而战：进攻未交战国自动宣战；玩家要付出稳定度/紧张度代价（正当化后宣战可避免）
+    if (toP.owner && toP.owner !== attackerId && !isAtWar(attackerId, toP.owner)){
+      declareWar(attackerId, toP.owner);
+      if (attackerId === state.player){
+        const pc = country(attackerId);
+        pc.stability = clamp(pc.stability - 8, 0, 100);
+        state.wt = clamp(state.wt + 10, 0, 100);
+        log("不宣而战！稳定度 -8，世界紧张度 +10。先『正当化战争』再宣战可避免惩罚。", "war");
+        if (window.UI) UI.toast("不宣而战：稳定度 -8，世界紧张度 +10", "war");
+      }
+    }
     // 决定出击数量：显式 sendCount 优先；否则默认留守 1 支，避免全军压上、后方被反推
     let send = fromP.garrison.length;
     if (typeof sendCount === "number" && sendCount >= 1) send = Math.min(sendCount, fromP.garrison.length);
@@ -713,6 +706,7 @@ const Game = (function(){
   /* ---------------- 回合推进 ---------------- */
   function endTurn(){
     if (state.over) return;
+    state.monthsElapsed = (state.monthsElapsed || 0) + 1;
     state.date.month++;
     if (state.date.month > 12){ state.date.month = 1; state.date.year++; }
 
@@ -882,7 +876,8 @@ const Game = (function(){
       if (!isAtWar(a, state.player)){
         const aggro = DIFFICULTY[state.difficulty] ? DIFFICULTY[state.difficulty].aiAggro : 1;
         const p = (0.06 + state.wt / 300) * aggro;
-        if (Math.random() < p && relation(a, state.player) < 30 && !state.justifies[jKey(a, state.player)]){
+        const graceOk = (state.monthsElapsed || 0) >= 10;   // 开局 10 个月保护期
+        if (graceOk && Math.random() < p && relation(a, state.player) < 30 && !state.justifies[jKey(a, state.player)]){
           const turns = state.wt >= 25 ? 4 : 8;
           state.justifies[jKey(a, state.player)] = turns;
           log(country(a).name + " 开始对 " + country(state.player).name + " 的正当化战争（约" + turns + "回合后宣战）。", "war");
@@ -1025,6 +1020,7 @@ const Game = (function(){
       if (foes.length && majorsHit < 1){
         const tgt = foes[0];
         const tgtP = province(tgt);
+        if (tgtP.owner === state.player && (state.monthsElapsed || 0) < 10) return;  // 开局保护期
         const atk = strengthOf(o.p.garrison, "atk", 1, 1, 1, 1, 1);
         const def = defendStrength(tgtP);
         // 攻打有主省份需 1.35x 优势（欧洲拥挤，避免滚雪球太快），且必须先宣战

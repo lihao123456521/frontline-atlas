@@ -422,6 +422,7 @@ const MapView = (() => {
         const q = Game.state.provinces[j];
         if(!q.owner || p.owner === q.owner) continue;
         if(!Game.isAtWar(p.owner, q.owner)) continue;
+        if(p.owner !== Game.state.player && q.owner !== Game.state.player) continue;  // AI 互殴不上图
         const k = Math.min(i,j)+"|"+Math.max(i,j);
         if(drawn.has(k)) continue; drawn.add(k);
         const ln = document.createElementNS(NS,"line");
