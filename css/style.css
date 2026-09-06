@@ -1262,3 +1262,10 @@ body::before{
 /* AI 求和提议卡片 */
 .rp-section.peace-offer{border-left:3px solid #7ad27a;background:rgba(60,120,70,.12)}
 .rp-section.peace-offer h4{color:#aaffaa}
+
+/* 出兵路线选择器 */
+.origin-picker{margin:8px 0;padding:8px;background:rgba(0,0,0,.22);border:1px solid var(--line);border-radius:3px}
+.origin-btn{padding:5px 10px;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  border-radius:3px;font-size:11px;cursor:pointer;transition:.12s}
+.origin-btn:hover{border-color:var(--gold-dim);color:var(--gold)}
+.origin-btn.on{background:var(--gold-dim);border-color:var(--gold);color:#fff;font-weight:bold}

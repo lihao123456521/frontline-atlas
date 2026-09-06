@@ -16,6 +16,31 @@ function inEurope(lon, lat){ return lon >= EUROPE_BOUNDS.lonMin && lon <= EUROPE
 // 欧洲战场的地图视口（世界坐标，含留白）
 const EUROPE_VIEW = { x: 455, y: 60, w: 195, h: 105 };
 
+// ============ 欧洲小国（一省一国，可宣战/外交/征服） ============
+// 之前它们是无主的灰色中立省，现在实体化为真正的 AI 国家
+const MINOR_COUNTRIES = [
+  { id:"pol", name:"波兰",       color:"#c96a4a", capital:"neu_poland",      ideo:"neu", startCiv:6, startMil:4, startRes:28, startPP:14, stability:58, warSupport:42 },
+  { id:"nld", name:"低地国家",   color:"#d4a94e", capital:"neu_lowlands",    ideo:"dem", startCiv:7, startMil:3, startRes:24, startPP:14, stability:66, warSupport:30 },
+  { id:"sca", name:"斯堪的纳维亚", color:"#8fa8bc", capital:"neu_scandinavia", ideo:"dem", startCiv:6, startMil:3, startRes:26, startPP:14, stability:70, warSupport:26 },
+  { id:"blk", name:"巴尔干",     color:"#a89456", capital:"neu_balkans",     ideo:"neu", startCiv:5, startMil:4, startRes:24, startPP:12, stability:52, warSupport:40 },
+  { id:"grc", name:"希腊",       color:"#6a9ac0", capital:"neu_greece",      ideo:"dem", startCiv:4, startMil:3, startRes:18, startPP:12, stability:58, warSupport:34 },
+  { id:"tur", name:"土耳其",     color:"#b06a34", capital:"neu_turkey",      ideo:"neu", startCiv:5, startMil:4, startRes:26, startPP:14, stability:60, warSupport:44 },
+  { id:"esp", name:"西班牙",     color:"#d0aa50", capital:"neu_spain",       ideo:"neu", startCiv:6, startMil:4, startRes:26, startPP:14, stability:50, warSupport:38 },
+  { id:"prt", name:"葡萄牙",     color:"#7aa06a", capital:"neu_portugal",    ideo:"dem", startCiv:4, startMil:2, startRes:16, startPP:12, stability:64, warSupport:24 },
+];
+// 全部可选国家 = 主要国家 + 小国
+const PLAYABLE_COUNTRIES = EUROPEAN_COUNTRIES.concat(MINOR_COUNTRIES.map(m => m.id));
+
+// world-atlas ISO 国家码 → 游戏国家 id（真实国界渲染用）
+const ISO_TO_GAME = {
+  deu:"ger", sov:"sov", gbr:"uk", fra:"fra", ita:"ita",
+  pol:"pol", esp:"esp", prt:"prt", nld:"nld", grc:"grc", tur:"tur",
+  nor:"sca", swe:"sca", fin:"sca",
+  irl:"uk",   // 爱尔兰岛在游戏中属英国省份
+  // 以下无游戏国家，仅作灰色地理背景
+  aut:null, che:null, dza:null, mar:null, egy:null,
+};
+
 // 可选国家（capital 为省份 id；ideo 为 AI 默认意识形态）
 const COUNTRIES = [
   { id:"ger", name:"德国",  color:"#4a69bd", capital:"ger_berlin",  ideo:"fas",

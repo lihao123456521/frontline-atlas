@@ -118,82 +118,83 @@ const MapView = (() => {
       L.countryFills.appendChild(path);
     });
   }
-  // ---------- 真实世界国家轮廓 (手画简化版, 替代 Voronoi) ----------
-  // 政治模式=归属国色；外交模式=阵营关系色；地形模式=该国省份的主导地形色
-  function shapeColorFor(cid){
-    const s = Game.state;
-    const known = !!s.countries[cid];
-    if(mapMode === "diplomatic"){
-      if(!known) return "#3a3f44";                       // 非 playable 国家：暗灰
+  // ---------- 真实世界国界（world-atlas 数据，参考真实世界地图） ----------
+  // PROVINCE_POLYS.id 为 ISO 三字码，经 ISO_TO_GAME 映射到游戏国家；
+  // 形状颜色 = 该国原始省份的多数派控制者（省份被征服后色块随之易色）。
+  // 无映射的形状（欧洲之外的地理背景）画暗灰。
+  function shapeOwnerColor(cid){
+    if (mapMode === "diplomatic"){
       const rel = relationTo(cid);
-      if(rel === "player") return "#3f8fd6";             // 玩家：高亮亮蓝
-      if(rel === "enemy") return "#8a2020";              // 敌国：暗红
-      if(rel === "ally") return "#2f8a4f";               // 盟友：绿
+      if (rel === "player") return "#3f8fd6";
+      if (rel === "enemy") return "#8a2020";
+      if (rel === "ally") return "#2f8a4f";
       return "#4a4f55";
     }
-    if(mapMode === "terrain"){
-      // 该国所有省份的主导地形色（无省份信息时退回暗色）
-      const terrCount = {};
-      let best = null, bestN = 0, total = 0;
-      s.provinces.forEach(p => {
-        if(p.owner !== cid) return;
-        terrCount[p.terrain] = (terrCount[p.terrain]||0)+1;
-        total++;
-        if(terrCount[p.terrain] > bestN){ bestN = terrCount[p.terrain]; best = p.terrain; }
-      });
-      if(!total) return "#4a4f55";
-      const t = TERRAIN[best];
-      return t ? t.color : "#4a4f55";
-    }
-    // political（略提亮一档，色块更鲜明）
-    if(!known) return "#5e6066";
-    if(!colorCache[cid]) colorCache[cid] = darken(s.countries[cid].color, -16);
-    return colorCache[cid];
+    return countryColor(cid);
   }
-  // ---------- 国家轮廓平滑 ----------
-  // 手画国家形状是折线多边形（M/Q 数据，控制点=前一点），拐角生硬。
-  // Chaikin 角点切分 ×2：把每个拐角替换为两个 25%/75% 点，迭代后呈自然曲线。
-  // 结果按原始 d 缓存，只算一次。
-  const shapeSmoothCache = {};
-  function smoothShapeD(d, iter){
-    if (shapeSmoothCache[d]) return shapeSmoothCache[d];
-    iter = iter || 2;
-    const nums = d.match(/-?\d+(?:\.\d+)?/g);
-    if (!nums || nums.length < 6) return d;
-    const pts = [[+nums[0], +nums[1]]];
-    for (let i = 2; i + 3 < nums.length; i += 4) pts.push([+nums[i+2], +nums[i+3]]);
-    for (let k = 0; k < iter; k++){
-      const out = [];
-      const n = pts.length;
-      for (let i = 0; i < n; i++){
-        const a = pts[i], b = pts[(i+1)%n];
-        out.push([a[0]*0.75 + b[0]*0.25, a[1]*0.75 + b[1]*0.25]);
-        out.push([a[0]*0.25 + b[0]*0.75, a[1]*0.25 + b[1]*0.75]);
-      }
-      pts.length = 0;
-      for (const q of out) pts.push(q);
-    }
-    const sd = "M" + pts.map(p => p[0].toFixed(2) + " " + p[1].toFixed(2)).join("L") + "Z";
-    shapeSmoothCache[d] = sd;
-    return sd;
+  function majorityOwner(provs){
+    const oc = {};
+    let best = null, bestN = 0;
+    provs.forEach(p => {
+      oc[p.owner] = (oc[p.owner] || 0) + 1;
+      if (oc[p.owner] > bestN){ bestN = oc[p.owner]; best = p.owner; }
+    });
+    return best;
   }
   function renderCountryShapes(){
     L.countryFills.innerHTML = "";
+    const useReal = typeof PROVINCE_POLYS !== "undefined" && PROVINCE_POLYS.length;
+    if (useReal){
+      // 按游戏国家聚合省份（originalOwner 不随征服改变）
+      const provByGame = {};
+      Game.state.provinces.forEach(p => {
+        (provByGame[p.originalOwner] = provByGame[p.originalOwner] || []).push(p);
+      });
+      PROVINCE_POLYS.forEach(entry => {
+        const gid = (typeof ISO_TO_GAME !== "undefined" && (entry.id in ISO_TO_GAME)) ? ISO_TO_GAME[entry.id] : undefined;
+        let fill, isPlayer = false;
+        if (gid === null){
+          fill = "#454a50";                                   // 显式灰色背景（瑞士/奥地利/北非）
+        } else if (gid === undefined){
+          fill = "#3f4348";                                   // 无映射（欧洲之外的远国）
+        } else {
+          const provs = provByGame[gid] || [];
+          if (!provs.length){
+            fill = "#4a4f55";
+          } else if (mapMode === "terrain"){
+            const tc = {};
+            let best = null, bestN = 0;
+            provs.forEach(p => { tc[p.terrain] = (tc[p.terrain]||0)+1; if (tc[p.terrain] > bestN){ bestN = tc[p.terrain]; best = p.terrain; } });
+            const t = TERRAIN[best];
+            fill = t ? t.color : "#4a4f55";
+          } else {
+            const owner = majorityOwner(provs);
+            fill = owner ? shapeOwnerColor(owner) : "#4a4f55";
+            isPlayer = (owner === Game.state.player);
+          }
+        }
+        const path = document.createElementNS(NS,"path");
+        path.setAttribute("d", entry.d);
+        path.setAttribute("fill", fill);
+        path.setAttribute("class", "country-fill" + (mapMode === "political" && isPlayer ? " player-country" : ""));
+        L.countryFills.appendChild(path);
+        const sheen = document.createElementNS(NS,"path");
+        sheen.setAttribute("d", entry.d);
+        sheen.setAttribute("fill","url(#countrySheen)");
+        sheen.setAttribute("pointer-events","none");
+        L.countryFills.appendChild(sheen);
+      });
+      return;
+    }
+    // 回退：手绘形状（无真实数据时）
     if(typeof COUNTRY_SHAPES === "undefined") return;
     const playerId = Game.state.player;
     Object.keys(COUNTRY_SHAPES).forEach(cid => {
-      const dS = smoothShapeD(COUNTRY_SHAPES[cid].d);
       const path = document.createElementNS(NS,"path");
-      path.setAttribute("d", dS);
-      path.setAttribute("fill", shapeColorFor(cid));
+      path.setAttribute("d", smoothShapeD(COUNTRY_SHAPES[cid].d));
+      path.setAttribute("fill", countryColor(cid));
       path.setAttribute("class", "country-fill" + (mapMode === "political" && cid === playerId ? " player-country" : ""));
       L.countryFills.appendChild(path);
-      // 表面光泽：上亮下暗的纵向渐变，给色块一点"起伏"质感
-      const sheen = document.createElementNS(NS,"path");
-      sheen.setAttribute("d", dS);
-      sheen.setAttribute("fill","url(#countrySheen)");
-      sheen.setAttribute("pointer-events","none");
-      L.countryFills.appendChild(sheen);
     });
   }
   function renderTerritory(){
@@ -1033,6 +1034,26 @@ const MapView = (() => {
       if(p.fort>0) html += `<div class="tt-row"><span class="tt-label">要塞</span><span class="tt-val">${p.fort}</span></div>`;
       if(p.infra>0) html += `<div class="tt-row"><span class="tt-label">基建</span><span class="tt-val">${p.infra}</span></div>`;
       if(p.garrison.length) html += `<div class="tt-row"><span class="tt-label">驻军</span><span class="tt-val">${p.garrison.length} 个师</span></div>`;
+      // 进攻预览：已选中己方驻军省且悬停其相邻目标时，显示预期胜率
+      if(s.selectedIdx >= 0 && s.selectedIdx !== idx){
+        const fromP = s.provinces[s.selectedIdx];
+        if(fromP && fromP.owner === s.player && fromP.garrison.length > 0){
+          const adj = Game.neighbors(s.selectedIdx).includes(idx);
+          const seaN = Game.seaAdj(s.selectedIdx).includes(idx);
+          if(adj || seaN){
+            if(!p.owner || Game.isAtWar(s.player, p.owner)){
+              const send = fromP.garrison.length >= 2 ? fromP.garrison.length - 1 : 1;
+              const prev = Game.battlePreview(s.selectedIdx, idx, send);
+              const wp = Math.round(prev.win * 100);
+              const wc = wp>=60 ? "#7ad27a" : wp>=40 ? "#f0ad4e" : "#ff8080";
+              html += `<div class="tt-row"><span class="tt-label">预期胜率</span><span class="tt-val" style="color:${wc};font-weight:bold">${wp}%</span></div>`;
+              html += `<div class="tt-row"><span class="tt-label">操作</span><span class="tt-val" style="color:var(--muted)">点击发起${adj?"进攻":"两栖登陆"}</span></div>`;
+            } else {
+              html += `<div class="tt-row"><span class="tt-label">状态</span><span class="tt-val" style="color:#f0ad4e">需先宣战</span></div>`;
+            }
+          }
+        }
+      }
       if(p.owner && p.owner !== s.player){
         if(Game.isAtWar(s.player, p.owner)) html += `<div class="tt-war">⚔ 处于战争状态</div>`;
         else if(s.alliances && s.alliances[relKey(s.player, p.owner)]) html += `<div class="tt-ally">★ 盟友</div>`;

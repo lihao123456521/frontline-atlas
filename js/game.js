@@ -66,13 +66,14 @@ const Game = (function(){
       result: null,
     };
 
-    COUNTRIES.forEach(c => {
+    const START_DEFS = (typeof MINOR_COUNTRIES !== "undefined") ? COUNTRIES.concat(MINOR_COUNTRIES) : COUNTRIES;
+    START_DEFS.forEach(c => {
       const ideo = (c.id === playerId) ? state.playerIdeo : c.ideo;
       const im = IDEOLOGIES[ideo];
       state.countries[c.id] = {
         id:c.id, name:c.name, color:c.color, ideo,
-        civ:c.startCiv, mil:c.startMil, res:c.startRes, equipment:30,
-        oil:0, rare:0, pp:c.startPP,
+        civ:c.startCiv || 5, mil:c.startMil || 3, res:c.startRes || 24, equipment:20,
+        oil:0, rare:0, pp:c.startPP || 12,
         stability: clamp(c.stability + im.stab, 0, 100),
         warSupport: clamp(c.warSupport + im.ws, 0, 100),
         manpower:0, manpowerCap:0,
@@ -82,38 +83,45 @@ const Game = (function(){
 
     // 意识形态外交基线（仅围绕玩家）
     const pim = IDEOLOGIES[state.playerIdeo];
-    COUNTRIES.forEach(o => {
-      if (o.id === playerId) return;
-      if (pim.friend.includes(o.ideo)) setRelation(playerId, o.id, 20);
-      else if (pim.foe.includes(o.ideo)) setRelation(playerId, o.id, -20);
+    Object.keys(state.countries).forEach(oid => {
+      if (oid === playerId) return;
+      const o = state.countries[oid];
+      if (pim.friend.includes(o.ideo)) setRelation(playerId, oid, 20);
+      else if (pim.foe.includes(o.ideo)) setRelation(playerId, oid, -20);
     });
 
     // 省份 + Voronoi 多边形 (PROVINCE_POLYS 由 data_provinces.js 提供)
     // 只保留欧洲战场省份（欧洲限定模式）
     const polyById = {};
     (typeof PROVINCE_POLYS !== "undefined" ? PROVINCE_POLYS : []).forEach(p => { polyById[p.id] = p; });
+    // 小国 id → 其唯一省份（data.js 中原 owner:null 的中立省）
+    const minorByProv = {};
+    if (typeof MINOR_COUNTRIES !== "undefined") MINOR_COUNTRIES.forEach(m => { minorByProv[m.capital] = m.id; });
     PROVINCES_DEF.filter(d => inEurope(d.lon, d.lat)).forEach(d => {
       const pr = resOf(d.lon, d.lat);
       const xy = proj(d.lon, d.lat);
       const poly = polyById[d.id];
+      const owner = d.owner || minorByProv[d.id] || null;   // 中立省划归对应小国
       state.provinces.push({
         id:d.id, name:d.name, lon:d.lon, lat:d.lat, x:xy.x, y:xy.y,
-        owner:d.owner, originalOwner:d.owner, terrain:d.terrain || "plain",
+        owner, originalOwner:owner, terrain:d.terrain || "plain",
         resource: pr.res + (d.cap?3:0), oil:pr.oil, rare:pr.rare,
         isCapital: !!d.cap, coastal: !!d.coastal, fort:d.cap?1:0, infra:0, garrison:[],
         poly: poly ? poly.d : "",
       });
     });
 
-    // 欧洲之外的主要国家视为出局（不属于本剧场）
+    // 欧洲之外的主要国家视为出局（不属于本剧场）；小国均为欧洲国家不受影响
     COUNTRIES.forEach(c => {
-      if (!EUROPEAN_COUNTRIES.includes(c.id)) country(c.id).alive = false;
+      if (!EUROPEAN_COUNTRIES.includes(c.id) && !(typeof MINOR_COUNTRIES !== "undefined" && MINOR_COUNTRIES.some(m => m.id === c.id))){
+        country(c.id).alive = false;
+      }
     });
 
     buildGraph();
 
     // 首都索引
-    COUNTRIES.forEach(c => { country(c.id).capitalIdx = provinceById(c.capital); });
+    Object.keys(state.countries).forEach(cid => { country(cid).capitalIdx = provinceById(country(cid).capital); });
 
     // 初始驻军: 只有首都 3 步兵, 其他非中立省份 1 步兵 (玩家可以主动扩军)
     state.provinces.forEach(p => {
@@ -121,14 +129,14 @@ const Game = (function(){
       if (p.isCapital) p.garrison = [makeDivision("infantry"),makeDivision("infantry"),makeDivision("infantry")];
       else p.garrison = [makeDivision("infantry")];
     });
-    COUNTRIES.forEach(c => computeManpower(c.id));
+    Object.keys(state.countries).forEach(cid => computeManpower(cid));
     applyScenario(scenario);
     initIntel();
     // 顾问加成（须在所有初始化之后，避免被覆盖）
     applyAdvisor(playerId, playerAdvisor);
 
     log("游戏开始：" + country(playerId).name + "（" + IDEOLOGIES[state.playerIdeo].name + "）登上历史舞台。", "good");
-    log("提示：进攻他国需先『正当化战争』再『宣战』；灰色中立省份可直接吞并；沿海省份间可两栖登陆。", "info");
+    log("提示：进攻任何国家都需先『正当化战争』再『宣战』；沿海省份间可两栖登陆；战争中可发动战略空袭。", "info");
   }
 
   // 战役剧本：按预设覆盖归属 / 驻军 / 预设战争 / 开局补给
@@ -614,8 +622,7 @@ const Game = (function(){
     }
   }
   function joinDefensive(attacker, defender){
-    COUNTRIES.forEach(c => {
-      const cid = c.id;
+    Object.keys(state.countries).forEach(cid => {
       if (cid === attacker || cid === defender || !country(cid).alive) return;
       if ((state.alliances[relKey(cid,defender)] || state.guarantees[relKey(cid,defender)]) && !isAtWar(cid, attacker)){
         state.wars.push({ a:cid, b:attacker, since:fmtDate(state.date) });
@@ -869,9 +876,9 @@ const Game = (function(){
 
   /* ---------------- 简易 AI ---------------- */
   function aiDiplomacy(){
-    COUNTRIES.forEach(c => {
-      if (c.id === state.player || !country(c.id).alive) return;
-      const a = c.id;
+    Object.keys(state.countries).forEach(cid => {
+      if (cid === state.player || !country(cid).alive) return;
+      const a = cid;
       if (!isAtWar(a, state.player)){
         const aggro = DIFFICULTY[state.difficulty] ? DIFFICULTY[state.difficulty].aiAggro : 1;
         const p = (0.06 + state.wt / 300) * aggro;
@@ -929,14 +936,13 @@ const Game = (function(){
     }
   }
   function aiTurn(){
-    COUNTRIES.forEach(c => {
-      if (c.id === state.player || !country(c.id).alive) return;
-      const ai = country(c.id);
-      applyIncome(c.id);
-      maybeAiBuild(c.id);
-      repairGarrisons(c.id);
-      if (isAtWar(c.id, state.player)) aiAttackPlayer(c.id);
-      else aiExpand(c.id);
+    Object.keys(state.countries).forEach(cid => {
+      if (cid === state.player || !country(cid).alive) return;
+      applyIncome(cid);
+      maybeAiBuild(cid);
+      repairGarrisons(cid);
+      if (isAtWar(cid, state.player)) aiAttackPlayer(cid);
+      else aiExpand(cid);
     });
   }
   // 与玩家交战时：后方补防 + 边境补兵 + 择优进攻 / 两栖
@@ -1074,7 +1080,7 @@ const Game = (function(){
   function checkVictory(){
     const player = state.player;
     let playerLand = 0; const total = state.provinces.length; let aliveMajors = 0;
-    COUNTRIES.forEach(c => { if (c.id !== player && country(c.id).alive) aliveMajors++; });
+    Object.keys(state.countries).forEach(cid => { if (cid !== player && country(cid).alive) aliveMajors++; });
     state.provinces.forEach(p => { if (p.owner === player) playerLand++; });
     if (playerLand === 0){ endGame(false, "你的国家已被消灭。"); return; }
     if (aliveMajors === 0){ endGame(true, "你征服了所有主要对手，赢得世界！"); return; }
@@ -1097,10 +1103,10 @@ const Game = (function(){
     catch(e){ return false; }
   }
   function autosave(){
-    try { if (typeof localStorage !== "undefined") localStorage.setItem("hoi_save_v1", save()); } catch(e){}
+    try { if (typeof localStorage !== "undefined") localStorage.setItem("hoi_save_v2", save()); } catch(e){}
   }
   function hasSave(){
-    try { return typeof localStorage !== "undefined" && !!localStorage.getItem("hoi_save_v1"); } catch(e){ return false; }
+    try { return typeof localStorage !== "undefined" && !!localStorage.getItem("hoi_save_v2"); } catch(e){ return false; }
   }
 
   return {

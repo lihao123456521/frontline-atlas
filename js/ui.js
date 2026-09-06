@@ -144,14 +144,17 @@ const UI = (function(){
   function initStartScreen(){
     const sel = $("selCountry");
     // 欧洲战场限定：只列欧洲参战国
-    COUNTRIES.filter(c => EUROPEAN_COUNTRIES.includes(c.id)).forEach(c => {
+    var startDefs = (typeof PLAYABLE_COUNTRIES !== "undefined")
+      ? COUNTRIES.concat(MINOR_COUNTRIES||[]).filter(function(c){ return PLAYABLE_COUNTRIES.indexOf(c.id) >= 0; })
+      : COUNTRIES;
+    startDefs.forEach(c => {
       const o = document.createElement("option");
       o.value = c.id; o.textContent = c.name;
       sel.appendChild(o);
     });
     // 国家预览卡：随下拉切换显示旗帜、定位与开局数据
     function updateCountry(){
-      const c = COUNTRIES.find(x => x.id === sel.value);
+      const c = startDefs.find(x => x.id === sel.value);
       const box = $("countryPreview");
       if(!c || !box) return;
       box.innerHTML = `
@@ -361,6 +364,33 @@ const UI = (function(){
     const winColor = winPct>=60?'#6fbf6f':winPct>=40?'#f0ad4e':'#d9534f';
     const box = el("div","rp-section fade-in");
     box.innerHTML = `<h3>${isAmphib?"🌊 两栖登陆":"⚔ 进攻计划"}</h3>`;
+    // 出兵路线选择：目标相邻的所有己方驻军省（多路可选，点击切换出发地）
+    const origins = [];
+    Game.neighbors(to).forEach(n=>{
+      const q = Game.province(n);
+      if(q.owner===s.player && q.garrison.length>0) origins.push({idx:n, kind:"attack"});
+    });
+    Game.seaAdj(to).forEach(n=>{
+      const q = Game.province(n);
+      if(q.owner===s.player && q.garrison.some(d=>d.kind==="naval") && Game.coastalOf(n) && Game.coastalOf(to)) origins.push({idx:n, kind:"amphib"});
+    });
+    if(origins.length > 1){
+      const picker = el("div","origin-picker");
+      picker.innerHTML = `<div style="font-size:10px;color:var(--muted);margin-bottom:4px">出兵路线（点击切换）</div>`;
+      const row = el("div");
+      row.style.cssText = "display:flex;gap:4px;flex-wrap:wrap";
+      origins.forEach(o=>{
+        const op = Game.province(o.idx);
+        const pv = Game.battlePreview(o.idx, to, o.kind==="amphib" ? undefined : (op.garrison.length>=2?op.garrison.length-1:1));
+        const w = Math.round(pv.win*100);
+        const ob = el("button","origin-btn"+(o.idx===from?" on":""), op.name+" "+w+"%");
+        ob.title = (o.kind==="amphib"?"两栖登陆 ":"陆路进攻 ") + op.name + " · 胜率 " + w + "%";
+        ob.addEventListener("click",()=>{ pendingBattle.from = o.idx; pendingBattle.kind = o.kind; sendCount = 0; sfx("click"); refresh(); });
+        row.appendChild(ob);
+      });
+      picker.appendChild(row);
+      box.appendChild(picker);
+    }
     // 大胜率显示
     const winBox = el("div","battle-win-box");
     winBox.style.cssText = "text-align:center;padding:14px 8px;margin:8px 0;background:linear-gradient(180deg,rgba(0,0,0,.3),rgba(0,0,0,.1));border:1px solid " + winColor + ";border-radius:3px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.5),0 0 12px " + winColor + "44";
@@ -768,7 +798,8 @@ const UI = (function(){
       <div class="rp-row"><span class="k">世界紧张度</span><span class="v" style="color:${s.wt>=50?'#d9534f':'var(--orange)'}">${Math.round(s.wt)}%</span></div>`;
     rp.appendChild(box);
 
-    COUNTRIES.filter(o=>o.id!==s.player && Game.country(o.id).alive).forEach(o=>{
+    Object.keys(s.countries).filter(oid=>oid!==s.player && s.countries[oid].alive).forEach(oid=>{
+      var o = s.countries[oid];
       const cid = o.id;
       const rel = Game.relation(s.player, cid);
       const atWar = Game.isAtWar(s.player, cid);
