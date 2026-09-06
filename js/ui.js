@@ -315,6 +315,22 @@ const UI = (function(){
     });
     rp.appendChild(tabs);
 
+    // AI 求和提议：置顶显示，接受/拒绝
+    if(s.pendingPeace){
+      const pc = Game.country(s.pendingPeace.from);
+      const score = Game.computeWarscore(s.pendingPeace.from);
+      const card = el("div","rp-section fade-in peace-offer");
+      card.innerHTML = `<h4>⚑ 和平提议</h4>
+        <div class="rp-row"><span class="k">${flagHTML(s.pendingPeace.from, 16)} ${pc.name} 损失惨重，主动求和</span></div>
+        <div class="rp-row"><span class="k">当前战争分</span><span class="v" style="color:#7ad27a">+${score}</span></div>`;
+      const acc = el("button","rp-btn primary","接受白和平");
+      acc.addEventListener("click",()=>{ Game.acceptPeace(s.pendingPeace.from); sfx("tech"); });
+      const rej = el("button","rp-btn","拒绝（3个月内不再提）");
+      rej.addEventListener("click",()=>{ Game.rejectPeace(s.pendingPeace.from); sfx("click"); refresh(); });
+      card.appendChild(acc); card.appendChild(rej);
+      rp.appendChild(card);
+    }
+
     if(pendingBattle){ renderBattlePlan(rp); return; }
 
     if(activeView==="province") renderProvinceView(rp);
@@ -592,9 +608,16 @@ const UI = (function(){
       sp.innerHTML = `<h4>特殊行动</h4>`;
       const hasAir = p.garrison.some(d=>d.kind==="air") ||
         Game.neighbors(idx).some(n=>{ const q=Game.province(n); return q.owner===s.player && q.garrison.some(d=>d.kind==="air"); });
-      const bombBtn = el("button","rp-btn danger","💥 战略空袭");
-      bombBtn.disabled = !hasAir;
-      bombBtn.title = hasAir ? "空袭：削减该省资源/石油并杀伤驻军" : "需要本省或相邻己方省份驻扎空军联队";
+      s.bombCd = s.bombCd || {};
+      const cd = s.bombCd[idx] || 0;
+      const needEq = 15;
+      const bombBtn = el("button","rp-btn danger",
+        cd>0 ? `💥 空袭（冷却 ${cd} 月）` : `💥 战略空袭（${needEq} 装备）`);
+      bombBtn.disabled = !hasAir || cd>0 || Game.country(s.player).equipment < needEq;
+      bombBtn.title = !hasAir ? "需要本省或相邻己方省份驻扎空军联队"
+        : cd>0 ? "该省防空戒备中，稍后再试"
+        : Game.country(s.player).equipment < needEq ? `装备不足（需 ${needEq}）`
+        : "空袭：削减该省资源/石油并杀伤驻军";
       bombBtn.addEventListener("click",()=>{ Game.bombProvince(); sfx("attack"); });
       sp.appendChild(bombBtn);
       rp.appendChild(sp);

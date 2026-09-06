@@ -1166,7 +1166,9 @@ const MapView = (() => {
     if(!animRunning){ animRunning = true; requestAnimationFrame(animLoop); }
   }
 
-  return { W,H,proj,owner,countryColor,render,bind,
+  function isAnimating(){ return battleEffects.length > 0 || floatTexts.length > 0; }
+
+  return { W,H,proj,owner,countryColor,render,bind, isAnimating,
     showMovePreview,clearMovePreview,showBattlePlan,clearBattlePlan,
     showAttackable,clearAttackable,
     setHover,setSelect,unitUnderPoint,provinceUnderPoint,

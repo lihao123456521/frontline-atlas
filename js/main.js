@@ -69,12 +69,16 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   // 动画循环：持续刷新地图以播放战线流动 / 战斗特效（轻量，仅 SVG 属性更新）
-  let lastFx = 0;
+  let lastFx = 0, lastIdle = 0;
   function animLoop(ts){
     if(Game.state && !Game.state.over){
-      if(ts - lastFx > 80){
+      // 战斗动画期间全速刷新（~12fps）；空闲时降频到 ~2fps（前线虚线仍缓慢流动，省 CPU）
+      if(MapView.isAnimating && MapView.isAnimating()){
+        if(ts - lastFx > 80){ MapView.render(); lastFx = ts; }
+        lastIdle = ts;
+      } else if(ts - lastIdle > 500){
         MapView.render();
-        lastFx = ts;
+        lastIdle = ts;
       }
     }
     requestAnimationFrame(animLoop);

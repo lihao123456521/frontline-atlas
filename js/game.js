@@ -59,6 +59,9 @@ const Game = (function(){
       log: [],
       recentBattles: [],
       battles: 0,
+      bombCd: {},
+      pendingPeace: null,
+      peaceRejected: {},
       over: false,
       result: null,
     };
@@ -462,15 +465,21 @@ const Game = (function(){
   // 战略轰炸：选中国敌方省份，附近须有我方空军
   function bombProvince(){
     if (state.over) return;
+    state.bombCd = state.bombCd || {};
     const idx = state.selectedIdx;
     if (idx < 0){ log("请先选择目标省份。", "war"); if (window.UI) UI.refresh(); return; }
     const p = province(idx);
     if (!p.owner || p.owner === state.player){ log("请选择敌方省份进行空袭。", "war"); if (window.UI) UI.refresh(); return; }
     if (!isAtWar(state.player, p.owner)){ log("需先与 " + country(p.owner).name + " 宣战。", "war"); if (window.UI) UI.refresh(); return; }
+    if ((state.bombCd[idx] || 0) > 0){ log("该省防空戒备中，" + state.bombCd[idx] + " 个月后可再次空袭。", "war"); if (window.UI) UI.refresh(); return; }
+    const pc = country(state.player);
+    if (pc.equipment < 15){ log("装备不足（需15）。", "war"); if (window.UI) UI.refresh(); return; }
     let hasAir = p.garrison.some(d => d.kind === "air");
     neighbors(idx).forEach(ni => { const q = province(ni); if (q.owner === state.player && q.garrison.some(d=>d.kind==="air")) hasAir = true; });
     if (!hasAir){ log("附近没有我方空军，无法空袭。", "war"); if (window.UI) UI.refresh(); return; }
     const c = country(p.owner);
+    pc.equipment -= 15;
+    state.bombCd[idx] = 2;   // 目标防空戒备 2 个月
     const defAir = (p.owner ? country(p.owner).eff.airDef : 0) || 0;   // 敌方防空削弱空袭
     const mult = (1 + (country(state.player).eff.bombBonus || 0)) * (1 - defAir*0.5);
     const gmult = (0.8 - 0.1*(country(state.player).eff.bombBonus||0)) * (1 - defAir*0.5);
@@ -599,7 +608,10 @@ const Game = (function(){
     setIntel(attacker, defender, 100); setIntel(defender, attacker, 100);
     joinDefensive(attacker, defender);
     log(country(attacker).name + " 向 " + country(defender).name + " 宣战！（世界紧张度 " + state.wt + "）", "war");
-    if (window.UI && (attacker === state.player || defender === state.player)) UI.screenFlash("war");
+    if (window.UI && (attacker === state.player || defender === state.player)){
+      UI.screenFlash("war");
+      if (defender === state.player) UI.toast("⚔ " + country(attacker).name + " 向你宣战！", "war");
+    }
   }
   function joinDefensive(attacker, defender){
     COUNTRIES.forEach(c => {
@@ -668,6 +680,29 @@ const Game = (function(){
     if (window.UI) UI.refresh();
   }
 
+  // 接受 AI 求和（无条件白和平）
+  function acceptPeace(targetId){
+    if (state.over) return;
+    const name = country(targetId).name;
+    state.wars = state.wars.filter(w => !((w.a===state.player&&w.b===targetId)||(w.a===targetId&&w.b===state.player)));
+    setRelation(state.player, targetId, -80);
+    delete state.justifies[jKey(state.player, targetId)];
+    delete state.justifies[jKey(targetId, state.player)];
+    state.wt = clamp(state.wt - 5, 0, 100);
+    state.pendingPeace = null;
+    log("与 " + name + " 达成白和平。", "good");
+    if (window.UI){ UI.toast("已与 " + name + " 和平。", "good"); UI.refresh(); }
+  }
+  // 拒绝 AI 求和（3 个月内不再提）
+  function rejectPeace(targetId){
+    state.peaceRejected = state.peaceRejected || {};
+    state.peaceRejected[targetId] = 3;
+    state.pendingPeace = null;
+    const name = country(targetId).name;
+    log("你拒绝了 " + name + " 的求和，战争继续。", "war");
+    if (window.UI) UI.refresh();
+  }
+
   /* ---------------- 回合推进 ---------------- */
   function endTurn(){
     if (state.over) return;
@@ -697,6 +732,27 @@ const Game = (function(){
     aiTurn();
     eventTick();
     checkScriptedEvents();
+    // AI 求和评估：战争分落后 6+ 时，AI 有概率主动求和（白和平），玩家可在面板接受/拒绝
+    state.pendingPeace = state.pendingPeace || null;
+    state.peaceRejected = state.peaceRejected || {};
+    state.bombCd = state.bombCd || {};
+    if (!state.pendingPeace){
+      for (const w of state.wars){
+        if (w.a !== state.player && w.b !== state.player) continue;
+        const enemy = (w.a === state.player) ? w.b : w.a;
+        const ec = country(enemy);
+        if (!ec.alive) continue;
+        if ((state.peaceRejected[enemy] || 0) > 0) continue;
+        if (computeWarscore(enemy) <= -6 && Math.random() < 0.45){
+          state.pendingPeace = { from: enemy };
+          log("⚑ " + ec.name + " 损失惨重，主动求和！", "good");
+          if (window.UI) UI.toast("⚑ " + ec.name + " 主动求和——请在右侧面板处理。", "good");
+          break;
+        }
+      }
+    }
+    Object.keys(state.bombCd).forEach(k => { if (state.bombCd[k] > 0) state.bombCd[k]--; });
+    Object.keys(state.peaceRejected).forEach(k => { if (state.peaceRejected[k] > 0) state.peaceRejected[k]--; });
     // 收集该回合简报事件
     const briefItems = collectBriefingItems(state.log, state.player);
     log("—— " + fmtDate(state.date) + " ——", "info");
@@ -965,8 +1021,9 @@ const Game = (function(){
         const tgtP = province(tgt);
         const atk = strengthOf(o.p.garrison, "atk", 1, 1, 1, 1, 1);
         const def = defendStrength(tgtP);
-        // 攻打有主省份需 1.35x 优势（欧洲拥挤，避免滚雪球太快）
+        // 攻打有主省份需 1.35x 优势（欧洲拥挤，避免滚雪球太快），且必须先宣战
         if (atk > def * 1.35){
+          if (!isAtWar(id, tgtP.owner)) declareWar(id, tgtP.owner);
           doAssault(id, o.i, tgt, 0);
           majorsHit++;
         }
@@ -1053,7 +1110,7 @@ const Game = (function(){
     assignResearch, cancelResearch, doFocus, doAssault,
     diploAction, moveUnits, resolveAttack, amphibious, proposePeace, resolveEvent, checkScriptedEvents, battlePreview,
     neighbors, coastalOf, seaAdj, province, provinceById, country, relation, isAtWar,
-    intelLevel, canSee, computeWarscore, navalFormation, airFormation, isAllied, incomePreview,
+    intelLevel, canSee, computeWarscore, navalFormation, airFormation, isAllied, incomePreview, acceptPeace, rejectPeace,
     save, load, hasSave,
   };
 })();

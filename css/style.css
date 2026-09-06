@@ -1258,3 +1258,7 @@ body::before{
 /* 右面板危险动作按钮 */
 .rp-btn.danger{background:linear-gradient(180deg,#4a2222,#381818);border:1px solid #8a4040;color:#ff9a9a}
 .rp-btn.danger:hover{background:linear-gradient(180deg,#5a2828,#441d1d);color:#ffb0b0;border-color:#aa5050}
+
+/* AI 求和提议卡片 */
+.rp-section.peace-offer{border-left:3px solid #7ad27a;background:rgba(60,120,70,.12)}
+.rp-section.peace-offer h4{color:#aaffaa}
