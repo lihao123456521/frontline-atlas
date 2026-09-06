@@ -123,6 +123,33 @@ const MapView = (() => {
     });
   }
   // ---------- 真实世界国界（world-atlas 数据，参考真实世界地图） ----------
+  // world-atlas 的形状以整国一条 path 给出；跨越 180° 经线的国家（俄罗斯/美国/斐济）
+  // 会在图上拉出横贯全图的填充带。这里把 path 拆成子路径，剔除：
+  //   1) 宽度 > 300 世界单位的跨经线碎片；2) 与欧洲渲染区不相交的远洲碎块。
+  const EU_DRAW = { x: 420, y: 20, w: 270, h: 180 };
+  function splitSubpaths(d){
+    return d.split(/(?=M)/).map(x => x.trim()).filter(x => x.startsWith("M") && x.length > 20);
+  }
+  function subpathBBox(d){
+    const nums = d.match(/-?\d+(?:\.\d+)?/g) || [];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i + 1 < nums.length; i += 2){
+      const x = +nums[i], y = +nums[i+1];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+    return { minX, minY, maxX, maxY };
+  }
+  function subpathRelevant(d){
+    const b = subpathBBox(d);
+    if (b.maxX - b.minX > 300) return false;            // 跨经线碎片
+    return b.maxX >= EU_DRAW.x && b.minX <= EU_DRAW.x + EU_DRAW.w
+        && b.maxY >= EU_DRAW.y && b.minY <= EU_DRAW.y + EU_DRAW.h;
+  }
+  function filterShapeD(d){
+    const parts = splitSubpaths(d).filter(subpathRelevant);
+    return parts.length ? parts.join(" ") : "";
+  }
   // PROVINCE_POLYS.id 为 ISO 三字码，经 ISO_TO_GAME 映射到游戏国家；
   // 形状颜色 = 该国原始省份的多数派控制者（省份被征服后色块随之易色）。
   // 无映射的形状（欧洲之外的地理背景）画暗灰。
@@ -156,7 +183,9 @@ const MapView = (() => {
       });
       PROVINCE_POLYS.forEach(entry => {
         const gid = (typeof ISO_TO_GAME !== "undefined" && (entry.id in ISO_TO_GAME)) ? ISO_TO_GAME[entry.id] : undefined;
-        let fill, isPlayer = false;
+        const dF = filterShapeD(entry.d);
+        if (!dF) return;   // 该国所有碎片都在欧洲视口外
+        let fill;
         if (gid === null){
           fill = "#454a50";                                   // 显式灰色背景（瑞士/奥地利/北非）
         } else if (gid === undefined){
@@ -176,12 +205,12 @@ const MapView = (() => {
           }
         }
         const path = document.createElementNS(NS,"path");
-        path.setAttribute("d", entry.d);
+        path.setAttribute("d", dF);
         path.setAttribute("fill", fill);
         path.setAttribute("class", "country-fill" + (mapMode === "political" && majorityOwner(provByGame[gid]||[]) === Game.state.player ? " player-country" : ""));
         L.countryFills.appendChild(path);
         const sheen = document.createElementNS(NS,"path");
-        sheen.setAttribute("d", entry.d);
+        sheen.setAttribute("d", dF);
         sheen.setAttribute("fill","url(#countrySheen)");
         sheen.setAttribute("pointer-events","none");
         L.countryFills.appendChild(sheen);
@@ -220,7 +249,19 @@ const MapView = (() => {
   }
   function polyToPath(poly){
     if (!poly || poly.length < 3) return "";
-    return "M" + poly.map(pt => pt[0].toFixed(1) + " " + pt[1].toFixed(1)).join("L") + "Z";
+    // Chaikin ×1 圆角化：单元轮廓柔和，相邻单元共享中点，内部细缝即省份界
+    let pts = poly;
+    for (let it = 0; it < 1; it++){
+      const out = [];
+      const n = pts.length;
+      for (let k = 0; k < n; k++){
+        const a = pts[k], b = pts[(k+1)%n];
+        out.push([a[0]*0.75 + b[0]*0.25, a[1]*0.75 + b[1]*0.25]);
+        out.push([a[0]*0.25 + b[0]*0.75, a[1]*0.25 + b[1]*0.75]);
+      }
+      pts = out;
+    }
+    return "M" + pts.map(pt => pt[0].toFixed(1) + " " + pt[1].toFixed(1)).join("L") + "Z";
   }
   let cellCache = null;
   function controlCells(){
@@ -255,7 +296,10 @@ const MapView = (() => {
     const dList = [];
     PROVINCE_POLYS.forEach(entry => {
       const g = (typeof ISO_TO_GAME !== "undefined" && (entry.id in ISO_TO_GAME)) ? ISO_TO_GAME[entry.id] : undefined;
-      if (g === cid && entry.d) dList.push(entry.d);
+      if (g === cid && entry.d){
+        const dF = filterShapeD(entry.d);
+        if (dF) dList.push(dF);
+      }
     });
     if (!dList.length){ clipReady[cid] = false; return; }
     const defs = svg.querySelector("defs");
@@ -952,12 +996,14 @@ const MapView = (() => {
     if(!wr || wr.width < 10) wr = svg.getBoundingClientRect();
     const rp = document.getElementById("rightPanel");
     const panelW = (rp && !rp.classList.contains("collapsed")) ? rp.offsetWidth : 0;
+    const log = document.getElementById("bottomLog");
+    const logH = (log && log.offsetHeight) ? log.offsetHeight : 0;
     const k = scale * Math.min(wr.width / W, wr.height / H);
     return {
       cx: wr.left + wr.width / 2,
       cy: wr.top + wr.height / 2,
       vx: wr.left + (wr.width - panelW) / 2,
-      vy: wr.top + wr.height / 2,
+      vy: wr.top + (wr.height - logH) / 2,
       vcx: W / 2,
       vcy: H / 2,
       k,
