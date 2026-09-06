@@ -60,6 +60,10 @@ const MapView = (() => {
     const c = hexToRgb(hex);
     return `rgb(${Math.max(0,c.r-amt)},${Math.max(0,c.g-amt)},${Math.max(0,c.b-amt)})`;
   }
+  function blend(h1, h2, t){
+    const a = hexToRgb(h1), b = hexToRgb(h2);
+    return `rgb(${Math.round(a.r+(b.r-a.r)*t)},${Math.round(a.g+(b.g-a.g)*t)},${Math.round(a.b+(b.b-a.b)*t)})`;
+  }
   const colorCache = {};   // 提亮后的国家色缓存
 
   function relationTo(cid){
@@ -162,21 +166,19 @@ const MapView = (() => {
           if (!provs.length){
             fill = "#4a4f55";
           } else if (mapMode === "terrain"){
-            const tc = {};
-            let best = null, bestN = 0;
-            provs.forEach(p => { tc[p.terrain] = (tc[p.terrain]||0)+1; if (tc[p.terrain] > bestN){ bestN = tc[p.terrain]; best = p.terrain; } });
-            const t = TERRAIN[best];
-            fill = t ? t.color : "#4a4f55";
+            fill = "#3a3f44";   // 地形模式：底图中性，地形色由版图层表现
+          } else if (mapMode === "diplomatic"){
+            fill = "#3a3f44";   // 外交模式：底图中性，阵营色由版图层表现
           } else {
+            // 政治模式：国家身份色去饱和做稳定地理底色（控制权由版图层逐省表现）
             const owner = majorityOwner(provs);
-            fill = owner ? shapeOwnerColor(owner) : "#4a4f55";
-            isPlayer = (owner === Game.state.player);
+            fill = owner ? blend(countryColor(owner), "#2a3846", 0.45) : "#4a4f55";
           }
         }
         const path = document.createElementNS(NS,"path");
         path.setAttribute("d", entry.d);
         path.setAttribute("fill", fill);
-        path.setAttribute("class", "country-fill" + (mapMode === "political" && isPlayer ? " player-country" : ""));
+        path.setAttribute("class", "country-fill" + (mapMode === "political" && majorityOwner(provByGame[gid]||[]) === Game.state.player ? " player-country" : ""));
         L.countryFills.appendChild(path);
         const sheen = document.createElementNS(NS,"path");
         sheen.setAttribute("d", entry.d);
@@ -197,38 +199,97 @@ const MapView = (() => {
       L.countryFills.appendChild(path);
     });
   }
+  // ---------- 版图层：每省一个 Voronoi 控制染色单元 ----------
+  // 真实国界做稳定底图，本层按省份逐块着色表达"当前实际控制"——
+  // 省份易手时只有该省区域变色，版图实时且精确，不会整国跳变。
+  // 单元裁剪到所属国家的真实国界内（clipPath），避免越界污染海洋/邻国。
+  function clipHalfPlane(poly, a, b, c){
+    const out = []; const n = poly.length;
+    for (let k = 0; k < n; k++){
+      const cur = poly[k], nxt = poly[(k+1)%n];
+      const dc = a*cur[0] + b*cur[1] - c;
+      const dn = a*nxt[0] + b*nxt[1] - c;
+      const curIn = dc <= 1e-9, nxtIn = dn <= 1e-9;
+      if (curIn) out.push(cur);
+      if (curIn !== nxtIn){
+        const t = dc / (dc - dn);
+        out.push([cur[0] + t*(nxt[0]-cur[0]), cur[1] + t*(nxt[1]-cur[1])]);
+      }
+    }
+    return out;
+  }
+  function polyToPath(poly){
+    if (!poly || poly.length < 3) return "";
+    return "M" + poly.map(pt => pt[0].toFixed(1) + " " + pt[1].toFixed(1)).join("L") + "Z";
+  }
+  let cellCache = null;
+  function controlCells(){
+    if (cellCache) return cellCache;
+    const ps = Game.state.provinces;
+    // 先确保所有省份所属国家的裁剪就绪（有真实国界的省才用大半径）
+    ps.forEach(p => ensureClip(p.originalOwner));
+    cellCache = ps.map((p, i) => {
+      let minD = Infinity;
+      ps.forEach((q, j) => {
+        if (j === i) return;
+        const d = Math.hypot(q.x-p.x, q.y-p.y);
+        if (d < minD) minD = d;
+      });
+      const clipped = !!clipReady[p.originalOwner];
+      const R = clipped ? Math.min(16, Math.max(8, minD * 0.8))
+                        : Math.min(9, Math.max(5, minD * 0.45));   // 无国界可裁：紧凑色块
+      let poly = [[p.x-R,p.y-R],[p.x+R,p.y-R],[p.x+R,p.y+R],[p.x-R,p.y+R]];
+      ps.forEach((q, j) => {
+        if (j === i) return;
+        poly = clipHalfPlane(poly, 2*(q.x-p.x), 2*(q.y-p.y), (q.x*q.x + q.y*q.y) - (p.x*p.x + p.y*p.y));
+      });
+      return polyToPath(poly);
+    });
+    return cellCache;
+  }
+  const clipReady = {};
+  function clipIdFor(cid){ return "clipT-" + cid; }
+  function ensureClip(cid){
+    if (!(typeof PROVINCE_POLYS !== "undefined" && PROVINCE_POLYS.length)){ clipReady[cid] = false; return; }
+    if (clipReady[cid] !== undefined) return;
+    const dList = [];
+    PROVINCE_POLYS.forEach(entry => {
+      const g = (typeof ISO_TO_GAME !== "undefined" && (entry.id in ISO_TO_GAME)) ? ISO_TO_GAME[entry.id] : undefined;
+      if (g === cid && entry.d) dList.push(entry.d);
+    });
+    if (!dList.length){ clipReady[cid] = false; return; }
+    const defs = svg.querySelector("defs");
+    const cp = document.createElementNS(NS,"clipPath");
+    cp.id = clipIdFor(cid);
+    dList.forEach(d => { const pp = document.createElementNS(NS,"path"); pp.setAttribute("d", d); cp.appendChild(pp); });
+    defs.appendChild(cp);
+    clipReady[cid] = true;
+  }
   function renderTerritory(){
     L.territory.innerHTML = "";
-    if (typeof COUNTRY_SHAPES !== "undefined") return;  // 真实国家壳模式: 跳过 Voronoi 填色, 省份细节由 renderProvinces 画
-    const playerId = Game.state.player;
+    if (typeof PROVINCE_POLYS === "undefined" || !PROVINCE_POLYS.length) return;
+    const cells = controlCells();
     Game.state.provinces.forEach((p, i) => {
-      if (!p.poly) return;
-      const path = document.createElementNS(NS,"path");
-      path.setAttribute("d", p.poly);
-      let fill, opacity = 0.55, stroke = "rgba(0,0,0,.7)", sw = 0.8, extraClass = "";
-      if(mapMode === "terrain"){
+      let fill, op;
+      if (mapMode === "terrain"){
         fill = TERRAIN[p.terrain] ? TERRAIN[p.terrain].color : "#3b5a2b";
-        opacity = 0.7;
-        stroke = "rgba(0,0,0,.5)";
-      } else if(mapMode === "diplomatic"){
+        op = 0.62;
+      } else if (mapMode === "diplomatic"){
         const rel = p.owner ? relationTo(p.owner) : "neutral";
-        if(rel==="player") fill = Game.state.countries[Game.state.player].color;
-        else if(rel==="enemy") fill = "#8a2020";
-        else if(rel==="ally") fill = "#2a5a8a";
-        else fill = "#3a3a3a";
-        opacity = 0.7;
+        fill = rel==="player" ? "#3f8fd6" : rel==="enemy" ? "#8a2020" : rel==="ally" ? "#2f8a4f" : "#5a5f66";
+        op = 0.6;
       } else {
-        fill = p.owner ? countryColor(p.owner) : "#0d160d";
-        opacity = p.owner ? 0.55 : 0.3;
-        stroke = p.owner ? "rgba(0,0,0,.65)" : "rgba(0,0,0,.5)";
-        if (p.owner === playerId) extraClass = " player-territory";
+        fill = p.owner ? countryColor(p.owner) : "#6a6f75";
+        op = 0.5;
       }
-      path.setAttribute("fill",fill);
-      path.setAttribute("opacity",opacity);
-      path.setAttribute("stroke",stroke);
-      path.setAttribute("stroke-width",sw);
-      path.setAttribute("stroke-linejoin","round");
-      path.setAttribute("class","territory" + extraClass);
+      const cid = p.originalOwner;
+      ensureClip(cid);
+      const path = document.createElementNS(NS,"path");
+      path.setAttribute("d", cells[i]);
+      path.setAttribute("fill", fill);
+      path.setAttribute("opacity", op);
+      if (clipReady[cid]) path.setAttribute("clip-path", `url(#${clipIdFor(cid)})`);
+      path.setAttribute("pointer-events","none");
       L.territory.appendChild(path);
     });
   }
