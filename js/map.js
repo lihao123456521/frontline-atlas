@@ -60,6 +60,7 @@ const MapView = (() => {
     const c = hexToRgb(hex);
     return `rgb(${Math.max(0,c.r-amt)},${Math.max(0,c.g-amt)},${Math.max(0,c.b-amt)})`;
   }
+  const colorCache = {};   // 提亮后的国家色缓存
 
   function relationTo(cid){
     if(!cid || !Game.state) return "neutral";
@@ -72,12 +73,26 @@ const MapView = (() => {
   // ---------- 陆地 ----------
   function renderLand(){
     L.land.innerHTML = "";
+    // 海岸外发光（画在陆地之下，只在海岸线外侧露出柔光）
+    for(const d of WORLD_PATHS){
+      const g = document.createElementNS(NS,"path");
+      g.setAttribute("d", d);
+      g.setAttribute("class","coast-glow");
+      L.land.appendChild(g);
+    }
     for(const d of WORLD_PATHS){
       const p = document.createElementNS(NS,"path");
       p.setAttribute("d", d);
       p.setAttribute("class","coast");
       L.land.appendChild(p);
     }
+    // 海洋暗角：四周压暗，视线聚焦大陆
+    const v = document.createElementNS(NS,"rect");
+    v.setAttribute("x",0); v.setAttribute("y",0);
+    v.setAttribute("width",W); v.setAttribute("height",H);
+    v.setAttribute("fill","url(#oceanVignette)");
+    v.setAttribute("pointer-events","none");
+    L.land.appendChild(v);
   }
 
   // ---------- 国家填色层 (同国所有 cell 合并 fill, 形成"国色块") ----------
@@ -130,8 +145,10 @@ const MapView = (() => {
       const t = TERRAIN[best];
       return t ? t.color : "#4a4f55";
     }
-    // political
-    return known ? s.countries[cid].color : "#555";
+    // political（略提亮一档，色块更鲜明）
+    if(!known) return "#5e6066";
+    if(!colorCache[cid]) colorCache[cid] = darken(s.countries[cid].color, -16);
+    return colorCache[cid];
   }
   // ---------- 国家轮廓平滑 ----------
   // 手画国家形状是折线多边形（M/Q 数据，控制点=前一点），拐角生硬。
@@ -165,11 +182,18 @@ const MapView = (() => {
     if(typeof COUNTRY_SHAPES === "undefined") return;
     const playerId = Game.state.player;
     Object.keys(COUNTRY_SHAPES).forEach(cid => {
+      const dS = smoothShapeD(COUNTRY_SHAPES[cid].d);
       const path = document.createElementNS(NS,"path");
-      path.setAttribute("d", smoothShapeD(COUNTRY_SHAPES[cid].d));
+      path.setAttribute("d", dS);
       path.setAttribute("fill", shapeColorFor(cid));
       path.setAttribute("class", "country-fill" + (mapMode === "political" && cid === playerId ? " player-country" : ""));
       L.countryFills.appendChild(path);
+      // 表面光泽：上亮下暗的纵向渐变，给色块一点"起伏"质感
+      const sheen = document.createElementNS(NS,"path");
+      sheen.setAttribute("d", dS);
+      sheen.setAttribute("fill","url(#countrySheen)");
+      sheen.setAttribute("pointer-events","none");
+      L.countryFills.appendChild(sheen);
     });
   }
   function renderTerritory(){
@@ -1101,7 +1125,30 @@ const MapView = (() => {
   function setHover(idx){ hoverIdx = idx; }
   function setSelect(idx){ selIdx = idx; render(); }
 
-  // 初始化静态层
+  // 初始化静态层与共享渐变
+  (function initDefs(){
+    const defs = svg.querySelector("defs");
+    if(!defs) return;
+    const sheen = document.createElementNS(NS,"linearGradient");
+    sheen.id = "countrySheen";
+    sheen.setAttribute("x1","0"); sheen.setAttribute("y1","0");
+    sheen.setAttribute("x2","0"); sheen.setAttribute("y2","1");
+    [["0%","#ffffff","0.15"],["42%","#ffffff","0"],["58%","#000000","0"],["100%","#000000","0.22"]].forEach(([o,c,o2])=>{
+      const st = document.createElementNS(NS,"stop");
+      st.setAttribute("offset",o); st.setAttribute("stop-color",c); st.setAttribute("stop-opacity",o2);
+      sheen.appendChild(st);
+    });
+    defs.appendChild(sheen);
+    const vg = document.createElementNS(NS,"radialGradient");
+    vg.id = "oceanVignette";
+    vg.setAttribute("cx","0.5"); vg.setAttribute("cy","0.45"); vg.setAttribute("r","0.75");
+    [["0%","#000000","0"],["62%","#000000","0"],["100%","#020810","0.5"]].forEach(([o,c,o2])=>{
+      const st = document.createElementNS(NS,"stop");
+      st.setAttribute("offset",o); st.setAttribute("stop-color",c); st.setAttribute("stop-opacity",o2);
+      vg.appendChild(st);
+    });
+    defs.appendChild(vg);
+  })();
   renderLand();
 
   // 动画循环（仅在有战斗特效时运行，节省性能）

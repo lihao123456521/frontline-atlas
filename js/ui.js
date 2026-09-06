@@ -41,6 +41,7 @@ const UI = (function(){
   let selectedUnitKey = null;
   let pendingBattle = null;     // {kind:"attack"|"amphib", from, to}
   let sendCount = 0;            // 0=默认(留守1)
+  let sendAllMode = false;      // 全军出动：点相邻己方省份调动全部部队
   let logTab = "all";
   let unreadBattle = 0;
   let speed = 0;
@@ -375,6 +376,25 @@ const UI = (function(){
       sld.appendChild(lbl);
       box.appendChild(sld);
     }
+    // 全线总攻：目标省相邻的所有己方驻军省一齐压上（多路协同 + 多点战斗动画）
+    const allies = [];
+    Game.neighbors(to).forEach(n=>{
+      const q = Game.province(n);
+      if(n!==from && q.owner===s.player && q.garrison.length>0) allies.push(n);
+    });
+    if(allies.length){
+      const allBtn = el("button","rp-btn primary","⚔ 全线总攻（另从 " + allies.length + " 个邻省一齐压上）");
+      allBtn.title = "相邻 " + allies.map(n=>Game.province(n).name).join("、") + " 同时出兵（各留守1支）";
+      allBtn.addEventListener("click",()=>{
+        allies.forEach(n=>{
+          const q = Game.province(n);
+          const send = q.garrison.length>=2 ? q.garrison.length-1 : 1;
+          Game.doAssault(s.player, n, to, 0, send);
+        });
+        pendingBattle=null; sendCount=0; refresh();
+      });
+      box.appendChild(allBtn);
+    }
     const btnAtk = el("button","rp-btn primary", isAmphib?"🚀 发起登陆":"⚔ 发起进攻");
     btnAtk.addEventListener("click",()=>{
       if(isAmphib) Game.amphibious(from, to, sendCount>=1?sendCount:undefined);
@@ -560,7 +580,24 @@ const UI = (function(){
       infraBtn.disabled = p.infra>=5;
       infraBtn.addEventListener("click",()=>{ Game.buildProvince("infra"); sfx("click"); });
       act.appendChild(infraBtn);
+      // 全军出动开关：开启后点击相邻己方省份将调动全部部队（默认只留守1支）
+      const allBtn = el("button","rp-btn"+(sendAllMode?" primary":""),
+        sendAllMode ? "全军出动：开（点邻省调动全部）" : "全军出动：关（默认留守1支）");
+      allBtn.addEventListener("click",()=>{ sendAllMode = !sendAllMode; sfx("click"); refresh(); });
+      act.appendChild(allBtn);
       rp.appendChild(act);
+    } else if (c && Game.isAtWar(s.player, p.owner)){
+      // 特殊行动：对已宣战的敌方省份发动战略空袭（附近需有我方空军）
+      const sp = el("div","rp-section");
+      sp.innerHTML = `<h4>特殊行动</h4>`;
+      const hasAir = p.garrison.some(d=>d.kind==="air") ||
+        Game.neighbors(idx).some(n=>{ const q=Game.province(n); return q.owner===s.player && q.garrison.some(d=>d.kind==="air"); });
+      const bombBtn = el("button","rp-btn danger","💥 战略空袭");
+      bombBtn.disabled = !hasAir;
+      bombBtn.title = hasAir ? "空袭：削减该省资源/石油并杀伤驻军" : "需要本省或相邻己方省份驻扎空军联队";
+      bombBtn.addEventListener("click",()=>{ Game.bombProvince(); sfx("attack"); });
+      sp.appendChild(bombBtn);
+      rp.appendChild(sp);
     }
   }
 
@@ -579,10 +616,24 @@ const UI = (function(){
     const units = el("div","rp-section");
     units.innerHTML = `<h4>训练部队</h4>`;
     Object.values(UNIT_TYPES).forEach(t=>{
+      const row = el("div");
+      row.style.cssText = "display:flex;gap:4px;margin-bottom:4px";
       const b = el("button","rp-btn");
+      b.style.flex = "1";
       b.innerHTML = `${unitGlyph(t.key,16)} ${t.name} <span style="color:var(--muted);float:right">🔫${t.equip} ⛏${t.res}${t.oil?` 🛢${t.oil}`:""}${t.rare?` 💎${t.rare}`:""} 👤${t.man}</span>`;
       b.addEventListener("click",()=>{ Game.buildUnit(t.key); sfx("build"); });
-      units.appendChild(b);
+      row.appendChild(b);
+      // 连续训练 ×5：资源不够自动停
+      const b5 = el("button","rp-btn","×5");
+      b5.style.cssText = "flex:0 0 44px;font-weight:bold";
+      b5.title = "连续训练 5 支（资源不足自动停止）";
+      b5.addEventListener("click",()=>{
+        let n = 0;
+        for(let i=0;i<5;i++){ if(Game.buildUnit(t.key)) n++; else break; }
+        if(n>0) toast("已加入 " + n + " 个 " + t.name + " 生产队列。","good");
+      });
+      row.appendChild(b5);
+      units.appendChild(row);
     });
     rp.appendChild(units);
 
@@ -868,14 +919,22 @@ const UI = (function(){
           const seaAdj = Game.seaAdj(s.selectedIdx).includes(idx);
           if(fromP.owner===s.player && fromP.garrison.length>0){
             if(landAdj){
-              if(p.owner===s.player){ Game.moveUnits(s.selectedIdx, idx); sfx("click"); return; }
+              if(p.owner===s.player){
+                Game.moveUnits(s.selectedIdx, idx, sendAllMode ? fromP.garrison.length : undefined);
+                if(sendAllMode){ sendAllMode=false; toast("全军已出动。","good"); }
+                sfx("click"); return;
+              }
               if(!p.owner || Game.isAtWar(s.player, p.owner)){
                 pendingBattle = {kind:"attack", from:s.selectedIdx, to:idx};
                 sendCount=0; activeView="province"; refresh(); return;
               }
               toast("需先宣战才能进攻。","war");
             } else if(seaAdj && Game.coastalOf(s.selectedIdx) && Game.coastalOf(idx)){
-              if(p.owner===s.player){ Game.moveUnits(s.selectedIdx, idx); sfx("click"); return; }
+              if(p.owner===s.player){
+                Game.moveUnits(s.selectedIdx, idx, sendAllMode ? fromP.garrison.length : undefined);
+                if(sendAllMode){ sendAllMode=false; toast("全军已出动。","good"); }
+                sfx("click"); return;
+              }
               if(!p.owner || Game.isAtWar(s.player, p.owner)){
                 pendingBattle = {kind:"amphib", from:s.selectedIdx, to:idx};
                 sendCount=0; activeView="province"; refresh(); return;
