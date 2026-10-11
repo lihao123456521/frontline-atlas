@@ -132,4 +132,7 @@ button,summary,[role="button"],input,select{touch-action:manipulation;-webkit-ta
   #rpContent .city-more>summary{padding:12px 0!important}
   #rpContent .combat-personnel{font-size:19px}
   #commandNav .nav-management>summary{padding:10px 8px}
+  /* Netlify's public-site badge must not intercept the command menu. */
+  body.playing:has(>#nl-badge-frame) #commandNav{bottom:76px}
+  body.playing:has(>#nl-badge-frame) #rightPanel{bottom:142px;max-height:calc(100dvh - 286px)}
 }
