@@ -138,3 +138,41 @@ test('finishing a required event keeps the clock paused when an incoming attack 
   UI.setSpeed(2); UI.showEvent({id: 'choice2', title: '必选事件', desc: '选择一项', choices: [{label: '确定'}]});
   UI.closeEvent(); assert.equal(UI.getSpeed(), 2);
 });
+
+test('city and army recruitment controls change real automatic settings and preserve them across views', () => {
+  const f=setup(),{Game,UI,panel,descendants,button,click,emit}=f;
+  const control=label=>descendants(panel).find(n=>n.attributes['aria-label']===label);
+  UI.selectCity(Game.state.provinces.findIndex(p=>p.owner==='ger'));click(button('征兵'));
+  assert.equal(Game.autoRecruitmentStatus().enabled,true);
+  assert.ok(descendants(panel).some(n=>n.className==='rp-section recruitment-status'));
+  const settings=descendants(panel).find(n=>n.className==='recruitment-settings');assert.equal(settings.open,false);
+  settings.open=true;emit(settings,'toggle');
+  assert.equal(control('自动征兵').checked,true);
+  control('自动征兵').checked=false;emit(control('自动征兵'),'change');
+  assert.equal(Game.state.autoRecruitment.enabled,false);assert.equal(control('自动征兵').checked,false);
+  control('自动征兵').checked=true;emit(control('自动征兵'),'change');
+  control('征兵强度').value='mobilize';emit(control('征兵强度'),'change');
+  const types=control('自动征兵兵种');
+  assert.ok(types.children.some(n=>n.value==='mountain'&&!n.disabled));
+  assert.ok(types.children.every(n=>!['navy','fighter','bomber'].includes(n.value)));
+  types.value='mountain';emit(types,'change');
+  assert.equal(Game.state.autoRecruitment.enabled,true);
+  assert.equal(Game.state.autoRecruitment.intensity,'mobilize');assert.equal(Game.state.autoRecruitment.unitType,'mountain');
+  assert.equal(descendants(panel).find(n=>n.className==='recruitment-settings').open,true,'changing a preference preserves the open settings');
+  UI.navigate('production');
+  assert.equal(control('自动征兵').checked,true);
+  assert.equal(control('征兵强度').value,'mobilize');assert.equal(control('自动征兵兵种').value,'mountain');
+});
+
+test('manual city training submits a paid order without disabling or resetting automatic recruitment', () => {
+  const {Game,UI,panel,descendants,button,click}=setup();
+  const player=Game.country('ger');player.res=player.equipment=player.manpower=999;
+  Game.setAutoRecruitment({enabled:true,intensity:'mobilize',unitType:'mountain'});
+  const preference=JSON.stringify(Game.state.autoRecruitment),equipment=player.equipment,res=player.res,manpower=player.manpower;
+  UI.selectCity(Game.state.provinces.findIndex(p=>p.owner==='ger'));click(button('征兵'));click(button('确认征兵'));
+  const orders=Game.state.buildQueue.filter(q=>q.kind==='div');assert.equal(orders.length,1);assert.equal(orders[0].unitType,'infantry');
+  assert.ok(player.equipment<equipment&&player.res<res&&player.manpower<manpower,'manual training pays real resources');
+  assert.equal(JSON.stringify(Game.state.autoRecruitment),preference);
+  UI.navigate('production');
+  assert.equal(descendants(panel).find(n=>n.attributes['aria-label']==='自动征兵').checked,true);
+});

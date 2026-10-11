@@ -90,6 +90,7 @@ const Game = (function(){
       peaceRejected: {},
       monthsElapsed: 0,
       autoLogistics: { enabled:true, actions:[], reasons:[], lastMonth:null },
+      autoRecruitment: { enabled:true, intensity:'balanced', unitType:'infantry', actions:[], reason:'', lastMonth:null },
       autoOffensive: true,
       over: false,
       result: null,
@@ -191,7 +192,7 @@ const Game = (function(){
     }
   }
 
-  // 邻接图：k 近邻（陆上边界）+ 海路（沿海省份）
+  // 陆路来自真实国界与省区共享边；海路单独保留，不能当作陆路。
   function buildGraph(){
     const n = state.provinces.length;
     state.adj = Array.from({length:n},()=>[]);
@@ -228,6 +229,10 @@ const Game = (function(){
           if(!state.adj[j].includes(i))state.adj[j].push(i);
         });
       }));
+    }
+    if(typeof History!=='undefined'&&History.buildLandGraph){
+      const graph=History.buildLandGraph(state.provinces);
+      if(graph){state.adj=graph.adj;state.landRouteKm=graph.distances;state.landGraphVersion=1;}
     }
     SEA_LINKS.forEach(([a,b])=>{
       const ia=idxById[a], ib=idxById[b];
@@ -336,7 +341,7 @@ const Game = (function(){
     if(!from || !to || from.owner!==state.player || to.owner!==state.player)return false;
     if(kind==='naval' && (!coastalOf(fromIdx)||!coastalOf(toIdx)||!seaAdj(fromIdx).includes(toIdx)))return false;
     if(kind==='land' && !neighbors(fromIdx).includes(toIdx))return false;
-    const pool=from.garrison.filter(d=>d.kind===kind && !d.combatId);
+    const pool=from.garrison.filter(d=>d.kind===kind && !d.combatId && (kind!=='air'||distanceKm(from,to)<=UNIT_TYPES[d.type].range));
     if(!pool.length)return false;
     // 派兵数量：显式 sendCount 优先；否则默认留守 1 支，避免后方空虚被偷袭
     let send = pool.length;
@@ -368,6 +373,10 @@ const Game = (function(){
     const rad=Math.PI/180, lat=(b.lat-a.lat)*rad,lon=(b.lon-a.lon)*rad;
     const v=Math.sin(lat/2)**2+Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(lon/2)**2;
     return 12742*Math.asin(Math.min(1,Math.sqrt(v)));
+  }
+  function expeditionRoute(fromIdx,toIdx,amphib){
+    const routeKm=amphib&&state.landGraphVersion?distanceKm(province(fromIdx),province(toIdx)):state.landRouteKm?.[fromIdx]?.[toIdx];
+    return Number.isFinite(routeKm)?{routeKm,preparationDays:Math.max(2,Math.ceil(routeKm/(amphib?750:250)))}:{routeKm:0,preparationDays:2};
   }
   function aircraftAt(ownerId,target){
     const result=[];if(!ownerId)return result;
@@ -450,6 +459,7 @@ const Game = (function(){
     state.provinces.forEach(p=>p.garrison.forEach(d=>ensureUnit(d,p.owner)));
     Object.values(state.countries).forEach(c=>{
       c.initialVictoryWeight=state.provinces.reduce((n,p)=>n+(p.owner===c.id?(p.isCapital?5:1):0),0);
+      c.initialLandDivisions=armyTotals(c.id).land;
     });
   }
   function availableLand(p){
@@ -504,7 +514,7 @@ const Game = (function(){
     const a=attackersOf(c),d=defendersOf(c),target=province(c.to),side=c.attacker===state.player?'attack':'defend';
     const aPersonnel=personnelOf(a),dPersonnel=personnelOf(d),aPersonnelLoss=Number.isFinite(c.aPersonnelLoss)?Math.max(0,c.aPersonnelLoss):0,dPersonnelLoss=Number.isFinite(c.dPersonnelLoss)?Math.max(0,c.dPersonnelLoss):0;
     return {id:c.id,to:c.to,name:target.name,kind:c.kind,attacker:c.attacker,defender:c.defender,
-      phase:c.phase,days:c.days,progress:Math.round(c.progress),tactics:side==='attack'?c.tactics:c.defenderTactics,
+      phase:c.phase,days:c.days,preparationDays:c.preparationDays||2,routeKm:c.routeKm||0,progress:Math.round(c.progress),tactics:side==='attack'?c.tactics:c.defenderTactics,
       playerSide:side,attackers:a.length,defenders:d.length,
       aFront:Math.min(frontage(target),a.length),aReserve:Math.max(0,a.length-frontage(target)),dFront:Math.min(frontage(target),d.length),dReserve:Math.max(0,d.length-frontage(target)),
       aOrg:percent(a,'org','maxOrg'),dOrg:percent(d,'org','maxOrg'),
@@ -659,11 +669,12 @@ const Game = (function(){
       if(!declareWar(attackerId,to.owner))return false;
       if(attackerId===state.player){country(attackerId).stability=clamp(country(attackerId).stability-8,0,100);state.wt=clamp(state.wt+10,0,100);log('不宣而战：稳定度 -8，世界紧张度额外 +10。','war');}
     }
-    const c={id:'c'+(++state.combatSerial),attacker:attackerId,defender:to.owner,from:fromIdx,to:toIdx,
+    const route=expeditionRoute(fromIdx,toIdx,amphib);
+    const c={id:'c'+(++state.combatSerial),attacker:attackerId,defender:to.owner,from:fromIdx,to:toIdx,...route,
       kind:amphib?'amphib':'land',phase:'preparation',days:0,progress:0,tactics:'balanced',defenderTactics:'balanced',
       attackers:sent.map(unit=>({unit,from:fromIdx,owner:attackerId})),defenderIds:[],aLoss:0,dLoss:0,
       aInitialPersonnel:personnelOf(sent),dInitialPersonnel:0,aPersonnelLoss:0,dPersonnelLoss:0,
-      navBonus:navBonus||0,navalDays:0,events:['部队集结中；预计准备 2 天']};
+      navBonus:navBonus||0,navalDays:0,events:['部队行军集结中；预计 '+route.preparationDays+' 天'+(route.routeKm?'，路线约 '+Math.round(route.routeKm)+' 公里':'')]};
     sent.forEach(unit=>{ensureUnit(unit,attackerId);unit.owner=attackerId;unit.combatId=c.id;});
     from.garrison=from.garrison.filter(d=>!sent.includes(d));
     to.garrison.filter(d=>d.kind==='land'&&!d.combatId).forEach(d=>{ensureUnit(d,to.owner);d.combatId=c.id;c.defenderIds.push(d.id);});
@@ -698,7 +709,7 @@ const Game = (function(){
       if(!country(c.attacker)?.alive || (c.defender&&!country(c.defender)?.alive) ||
         (c.defender&&!isAtWar(c.attacker,c.defender)) || target.owner!==c.defender){cancelCombat(c,'交战条件变化，部队撤回。');continue;}
       if(base.owner!==c.attacker){finishCombat(c,false,'出发阵地失守');continue;}
-      c.days++;if(c.days<=2){attackersOf(c).forEach(d=>{d.org=Math.max(0,d.org-d.maxOrg*.01);});continue;}
+      c.days++;if(c.phase==='preparation'&&c.days<=(c.preparationDays||2)){attackersOf(c).forEach(d=>{d.org=Math.max(0,d.org-d.maxOrg*.01);});continue;}
       if(c.kind==='amphib' && c.navalDays<2){
         c.phase='naval';c.navalDays++;
         const fleet=base.garrison.filter(d=>d.kind==='naval'&&d.combatId===c.id&&d.hp>0),enemy=target.garrison.filter(d=>d.kind==='naval'&&d.combatId===c.id&&d.hp>0);
@@ -846,12 +857,20 @@ const Game = (function(){
   function repairGarrisons(id){
     const c = country(id);
     const rate = 0.14 + (c.eff.repair || 0);
+    const reserve=id===state.player&&state.autoRecruitment?.enabled?recruitmentReserve(c):{equipment:0,manpower:0};
+    if(id===state.player&&state.autoRecruitment?.enabled){
+      const auto=state.autoRecruitment,queued=state.buildQueue.filter(q=>q.kind==='div'&&UNIT_TYPES[q.unitType].kind==='land').length;
+      if(armyTotals(id).land+queued<recruitmentTarget(auto,c)&&unitAvailability(auto.unitType).available){
+        // 未达到目标时积攒下一支部队的费用，避免每月补员持续吃光征兵人力。
+        reserve.equipment+=UNIT_TYPES[auto.unitType].equip;reserve.manpower+=UNIT_TYPES[auto.unitType].man;
+      }
+    }
     state.provinces.forEach(p => {
       if (p.owner === id){
         p.garrison.forEach(d => {
           if(d.combatId||d.hp<=0)return;
-          if(d.hp<d.maxHp && c.equipment>=1 && c.manpower>=1){
-            const fraction=Math.min(rate,(d.maxHp-d.hp)/d.maxHp,c.equipment/Math.max(1,UNIT_TYPES[d.type].equip),c.manpower/Math.max(1,UNIT_TYPES[d.type].man));
+          if(d.hp<d.maxHp && c.equipment-reserve.equipment>=1 && c.manpower-reserve.manpower>=1){
+            const fraction=Math.min(rate,(d.maxHp-d.hp)/d.maxHp,(c.equipment-reserve.equipment)/Math.max(1,UNIT_TYPES[d.type].equip),(c.manpower-reserve.manpower)/Math.max(1,UNIT_TYPES[d.type].man));
             d.hp+=d.maxHp*fraction;c.equipment-=Math.max(1,UNIT_TYPES[d.type].equip)*fraction;c.manpower-=Math.max(1,UNIT_TYPES[d.type].man)*fraction;
           }
           d.org=Math.min(d.maxOrg||60,d.org+(d.maxOrg||60)*.2);
@@ -1016,7 +1035,7 @@ const Game = (function(){
     const auto=state?.autoLogistics||{enabled:true,actions:[],reasons:[]};
     const summary=!auto.enabled?'自动后勤已关闭':auto.lastMonth
       ? '本月自动后勤：'+(auto.actions.length?auto.actions.join('；'):'保留库存，暂无支出')
-      : '每月补充装备、安排军事研究与缺编步兵，保留资源 40 / 装备 24 / 人力 5';
+      : '每月补充装备与安排军事研究；征兵按独立设置执行';
     return {enabled:auto.enabled,summary,actions:auto.actions.slice(),reasons:auto.reasons.slice()};
   }
   function setAutoLogistics(enabled){
@@ -1031,7 +1050,7 @@ const Game = (function(){
     const auto=state.autoLogistics,c=country(state.player),month=fmtDate(state.date);
     if(!auto.enabled || auto.lastMonth===month || !c.alive)return;
     auto.lastMonth=month;auto.actions=[];auto.reasons=[];
-    const reserve={res:40,equipment:24,manpower:5},t=UNIT_TYPES.infantry;
+    const reserve={res:40,equipment:24};
     if(c.equipment<48){
       if(c.res>=20+reserve.res){trade(true);auto.actions.push('贸易：资源 -20 / 装备 +12');}
       else auto.reasons.push('装备不足，贸易需 20 资源并保留 40 储备');
@@ -1044,22 +1063,75 @@ const Game = (function(){
     }
     if(state.research.slots.some(Boolean))auto.reasons.push('集中投入在研科技，保留手动安排，不自动分散研究点');
     else if(!military.some(t=>canResearch(t.id)&&!state.research.slots.includes(t.id)))auto.reasons.push('暂时没有满足年份和先决科技的军事研究');
-    const owned=state.provinces.map((p,i)=>({p,i})).filter(o=>o.p.owner===state.player);
-    const queued=state.buildQueue.filter(item=>item.kind==='div');
-    const army=armyTotals(state.player).land+queued.filter(item=>UNIT_TYPES[item.unitType].kind==='land').length;
-    const desired=Math.max(4,state.orderOfBattle?.countries?.[state.player]?.land||c.initialLandDivisions||owned.length);
-    if(army>=desired)auto.reasons.push('陆军已达到基础编制 '+desired+' 支');
-    else if(queued.length>=2)auto.reasons.push('训练队列已有 2 支部队，等待交付');
-    else if(!owned.length)auto.reasons.push('没有己方省份可部署步兵');
-    else if(c.equipment<t.equip+reserve.equipment || c.res<t.res+reserve.res || c.manpower<t.man+reserve.manpower)auto.reasons.push('步兵增援需装备 '+t.equip+' / 资源 '+t.res+' / 人力 '+t.man+'，并保留装备 24 / 资源 40 / 人力 5');
-    else {
-      const prior=state.selectedIdx;
-      const front=owned.find(o=>neighbors(o.i).some(i=>province(i).owner && isAtWar(state.player,province(i).owner)));
-      state.selectedIdx=(front||owned.find(o=>o.i===c.capitalIdx)||owned[0]).i;
-      if(buildUnit('infantry',true))auto.actions.push('训练步兵：装备 -'+t.equip+' / 资源 -'+t.res+' / 人力 -'+t.man);
-      state.selectedIdx=prior;
-    }
     if(auto.actions.length)log('自动后勤：'+auto.actions.join('；')+'。','info');
+  }
+
+  const recruitmentModes=Object.freeze({reserve:{name:'补充',limit:1,ratio:1},balanced:{name:'均衡',limit:2,ratio:1.15},mobilize:{name:'动员',limit:3,ratio:1.4}});
+  function recruitmentReserve(c){
+    return {res:clamp(c.civ*3,12,40),equipment:clamp(c.mil*3,8,24),manpower:clamp(c.manpowerCap*.02,1,5),oil:5,rare:2};
+  }
+  function recruitmentTarget(auto,c){
+    const base=state.orderOfBattle?.countries?.[state.player]?.land||c.initialLandDivisions||armyTotals(state.player).land;
+    return Math.max(4,Math.ceil(base*recruitmentModes[auto.intensity].ratio));
+  }
+  function autoRecruitmentStatus(){
+    if(!state)return {enabled:true,intensity:'balanced',unitType:'infantry',summary:'自动征兵',actions:[],reason:'',queued:0,target:0,reserve:{res:40,equipment:24,manpower:5}};
+    const auto=state.autoRecruitment,c=country(state.player),mode=recruitmentModes[auto.intensity];
+    const queued=state.buildQueue.filter(q=>q.kind==='div'&&UNIT_TYPES[q.unitType].kind==='land').length;
+    const summary=!auto.enabled?'手动征兵':auto.reason||('自动征兵 · '+mode.name+' · '+UNIT_TYPES[auto.unitType].name);
+    return {enabled:auto.enabled,intensity:auto.intensity,unitType:auto.unitType,summary,actions:auto.actions.slice(),reason:auto.reason,
+      queued,target:recruitmentTarget(auto,c),monthlyLimit:mode.limit,reserve:recruitmentReserve(c)};
+  }
+  function setAutoRecruitment(settings){
+    if(!state||!settings||typeof settings!=='object'||Array.isArray(settings))return false;
+    if(settings.enabled!==undefined&&typeof settings.enabled!=='boolean')return false;
+    if(settings.intensity!==undefined&&!Object.hasOwn(recruitmentModes,settings.intensity))return false;
+    if(settings.unitType!==undefined&&(!UNIT_TYPES[settings.unitType]||UNIT_TYPES[settings.unitType].kind!=='land'||!unitAvailability(settings.unitType).available))return false;
+    const auto=state.autoRecruitment;
+    for(const key of ['enabled','intensity','unitType'])if(settings[key]!==undefined)auto[key]=settings[key];
+    auto.reason='';autosave();if(window.UI)UI.refresh();return true;
+  }
+  function recruitmentDestination(){
+    const owned=state.provinces.map((p,i)=>({p,i})).filter(o=>o.p.owner===state.player);
+    const score=o=>{
+      const enemy=neighbors(o.i).some(i=>province(i).owner&&isAtWar(state.player,province(i).owner));
+      const seaEnemy=coastalOf(o.i)&&seaAdj(o.i).some(i=>province(i).owner&&isAtWar(state.player,province(i).owner));
+      const fleet=o.p.garrison.some(d=>d.kind==='naval'&&d.hp>0);
+      const border=neighbors(o.i).some(i=>province(i).owner&&province(i).owner!==state.player&&!isAllied(state.player,province(i).owner));
+      const stationed=landCount(o.i)+state.buildQueue.filter(q=>q.kind==='div'&&q.provinceIdx===o.i&&UNIT_TYPES[q.unitType].kind==='land').length;
+      return (enemy?30:seaEnemy&&fleet?24:fleet?12:o.i===country(state.player).capitalIdx?8:border?6:1)-stationed*.25;
+    };
+    return owned.reduce((a,b)=>!a||score(b)>score(a)?b:a,null)?.i??-1;
+  }
+  function processAutoRecruitment(){
+    const auto=state.autoRecruitment,c=country(state.player),month=fmtDate(state.date);
+    if(!auto.enabled||auto.lastMonth===month||!c.alive||state.over)return;
+    auto.lastMonth=month;auto.actions=[];auto.reason='';
+    const t=UNIT_TYPES[auto.unitType],mode=recruitmentModes[auto.intensity],reserve=recruitmentReserve(c);
+    const costs={equipment:t.equip,res:t.res,manpower:t.man,oil:t.oil,rare:t.rare};
+    const availability=unitAvailability(auto.unitType);
+    if(!availability.available){auto.reason=availability.reasons[0];return;}
+    const prior=state.selectedIdx;
+    try{
+      for(let n=0;n<mode.limit;n++){
+        const queued=state.buildQueue.filter(q=>q.kind==='div'&&UNIT_TYPES[q.unitType].kind==='land').length;
+        if(armyTotals(state.player).land+queued>=recruitmentTarget(auto,c)){auto.reason='编制已足，等待战损补充';break;}
+        if(queued>=mode.limit){auto.reason='训练中 '+queued+' 支，等待交付';break;}
+        const target=recruitmentDestination();
+        if(target<0){auto.reason='没有可部署城市';break;}
+        if(Object.keys(costs).some(key=>costs[key]&&c[key]<costs[key]+reserve[key])){auto.reason='储备不足，暂停征兵';break;}
+        state.selectedIdx=target;
+        if(!buildUnit(auto.unitType,true)){auto.reason='当前无法训练';break;}
+        const name=t.name.replace(/师$/,'');
+        auto.actions.push('训练'+name+'：装备 -'+t.equip+' / 资源 -'+t.res+' / 人力 -'+t.man);
+      }
+    }finally{state.selectedIdx=prior;}
+    if(auto.actions.length){
+      if(!auto.reason)auto.reason='训练中 '+auto.actions.length+' 支';
+      log('自动征兵：'+auto.actions.join('；')+'。','info');
+      // 保留综合后勤概览，但开关与预算以独立征兵设置为准。
+      if(state.autoLogistics.enabled)state.autoLogistics.actions.push(...auto.actions);
+    }
   }
 
   /* ---------------- 科技 ---------------- */
@@ -1309,11 +1381,12 @@ const Game = (function(){
     });
 
     applyIncome(state.player);
-    repairGarrisons(state.player);
     processProduction();
     processAiProduction();
     processResearch();
     processAutoLogistics();
+    processAutoRecruitment();
+    repairGarrisons(state.player);
     aiDiplomacy();
     aiTurn();
     eventTick();
@@ -1559,6 +1632,7 @@ const Game = (function(){
   // 与玩家交战时：后方补防 + 边境补兵 + 择优进攻 / 两栖
   function aiAttackEnemies(id){
     const enemy = owner => owner && country(owner)?.alive && !isAllied(id,owner) && isAtWar(id,owner);
+    const cooling=(from,to)=>state.recentBattles.some(r=>r.attacker===id&&r.from===from&&r.to===to&&r.won===false&&Number.isInteger(r.autoOffensiveDay)&&state.daysElapsed-r.autoOffensiveDay<14);
     const aiProv = state.provinces.map((p,i)=>({p,i})).filter(o=>o.p.owner===id);
     aiReinforceFront(id, aiProv);
     let active=state.activeCombats.filter(c=>c.attacker===id).length;
@@ -1566,25 +1640,27 @@ const Game = (function(){
       if(active>=2)return;
       if (landCount(o.i) < 2) return;            // 至少留 1 陆军守军
       const adj = neighbors(o.i).map(n => province(n));
-      const targets = adj.filter(t => enemy(t.owner));
+      const targets = adj.filter(t => enemy(t.owner)&&!cooling(o.i,state.provinces.indexOf(t)));
       if (targets.length){
         targets.sort((a,b) => defendStrength(a) - defendStrength(b));
         const tgt = targets[0];
         const pool=availableLand(o.p),estimate=assaultStrength(id,o.i,state.provinces.indexOf(tgt),pool.slice(0,defaultSend(pool.length)),0);
         const atk=estimate.aStr,def=estimate.dStr;
-        // 接近均势时以谨慎战术试探；明显劣势仍等待真实增援。
-        if (atk > def * .95 && doAssault(id, o.i, state.provinces.indexOf(tgt), 0, undefined, true)){
-          if(atk<def*1.15)state.activeCombats[state.activeCombats.length-1].tactics='careful';
+        if(pool.length<2||pool.slice(0,defaultSend(pool.length)).some(d=>d.org<(d.maxOrg||60)*.45))return;
+        // 与玩家自动攻势使用相同的有限劣势底线；防守战宽不能让真实边境永久静止。
+        if (atk > def * .65 && doAssault(id, o.i, state.provinces.indexOf(tgt), 0, undefined, true)){
+          const combat=state.activeCombats[state.activeCombats.length-1];combat.autoOffensiveDay=state.daysElapsed;
+          if(atk<def*1.15)combat.tactics='careful';
           active++;
         }
         return;
       }
       if (state.coastal[o.i] && seaAdj(o.i).length){
         const seaT = seaAdj(o.i).map(n => province(n))
-          .filter(t => enemy(t.owner) && state.coastal[state.provinces.indexOf(t)]);
+          .filter(t => enemy(t.owner) && state.coastal[state.provinces.indexOf(t)]&&!cooling(o.i,state.provinces.indexOf(t)));
         if (seaT.length && o.p.garrison.some(d=>d.kind==="naval")){
           const tgt = seaT[0], ti = state.provinces.indexOf(tgt);
-          if(amphibious(o.i,ti,undefined,id,true))active++;
+          if(amphibious(o.i,ti,undefined,id,true)){state.activeCombats[state.activeCombats.length-1].autoOffensiveDay=state.daysElapsed;active++;}
         }
       }
     });
@@ -1725,6 +1801,10 @@ const Game = (function(){
     if (!obj(s.relations) || !Array.isArray(s.wars) || !obj(s.alliances) || !obj(s.guarantees) || !obj(s.justifies) || !obj(s.intel) || !obj(s.focusCd) || !obj(s.focusUsed) || !obj(s.triggeredEvents)) return false;
     if(s.autoLogistics!==undefined && (!obj(s.autoLogistics) || typeof s.autoLogistics.enabled!=='boolean' || !Array.isArray(s.autoLogistics.actions) || !Array.isArray(s.autoLogistics.reasons) || s.autoLogistics.actions.concat(s.autoLogistics.reasons).some(v=>typeof v!=='string') || (s.autoLogistics.lastMonth!==null && typeof s.autoLogistics.lastMonth!=='string')))return false;
     if(s.autoOffensive!==undefined && typeof s.autoOffensive!=='boolean')return false;
+    if(s.autoRecruitment!==undefined && (!obj(s.autoRecruitment)||typeof s.autoRecruitment.enabled!=='boolean'||
+      !Object.hasOwn(recruitmentModes,s.autoRecruitment.intensity)||!UNIT_TYPES[s.autoRecruitment.unitType]||UNIT_TYPES[s.autoRecruitment.unitType].kind!=='land'||
+      !Array.isArray(s.autoRecruitment.actions)||s.autoRecruitment.actions.length>3||s.autoRecruitment.actions.some(a=>typeof a!=='string')||
+      typeof s.autoRecruitment.reason!=='string'||(s.autoRecruitment.lastMonth!==null&&typeof s.autoRecruitment.lastMonth!=='string')))return false;
     if(s.aiBuildQueue!==undefined && (!Array.isArray(s.aiBuildQueue)||s.aiBuildQueue.length>Object.keys(s.countries).length*2||
       s.aiBuildQueue.some(item=>!obj(item)||!s.countries[item.countryId]||item.countryId===s.player||!UNIT_TYPES[item.unitType]||
         !Number.isInteger(item.provinceIdx)||item.provinceIdx<0||item.provinceIdx>=s.provinces.length||
@@ -1768,6 +1848,8 @@ const Game = (function(){
           !['land','amphib'].includes(c.kind)||!['preparation','naval','engagement'].includes(c.phase)||
           !['careful','balanced','assault'].includes(c.tactics)||!['careful','balanced','assault'].includes(c.defenderTactics)||
           !Number.isInteger(c.days)||c.days<0||!Number.isInteger(c.navalDays)||c.navalDays<0||
+          (c.preparationDays!==undefined&&(!Number.isInteger(c.preparationDays)||c.preparationDays<2||c.preparationDays>365))||
+          (c.routeKm!==undefined&&(!Number.isFinite(c.routeKm)||c.routeKm<0||c.routeKm>50000))||
           ['progress','aLoss','dLoss','navBonus'].some(k=>!Number.isFinite(c[k])||c[k]<0)||c.progress>100||
           ['aInitialPersonnel','dInitialPersonnel','aPersonnelLoss','dPersonnelLoss'].some(k=>c[k]!==undefined&&(!Number.isFinite(c[k])||c[k]<0))||
           !Array.isArray(c.events)||c.events.some(e=>typeof e!=='string')||!Array.isArray(c.attackers)||!c.attackers.length||c.attackers.length>50000||
@@ -1812,6 +1894,7 @@ const Game = (function(){
       }
       if (!Campaign.valid(candidate.campaign, candidate)) return false;
       candidate.autoLogistics=candidate.autoLogistics||{enabled:true,actions:[],reasons:[],lastMonth:null};
+      candidate.autoRecruitment=candidate.autoRecruitment||{enabled:candidate.autoLogistics.enabled,intensity:'balanced',unitType:'infantry',actions:[],reason:'',lastMonth:null};
       if(candidate.autoOffensive===undefined)candidate.autoOffensive=true;
       if(candidate.aiBuildQueue===undefined)candidate.aiBuildQueue=[];
       if(candidate.worldEvents===undefined){candidate.worldEvents=[];candidate.worldEventSerial=0;}
@@ -1839,8 +1922,48 @@ const Game = (function(){
         if(!Number.isFinite(c.aInitialPersonnel))c.aInitialPersonnel=aNow;
         if(!Number.isFinite(c.dInitialPersonnel))c.dInitialPersonnel=dNow;
       });
-      Object.values(candidate.countries).forEach(c=>{if(!Number.isFinite(c.initialVictoryWeight))c.initialVictoryWeight=candidate.provinces.reduce((n,p)=>n+(p.originalOwner===c.id?(p.isCapital?5:1):0),0);});
-      state = candidate;
+      Object.values(candidate.countries).forEach(c=>{
+        if(!Number.isFinite(c.initialVictoryWeight))c.initialVictoryWeight=candidate.provinces.reduce((n,p)=>n+(p.originalOwner===c.id?(p.isCapital?5:1):0),0);
+        if(!Number.isInteger(c.initialLandDivisions)||c.initialLandDivisions<0){
+          c.initialLandDivisions=candidate.provinces.reduce((n,p)=>n+p.garrison.filter(d=>d.kind==='land'&&d.hp>0&&(d.owner||p.owner)===c.id).length,0)+
+            candidate.activeCombats.reduce((n,b)=>n+b.attackers.filter(e=>e.owner===c.id&&e.unit.hp>0).length,0);
+        }
+      });
+      const previousState=state;state=candidate;
+      try{
+        if(typeof History!=='undefined'&&History.buildLandGraph){
+          buildGraph();
+          const returnLegacy=(unit,owner,from)=>{
+            delete unit.combatId;delete unit.returnFrom;
+            const preferred=province(from),homes=state.provinces.filter(p=>p.owner===owner);
+            const destination=preferred?.owner===owner?preferred:homes.sort((a,b)=>distanceKm(a,preferred)-distanceKm(b,preferred))[0];
+            if(destination){unit.owner=owner;destination.garrison.push(unit);}
+          };
+          for(const c of state.activeCombats.slice()){
+            if(c.kind!=='land')continue;
+            const target=province(c.to);
+            if(!neighbors(c.from).includes(c.to)){
+              c.attackers.forEach(e=>returnLegacy(e.unit,e.owner,e.from));
+              const allied=target.garrison.filter(d=>d.combatId===c.id&&d.owner!==c.defender&&d.kind==='land');
+              target.garrison=target.garrison.filter(d=>!allied.includes(d));
+              allied.forEach(d=>returnLegacy(d,d.owner,d.returnFrom===undefined?c.to:d.returnFrom));
+              unlockCombat(c);state.activeCombats=state.activeCombats.filter(b=>b!==c);
+              state.worldEvents.filter(e=>e.kind==='invasion'&&e.combatId===c.id).forEach(e=>{e.acknowledged=true;});
+              log('旧陆路 '+province(c.from).name+' → '+target.name+' 不可通行，攻势已取消，部队返回原属国基地。','info');
+              continue;
+            }
+            // Existing frontline progress stays intact; only reinforcement shortcuts are removed.
+            const remote=c.attackers.filter(e=>!neighbors(e.from).includes(c.to));
+            c.attackers=c.attackers.filter(e=>!remote.includes(e));remote.forEach(e=>returnLegacy(e.unit,e.owner,e.from));
+            const remoteDefenders=target.garrison.filter(d=>d.combatId===c.id&&d.returnFrom!==undefined&&d.returnFrom!==c.to&&!neighbors(d.returnFrom).includes(c.to));
+            target.garrison=target.garrison.filter(d=>!remoteDefenders.includes(d));
+            remoteDefenders.forEach(d=>returnLegacy(d,d.owner||c.defender,d.returnFrom));
+            if(remote.length||remoteDefenders.length)log('旧陆路增援不可通行，部队已返回原属国基地。','info');
+            const route=expeditionRoute(c.from,c.to,false);c.routeKm=route.routeKm;
+            if(c.phase==='preparation')c.preparationDays=route.preparationDays;
+          }
+        }
+      }catch(error){state=previousState;return false;}
       return true;
     }
     catch(e){ return false; }
@@ -1885,7 +2008,7 @@ const Game = (function(){
     init, onMapClick, endTurn, advanceDay, getCombats, getCombat, combatReinforcements, setCombatTactics, reinforceCombat, retreatCombat, requestCombatSupport, armyTotals, unitPersonnel, personnelOf, provincePersonnel, capitulationProgress,
     buildUnit, unitAvailability, landCount, bombingAvailability, navalStrength, buildFactory, buildProvince, trade, bombProvince,
     assignResearch, cancelResearch, doFocus, doAssault,
-    diploAction, diplomacyAvailability, callAlly, setAutoLogistics, autoLogisticsStatus, setAutoOffensive, autoOffensiveStatus, moveUnits, resolveAttack, amphibious, proposePeace, resolveEvent, checkScriptedEvents, battlePreview,
+    diploAction, diplomacyAvailability, callAlly, setAutoLogistics, autoLogisticsStatus, setAutoRecruitment, autoRecruitmentStatus, setAutoOffensive, autoOffensiveStatus, moveUnits, resolveAttack, amphibious, proposePeace, resolveEvent, checkScriptedEvents, battlePreview,
     neighbors, coastalOf, seaAdj, province, provinceById, country, relation, isAtWar,
     intelLevel, canSee, computeWarscore, navalFormation, airFormation, isAllied, incomePreview, acceptPeace, rejectPeace,
     save, load, autosave, hasSave, getCampaign, claimCampaignReward, chooseStrategy,

@@ -79,7 +79,14 @@ const OrderOfBattle = (() => {
   const allied=(s,a,b)=>!!s.alliances?.[[a,b].sort().join('|')];
   const atWar=(s,a,b)=>(s.wars||[]).some(w=>(w.a===a&&w.b===b)||(w.b===a&&w.a===b));
   function allocations(s,owned,total){
-    const capital=s.provinces.find(p=>p.id===s.countries?.[owned[0].owner]?.capital)||owned.find(p=>p.isCapital)||owned[0];
+    const id=owned[0].owner;
+    const capital=owned.find(p=>p.id===s.countries?.[id]?.capital)||owned.find(p=>p.isCapital)||owned[0];
+    const mainEnemy=({poland39:{ger:'pol',pol:'ger'},barbarossa41:{ger:'sov',sov:'ger'},pacific42:{jpn:'usa',usa:'jpn',chn:'jpn'}})[s.scenario]?.[id];
+    const capitalIndex=s.provinces.indexOf(capital),homeComponent=new Set([capitalIndex]),queue=[capitalIndex];
+    for(let n=0;n<queue.length;n++)for(const next of s.adj[queue[n]]||[]){
+      if(s.provinces[next]?.owner===id&&!homeComponent.has(next)){homeComponent.add(next);queue.push(next);}
+    }
+    const landApproach=[...homeComponent].some(i=>(s.adj[i]||[]).some(j=>s.provinces[j]?.owner&&s.provinces[j].owner!==id&&!allied(s,id,s.provinces[j].owner)));
     const distance=p=>{
       if(!Number.isFinite(p.lon)||!Number.isFinite(capital.lon))return 0;
       const dx=Math.min(Math.abs(p.lon-capital.lon),360-Math.abs(p.lon-capital.lon));
@@ -90,11 +97,23 @@ const OrderOfBattle = (() => {
       const adjacent=(s.adj[index]||[]).map(n=>s.provinces[n]).filter(Boolean);
       const enemy=adjacent.some(q=>q.owner&&q.owner!==p.owner&&!allied(s,p.owner,q.owner)&&atWar(s,p.owner,q.owner));
       const border=adjacent.some(q=>q.owner&&q.owner!==p.owner&&!allied(s,p.owner,q.owner));
+      const primary=!!mainEnemy&&adjacent.some(q=>q.owner===mainEnemy);
+      const fleet=p.garrison.some(d=>(d.kind||UNIT_TYPES[d.type]?.kind)==='naval'&&d.hp>0);
+      const sea=(s.seaAdj?.[index]||[]).map(n=>s.provinces[n]).filter(Boolean);
+      const seaEnemy=fleet&&sea.some(q=>q.owner&&atWar(s,p.owner,q.owner));
+      const seaPrimary=fleet&&!!mainEnemy&&sea.some(q=>q.owner===mainEnemy);
       const home=distance(p)<=20;
-      return {p,enemy,weight:enemy?8:p.isCapital?4:(border?2:1)*(home?1:.5),count:0,placed:{}};
+      // 海外普通节点保留少量驻防；当前主战方向和可用舰队港口才集中可出征兵力。
+      const weight=primary?26:enemy?12:seaPrimary?24:seaEnemy?(landApproach?10:18):fleet?(home?(landApproach?6:16):4):p===capital?6:border?(home?6:1.5):(home?2:.5);
+      return {p,enemy,fleet,home,weight,count:0,placed:{}};
     }).sort((a,b)=>b.weight-a.weight||a.p.id.localeCompare(b.p.id));
-    // 按战区配额分配：不因殖民战略节点较多而把全国军队切成每省一师。
-    for(let n=0;n<total;n++){
+    let assigned=0;
+    const seed=(slot,count)=>{const n=Math.min(count,total-assigned);slot.count+=n;assigned+=n;};
+    const capitalSlot=scored.find(a=>a.p===capital);
+    seed(capitalSlot,total>=6?Math.max(2,Math.floor(total*.08)):Math.min(1,total));
+    for(const slot of scored.filter(a=>a.fleet))if(assigned<total)seed(slot,total>=6?2:1);
+    // 余下编制按战略权重配额分配，不因殖民节点较多而切成每省一师。
+    for(let n=assigned;n<total;n++){
       const best=scored.reduce((a,b)=>(b.count+1)/b.weight<(a.count+1)/a.weight?b:a);
       best.count++;
     }
@@ -105,7 +124,13 @@ const OrderOfBattle = (() => {
     const table=tables[s.scenario];if(!table)return null;
     const report={version:1,scenario:s.scenario,year:s.date.year,month:s.date.month,approximate:true,
       unitScale:'陆军按师级编制近似；海军按舰队编队，空军按联队，不能相加当作师数。',countries:{}};
-    for(const [id,config]of Object.entries(table)){
+    // 未列历史估算的小国保持原有师数和类型，只采用相同的地理部署规则。
+    const fallback=Object.fromEntries(Object.keys(s.countries).filter(id=>!table[id]).map(id=>{
+      const units=s.provinces.filter(p=>p.owner===id).flatMap(p=>p.garrison).filter(isLand);
+      const composition={};units.forEach(d=>{composition[d.type]=(composition[d.type]||0)+1;});
+      return [id,estimated(composition,'保留原有师级规模与兵种，按真实边境与港口配置驻军。',1)];
+    }));
+    for(const [id,config]of Object.entries({...table,...fallback})){
       const owned=s.provinces.filter(p=>p.owner===id);
       const existing=owned.flatMap(p=>p.garrison);
       const naval=existing.filter(d=>(d.kind||UNIT_TYPES[d.type]?.kind)==='naval').length;

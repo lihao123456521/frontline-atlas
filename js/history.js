@@ -124,6 +124,105 @@ const History = (() => {
     if((a==='uk'&&b==='irl')||(a==='irl'&&b==='uk'))return (a==='uk'?p:q).id==='uk_belfast';
     return true;
   }
+  // A city region reaches only regions sharing a real land boundary. Country-level
+  // adjacency and nearest-city distance cannot establish a route across a third country.
+  let landGraphCache=null;
+  function buildLandGraph(provinces){
+    const data=typeof WORLD_HISTORICAL_MAP!=='undefined'?WORLD_HISTORICAL_MAP:typeof HISTORICAL_MAP!=='undefined'?HISTORICAL_MAP:null;
+    if(!data?.shapes?.length)return null;
+    const identity=p=>p.shapeOwner||p.originalOwner||p.owner;
+    const signature=provinces.map(p=>`${p.id}:${p.x}:${p.y}:${identity(p)}`).join('|');
+    const copy=g=>({adj:g.adj.map(row=>row.slice()),distances:g.distances.map(row=>({...row}))});
+    if(landGraphCache?.signature===signature)return copy(landGraphCache);
+    const adj=provinces.map(()=>[]),distances=provinces.map(()=>({}));
+    const shapes=new Map(data.shapes.map(s=>[s.id,{...s,ringBounds:s.rings.map(r=>[Math.min(...r.map(p=>p[0])),Math.min(...r.map(p=>p[1])),Math.max(...r.map(p=>p[0])),Math.max(...r.map(p=>p[1]))])}])),sites=new Map();
+    provinces.forEach((p,i)=>{const id=identity(p);if(!sites.has(id))sites.set(id,[]);sites.get(id).push({p,i,part:component(p)});});
+    const insideRing=(r,x,y)=>{let inRing=false;for(let i=0,j=r.length-1;i<r.length;j=i++){
+      const a=r[i],b=r[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])inRing=!inRing;
+    }return inRing;};
+    const inside=(shape,x,y)=>shape.rings.reduce((found,r,i)=>{const b=shape.ringBounds[i];return x>=b[0]&&x<=b[2]&&y>=b[1]&&y<=b[3]?found!==insideRing(r,x,y):found;},false);
+    const km=(a,b)=>{const rad=Math.PI/180,lat=(b.lat-a.lat)*rad,lon=(b.lon-a.lon)*rad;
+      return 12742*Math.asin(Math.min(1,Math.sqrt(Math.sin(lat/2)**2+Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(lon/2)**2)));};
+    const add=(i,j,point)=>{
+      if(i===j||!allowsProvinceLink(provinces[i],provinces[j]))return;
+      const waypoint={lon:point[0]/1000*360-180,lat:90-point[1]/500*180};
+      const cost=Math.max(km(provinces[i],provinces[j]),km(provinces[i],waypoint)+km(waypoint,provinces[j]));
+      if(!adj[i].includes(j)){adj[i].push(j);adj[j].push(i);}
+      distances[i][j]=Math.min(distances[i][j]??Infinity,cost);distances[j][i]=distances[i][j];
+    };
+    const cross=(a,b)=>a[0]*b[1]-a[1]*b[0];
+    for(const [id,own]of sites){
+      const shape=shapes.get(id);if(!shape)continue;
+      const vertices=shape.rings.flat(),xs=vertices.map(p=>p[0]),ys=vertices.map(p=>p[1]);
+      const bounds=[Math.min(...xs)-.01,Math.min(...ys)-.01,Math.max(...xs)+.01,Math.max(...ys)+.01];
+      for(let a=0;a<own.length;a++)for(const b of own.slice(a+1)){
+        const from=own[a];if(!allowsProvinceLink(from.p,b.p))continue;
+        const dx=b.p.x-from.p.x,dy=b.p.y-from.p.y,length=Math.hypot(dx,dy);if(length<1e-8)continue;
+        const middle=[(from.p.x+b.p.x)/2,(from.p.y+b.p.y)/2],direction=[-dy/length,dx/length];
+        let lo=-Infinity,hi=Infinity;
+        const constrain=(nx,ny,limit)=>{const coefficient=nx*direction[0]+ny*direction[1],value=limit-nx*middle[0]-ny*middle[1];
+          if(Math.abs(coefficient)<1e-9){if(value<-.000001){lo=1;hi=0;}}else if(coefficient>0)hi=Math.min(hi,value/coefficient);else lo=Math.max(lo,value/coefficient);
+        };
+        constrain(1,0,bounds[2]);constrain(-1,0,-bounds[0]);constrain(0,1,bounds[3]);constrain(0,-1,-bounds[1]);
+        for(const q of own)if(q!==from&&q!==b)constrain(2*(q.p.x-from.p.x),2*(q.p.y-from.p.y),q.p.x*q.p.x+q.p.y*q.p.y-from.p.x*from.p.x-from.p.y*from.p.y);
+        if(hi-lo<=.01)continue;
+        const cuts=[lo,hi];
+        for(const ring of shape.rings)for(let i=0;i<ring.length;i++){
+          const start=ring[i],end=ring[(i+1)%ring.length],edge=[end[0]-start[0],end[1]-start[1]],delta=[start[0]-middle[0],start[1]-middle[1]],den=cross(direction,edge);
+          if(Math.abs(den)<1e-9)continue;
+          const t=cross(delta,edge)/den,u=cross(delta,direction)/den;
+          if(u>=-1e-6&&u<=1+1e-6&&t>lo&&t<hi)cuts.push(t);
+        }
+        cuts.sort((x,y)=>x-y);
+        for(let i=1;i<cuts.length;i++)if(cuts[i]-cuts[i-1]>.01){
+          const t=(cuts[i]+cuts[i-1])/2,point=[middle[0]+direction[0]*t,middle[1]+direction[1]*t];
+          if(inside(shape,...point))add(from.i,b.i,point);
+        }
+      }
+    }
+    const parts=data.componentAdjacency||data.adjacency.flatMap(([a,b])=>{
+      const left=shapes.get(a),right=shapes.get(b);return left&&right?left.rings.flatMap((_,i)=>right.rings.map((_,j)=>[a,i,b,j])):[];
+    });
+    const segmentCache=new Map();
+    const segments=(id,part)=>{const key=id+'|'+part;if(segmentCache.has(key))return segmentCache.get(key);
+      const ring=shapes.get(id)?.rings[part]||[],result=ring.map((a,i)=>({a,b:ring[(i+1)%ring.length]})).filter(s=>Math.hypot(s.a[0]-s.b[0],s.a[1]-s.b[1])>.01);
+      segmentCache.set(key,result);return result;
+    };
+    const segmentGrids=new Map(),gridSize=.5;
+    const buckets=s=>{const keys=new Set(),steps=Math.max(1,Math.ceil(Math.hypot(s.a[0]-s.b[0],s.a[1]-s.b[1])/gridSize));
+      for(let i=0;i<=steps;i++){const gx=Math.floor((s.a[0]+(s.b[0]-s.a[0])*i/steps)/gridSize),gy=Math.floor((s.a[1]+(s.b[1]-s.a[1])*i/steps)/gridSize);
+        for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)keys.add((gx+x)+','+(gy+y));
+      }return keys;
+    };
+    const nearby=(id,part,s)=>{const key=id+'|'+part;if(!segmentGrids.has(key)){
+      const grid=new Map();for(const segment of segments(id,part))for(const bucket of buckets(segment)){if(!grid.has(bucket))grid.set(bucket,[]);grid.get(bucket).push(segment);}segmentGrids.set(key,grid);
+    }const grid=segmentGrids.get(key),result=new Set();for(const bucket of buckets(s))for(const segment of grid.get(bucket)||[])result.add(segment);return result;
+    };
+    const nearest=(own,point)=>own.reduce((best,q)=>{const distance=(q.p.x-point[0])**2+(q.p.y-point[1])**2;return !best||distance<best.distance?{...q,distance}:best;},null);
+    const splits=(own,a,b)=>{const cuts=[];for(let i=0;i<own.length;i++)for(const q of own.slice(i+1)){
+      const p=own[i].p,dx=q.p.x-p.x,dy=q.p.y-p.y,den=2*(dx*(b[0]-a[0])+dy*(b[1]-a[1]));if(Math.abs(den)<1e-8)continue;
+      const t=(q.p.x*q.p.x+q.p.y*q.p.y-p.x*p.x-p.y*p.y-2*(dx*a[0]+dy*a[1]))/den;if(t>1e-6&&t<1-1e-6)cuts.push(t);
+    }return cuts;};
+    for(const [a,ap,b,bp]of parts){
+      if(a===b)continue;
+      const left=(sites.get(a)||[]).filter(s=>s.part>=0&&root(a+'|'+s.part)===root(a+'|'+ap));
+      const right=(sites.get(b)||[]).filter(s=>s.part>=0&&root(b+'|'+s.part)===root(b+'|'+bp));
+      if(!left.length||!right.length)continue;
+      for(const s of segments(a,ap))for(const t of nearby(b,bp,s)){
+        const direction=[s.b[0]-s.a[0],s.b[1]-s.a[1]],length=Math.hypot(...direction),other=[t.b[0]-t.a[0],t.b[1]-t.a[1]];
+        if(Math.abs(cross(direction,other))/length>.006||Math.abs(cross(direction,[t.a[0]-s.a[0],t.a[1]-s.a[1]]))/length>.006)continue;
+        const at=p=>((p[0]-s.a[0])*direction[0]+(p[1]-s.a[1])*direction[1])/(length*length);
+        const low=Math.max(0,Math.min(at(t.a),at(t.b))),high=Math.min(1,Math.max(at(t.a),at(t.b)));if((high-low)*length<=.01)continue;
+        const start=[s.a[0]+direction[0]*low,s.a[1]+direction[1]*low],end=[s.a[0]+direction[0]*high,s.a[1]+direction[1]*high];
+        const cuts=[0,1,...splits(left,start,end),...splits(right,start,end)].sort((x,y)=>x-y);
+        for(let i=1;i<cuts.length;i++)if(cuts[i]-cuts[i-1]>1e-6){
+          const mid=(cuts[i]+cuts[i-1])/2,point=[start[0]+(end[0]-start[0])*mid,start[1]+(end[1]-start[1])*mid];
+          const from=nearest(left,point),to=nearest(right,point);if(from&&to)add(from.i,to.i,point);
+        }
+      }
+    }
+    adj.forEach(row=>row.sort((a,b)=>a-b));landGraphCache={signature,adj,distances};return copy(landGraphCache);
+  }
   function apply(s,make){
     s.historyVersion=1;
     const ally=(a,b)=>{if(s.countries[a]&&s.countries[b]){const key=[a,b].sort().join('|');s.alliances[key]=true;s.relations[key]=80;}};
@@ -153,5 +252,5 @@ const History = (() => {
     // 和平民主国家不会无缘无故吞并邻国；侵略性政权在紧张局势中自由推演。
     return c&&['fas','com'].includes(c.ideo)&&s.date.year>=1939&&s.wt>=25;
   }
-  return {apply,allowsBorder,allowsProvinceLink,canAiDeclare,borders};
+  return {apply,allowsBorder,allowsProvinceLink,buildLandGraph,canAiDeclare,borders};
 })();

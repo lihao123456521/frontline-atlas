@@ -5,21 +5,23 @@ const vm=require('node:vm');
 const path=require('node:path');
 function setup(){
   class Element{
-    constructor(){this.value='';this.children=[];this.listeners={};this.style={};}
+    constructor(){this.value='';this.children=[];this.listeners={};this.style={};this.dataset={};this.attributes={};}
     appendChild(e){this.children.push(e);if(!this.value&&e.value)this.value=e.value;return e;}
     addEventListener(k,fn){this.listeners[k]=fn;}
+    setAttribute(k,v){this.attributes[k]=String(v);}
     change(value){this.value=value;this.listeners.change();}
     click(){this.listeners.click();}
   }
-  const elements={};const get=id=>elements[id]||(elements[id]=new Element());
+  const elements={},created=[];const get=id=>elements[id]||(elements[id]=new Element());
   get('selDifficulty').value='standard';
   const calls=[];
-  const ctx=vm.createContext({console,document:{getElementById:get,createElement:()=>new Element()},
+  const ctx=vm.createContext({console,document:{getElementById:get,createElement:()=>{const e=new Element();created.push(e);return e;},querySelectorAll:selector=>selector==='.country-choice'?created.filter(e=>e.className==='country-choice'):[]},
     Game:{state:null,hasSave:()=>false},
     MapView:{zoomIn:()=>calls.push('in'),zoomOut:()=>calls.push('out'),resetView:()=>calls.push('global'),focusPlayer:()=>calls.push('player'),focusRegion:key=>calls.push(key)},
     COUNTRIES:[{id:'ger',name:'德国',color:'#333',ideo:'fas'},{id:'jpn',name:'日本',color:'#444',ideo:'fas'},{id:'usa',name:'美国',color:'#555',ideo:'dem'}],
     MINOR_COUNTRIES:[{id:'bra',name:'巴西',color:'#666',ideo:'neu'}],
     PLAYABLE_COUNTRIES:['ger','jpn','usa','bra'],
+    PROVINCES_DEF:[],
     SCENARIOS:[{id:'sandbox36',name:'全球沙盒',player:null},{id:'pacific42',name:'太平洋战争',player:'jpn'},{id:'bad',player:'unsupported'}],
     DIFFICULTY:{standard:{desc:'标准'}},
   });

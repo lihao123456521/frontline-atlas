@@ -385,30 +385,69 @@ const MapView = (() => {
     }
     return "M" + pts.map(pt => pt[0].toFixed(1) + " " + pt[1].toFixed(1)).join("L") + "Z";
   }
-  // Curve each shared Voronoi edge from its canonical endpoints. Both neighboring
-  // cells sample the same curve in opposite directions, so no rounded-corner gaps
-  // appear between their fills or between the fill and the hit region.
-  function smoothCell(poly,sites=[]){
+  // A province edge belongs to the whole subdivision, not to either city. Curving
+  // it once and reversing that same sample list keeps fills and clicks seamless.
+  function canonicalEdge(a,b){
+    a=a.map(v=>+v.toFixed(5));b=b.map(v=>+v.toFixed(5));
+    const forward=a[0]<b[0] || (a[0]===b[0] && a[1]<=b[1]);
+    const start=forward?a:b,end=forward?b:a;
+    return {start,end,forward,key:start.join(",")+":"+end.join(",")};
+  }
+  function segmentDistance(x,y,a,b){
+    const dx=b[0]-a[0],dy=b[1]-a[1],length2=dx*dx+dy*dy;
+    const t=length2?clamp(((x-a[0])*dx+(y-a[1])*dy)/length2,0,1):0;
+    return Math.hypot(x-a[0]-t*dx,y-a[1]-t*dy);
+  }
+  function curveEdge(start,end,sites=[],nearby=[]){
+    const dx=end[0]-start[0],dy=end[1]-start[1],length=Math.hypot(dx,dy);
+    if(length<1e-6) return [start,end];
+    const sign=Math.sin(start[0]*12.9898+start[1]*78.233+end[0]*37.719+end[1]*19.31)>=0?1:-1;
+    const nearest=Math.min(Infinity,...sites.map(p=>segmentDistance(p.x,p.y,start,end)));
+    // Long boundaries need a visible bend. Very close island/city sites and other
+    // edges limit it before sampling, so a curve cannot swallow a city or cross
+    // another border. The sinusoid has a gently changing slope rather than a
+    // long straight middle followed by a small rounded tip.
+    let bow=Math.min(4,length*.15,nearest*.36);
+    const steps=Math.max(24,Math.min(80,Math.ceil(length*2)));
+    const profile=t=>Math.sin(Math.PI*t)*(1+.2*Math.sin(2*Math.PI*t));
+    for(let j=1;j<steps && nearby.length;j++){
+      const t=j/steps,x=start[0]+dx*t,y=start[1]+dy*t;
+      for(const edge of nearby)bow=Math.min(bow,segmentDistance(x,y,edge.start,edge.end)*.42/profile(t));
+    }
+    return Array.from({length:steps+1},(_,j)=>{
+      if(j===0)return start;if(j===steps)return end;
+      const t=j/steps,offset=sign*bow*profile(t);
+      return [+(start[0]+dx*t-dy/length*offset).toFixed(5),
+        +(start[1]+dy*t+dx/length*offset).toFixed(5)];
+    });
+  }
+  function sharedCellCurves(polys,sites){
+    const edges=new globalThis.Map();
+    polys.forEach(poly=>poly?.forEach((a,i)=>{
+      const edge=canonicalEdge(a,poly[(i+1)%poly.length]);
+      if(edges.has(edge.key))edges.get(edge.key).count++;
+      else edges.set(edge.key,{...edge,count:1});
+    }));
+    const all=[...edges.values()],curves=new globalThis.Map();
+    for(const edge of all){
+      // The artificial outer rectangle is outside the historical coastline. It
+      // stays straight, so clipping never exposes a sliver of unfilled country.
+      if(edge.count===1){curves.set(edge.key,[edge.start,edge.end]);continue;}
+      const nearby=all.filter(other=>other.key!==edge.key &&
+        Math.max(other.start[0],other.end[0])>=Math.min(edge.start[0],edge.end[0])-10 &&
+        Math.min(other.start[0],other.end[0])<=Math.max(edge.start[0],edge.end[0])+10 &&
+        Math.max(other.start[1],other.end[1])>=Math.min(edge.start[1],edge.end[1])-10 &&
+        Math.min(other.start[1],other.end[1])<=Math.max(edge.start[1],edge.end[1])+10);
+      curves.set(edge.key,curveEdge(edge.start,edge.end,sites,nearby));
+    }
+    return curves;
+  }
+  function smoothCell(poly,sites=[],curves=null){
     const outline=[];
     for(let i=0;i<poly.length;i++){
-      const a=poly[i].map(v=>+v.toFixed(5)),b=poly[(i+1)%poly.length].map(v=>+v.toFixed(5));
-      const forward=a[0]<b[0] || (a[0]===b[0] && a[1]<=b[1]);
-      const start=forward?a:b,end=forward?b:a;
-      const dx=end[0]-start[0],dy=end[1]-start[1],length=Math.hypot(dx,dy);
-      if(length<1e-6){outline.push([+a[0].toFixed(5),+a[1].toFixed(5)]);continue;}
-      const sign=Math.sin(start[0]*12.9898+start[1]*78.233+end[0]*37.719+end[1]*19.31)>=0?1:-1;
-      const nearest=Math.min(Infinity,...sites.map(p=>{
-        const t=clamp(((p.x-start[0])*dx+(p.y-start[1])*dy)/(length*length),0,1);
-        return Math.hypot(p.x-start[0]-t*dx,p.y-start[1]-t*dy);
-      }));
-      const bow=sign*Math.min(.8,length*.065,nearest*.4);
-      const samples=[];
-      for(let j=0;j<12;j++){
-        const t=j/12,offset=4*bow*t*(1-t);
-        samples.push([+(start[0]+dx*t-dy/length*offset).toFixed(5),
-          +(start[1]+dy*t+dx/length*offset).toFixed(5)]);
-      }
-      outline.push(...(forward?samples:[[+end[0].toFixed(5),+end[1].toFixed(5)],...samples.slice(1).reverse()]));
+      const edge=canonicalEdge(poly[i],poly[(i+1)%poly.length]);
+      const points=curves?.get(edge.key) || curveEdge(edge.start,edge.end,sites);
+      outline.push(...(edge.forward?points.slice(0,-1):points.slice(1).reverse()));
     }
     return outline;
   }
@@ -434,9 +473,14 @@ const MapView = (() => {
         });
         return poly;
       });
-      const sitesByCountry=new globalThis.Map();
-      ps.forEach(p=>{const cid=geometryCountry(p);if(!sitesByCountry.has(cid))sitesByCountry.set(cid,[]);sitesByCountry.get(cid).push(p);});
-      cellHitPolygons=cellPolygons.map((poly,i)=>poly?.length>=3?smoothCell(poly,sitesByCountry.get(geometryCountry(ps[i]))):null);
+      const sitesByCountry=new globalThis.Map(),polysByCountry=new globalThis.Map(),curvesByCountry=new globalThis.Map();
+      ps.forEach((p,i)=>{
+        const cid=geometryCountry(p);
+        if(!sitesByCountry.has(cid)){sitesByCountry.set(cid,[]);polysByCountry.set(cid,[]);}
+        sitesByCountry.get(cid).push(p);polysByCountry.get(cid).push(cellPolygons[i]);
+      });
+      for(const [cid,polys]of polysByCountry)curvesByCountry.set(cid,sharedCellCurves(polys,sitesByCountry.get(cid)));
+      cellHitPolygons=cellPolygons.map((poly,i)=>poly?.length>=3?smoothCell(poly,sitesByCountry.get(geometryCountry(ps[i])),curvesByCountry.get(geometryCountry(ps[i]))):null);
       cellCache=cellHitPolygons.map(polygonPath);
       return cellCache;
     }

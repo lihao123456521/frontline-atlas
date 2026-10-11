@@ -144,20 +144,25 @@ test('untouched 1939 world lets Poland and France start legal offensives on the 
   const units=()=>Game.state.provinces.flatMap(p=>p.garrison).concat(Game.state.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)));
   const openingIds=units().map(d=>d.id).sort();
   const lwow=Game.state.provinces.findIndex(p=>p.id==='pol_lwow');
-  const krakow=Game.state.provinces.findIndex(p=>p.id==='pol_krakow');
   const lwowIds=Game.province(lwow).garrison.filter(d=>d.kind==='land').map(d=>d.id);
-  const seen=new Set(),orders=[];
+  const seen=new Set(),orders=[],seenResults=new Set(),failedRoutes=new Map();
   for(let day=0;day<160&&!Game.state.over;day++){
     Game.advanceDay({automatic:true});
     if(day===0){
       assert.deepEqual(units().map(d=>d.id).sort(),openingIds,'opening orders only move existing divisions');
       assert.equal(Game.province(lwow).garrison.filter(d=>d.kind==='land').length,1,'Poland leaves a garrison');
-      assert.ok(lwowIds.some(id=>Game.province(krakow).garrison.some(d=>d.id===id)),'Poland moves a real reserve on day 1');
+      const reinforced=Game.neighbors(lwow).filter(i=>Game.province(i).owner==='pol'&&Game.neighbors(i).some(j=>Game.province(j).owner&&Game.isAtWar('pol',Game.province(j).owner)));
+      assert.ok(reinforced.some(i=>Game.province(i).garrison.some(d=>lwowIds.includes(d.id))), 'Poland moves a real reserve to a reachable threatened border on day 1');
       assert.ok(Game.state.activeCombats.some(c=>c.attacker==='fra'&&c.tactics==='careful'),'France probes at near parity on day 1');
       assert.ok(Game.state.activeCombats.some(c=>c.attacker==='ger'),'Germany also attacks on day 1');
     }
+    for(const result of Game.state.recentBattles)if(!seenResults.has(result)){
+      seenResults.add(result);if(!result.won)failedRoutes.set(result.attacker+'|'+result.from+'|'+result.to,Game.state.daysElapsed);
+    }
     for(const c of Game.state.activeCombats)if(!seen.has(c.id)){
       seen.add(c.id);orders.push({day:Game.state.daysElapsed,attacker:c.attacker,defender:c.defender,to:c.to});
+      const failedDay=failedRoutes.get(c.attacker+'|'+c.from+'|'+c.to);
+      if(failedDay!==undefined)assert.ok(Game.state.daysElapsed-failedDay>=14,'automatic armies must recover after a failed attack rather than retrying the same route each day');
       assert.equal(Game.isAtWar(c.attacker,c.defender),true);
       assert.ok(Game.state.adj[c.from].includes(c.to)||Game.state.seaAdj[c.from].includes(c.to));
     }

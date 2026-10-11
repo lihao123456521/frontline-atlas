@@ -117,3 +117,29 @@ test('the real new-game hook applies the army after historical ownership and wor
   assert.equal(Game.state.orderOfBattle.countries.pol?.land||0,0);
   assert.ok(Game.state.provinces.find(p=>p.id==='neu_poland').garrison.every(d=>d.kind==='land'));
 });
+
+test('the untouched 1936 American Pacific fleet has a ready land staging force instead of an empty port',()=>{
+  const {Game}=setup();Game.init('usa','dem',null,'standard','sandbox36');
+  const port=Game.state.provinces.find(p=>p.id==='usa_california');
+  assert.ok(port.garrison.some(d=>d.kind==='naval'));
+  assert.ok(port.garrison.filter(d=>d.kind==='land').length>=2);
+  assert.equal(landCount(Game.state,'usa'),8);
+  assert.ok(Game.state.provinces.find(p=>p.id==='usa_washington').garrison.some(d=>d.kind==='land'));
+});
+
+test('the untouched 1939 German army concentrates on Poland while retaining a western defensive force and capital reserve',()=>{
+  const {Game}=setup('poland39');Game.init('ger','fas',null,'standard','poland39');
+  const s=Game.state,front=id=>s.provinces.reduce((n,p,i)=>n+(p.owner==='ger'&&(s.adj[i]||[]).some(j=>s.provinces[j].owner===id)?p.garrison.filter(d=>d.kind==='land').length:0),0);
+  assert.ok(front('pol')>103*.5,'the main campaign has a majority of the land army');
+  assert.ok(front('fra')>=10,'the western front is still defended');
+  assert.ok(s.provinces.find(p=>p.id==='ger_berlin').garrison.filter(d=>d.kind==='land').length>=2);
+  assert.equal(landCount(s,'ger'),103);
+});
+
+test('Britain keeps a useful embarkation force with its home fleet without deleting colonial or capital readiness',()=>{
+  const {Game}=setup();Game.init('uk','dem',null,'standard','sandbox36');
+  const london=Game.state.provinces.find(p=>p.id==='uk_london');
+  assert.ok(london.garrison.filter(d=>d.kind==='land').length>=6);
+  assert.ok(Game.state.provinces.some(p=>p.owner==='uk'&&Math.abs(p.lon-london.lon)>20&&p.garrison.some(d=>d.kind==='land')));
+  assert.equal(landCount(Game.state,'uk'),18);
+});

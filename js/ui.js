@@ -254,21 +254,37 @@ const UI = (function(){
       o.value = c.id; o.textContent = c.name;
       sel.appendChild(o);
     });
-    // 国家预览卡：随下拉切换显示旗帜、定位与开局数据
+    const choices = $("countryChoices");
+    ['ger','sov','uk','fra','usa','jpn','chn','ita'].forEach(id=>{
+      const c=startDefs.find(x=>x.id===id);if(!c||!choices)return;
+      const b=el('button','country-choice',c.name);b.type='button';b.dataset.country=id;
+      b.setAttribute('aria-pressed','false');
+      b.addEventListener('click',()=>{if(sel.disabled)return;sel.value=id;updateCountry();});choices.appendChild(b);
+    });
+    // 国家预览仅给规模与方向，其他数据进入游戏后按需查看。
     function updateCountry(){
       const c = startDefs.find(x => x.id === sel.value);
       const box = $("countryPreview");
       if(!c || !box) return;
+      const scenario=SCENARIOS.find(s=>s.id===$("selScenario").value)||SCENARIOS[0];
+      const army=typeof OrderOfBattle!=='undefined'?OrderOfBattle.tables[scenario.id]?.[c.id]?.total:null;
+      const role={ger:'机动作战',sov:'纵深防御',uk:'海上战线',fra:'边境防御',usa:'工业动员',jpn:'岛屿战线',chn:'持久作战',ita:'地中海战线'}[c.id]||'区域作战';
       box.innerHTML = `
         <div class="cp-head">${flagHTML(c.id, 40)}
-          <div class="cp-intro"><div class="cp-name">${c.name}</div><div class="cp-desc">${c.desc || '从本国的工业基础与地缘局势出发，规划你的全球战略。'}</div></div>
+          <div class="cp-intro"><div class="cp-name">${c.name}</div><div class="cp-desc">${role} · 征兵默认自动</div></div>
         </div>
         <div class="cp-stats">
-          <span>工厂 <b>${c.startCiv} 民 / ${c.startMil} 军</b></span>
-          <span>资源 <b>${c.startRes}</b></span>
-          <span>稳定 <b>${c.stability}</b></span>
-          <span>战争支援 <b>${c.warSupport}</b></span>
+          ${army?`<span>陆军 <b>约 ${army} 师</b></span>`:''}
+          <span>军工 <b>${c.startMil||3}</b></span>
         </div>`;
+      document.querySelectorAll('.country-choice').forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.country===c.id));b.disabled=!!scenario.player;});
+      const cap=PROVINCES_DEF.find(p=>p.id===c.capital),map=$("startMapPreview");
+      if(cap&&map&&typeof WORLD_HISTORICAL_MAP!=='undefined'){
+        const center=proj(cap.lon,cap.lat),width=['sov','usa','can','chn','bra','aus'].includes(c.id)?330:220;
+        const left=clamp(center.x-width/2,0,1000-width),top=clamp(center.y-85,0,330);
+        map.innerHTML=`<svg viewBox="${left} ${top} ${width} 170" focusable="false">${WORLD_HISTORICAL_MAP.shapes.map(s=>`<path class="${s.id===c.id?'preview-selected':'preview-land'}" d="${s.d}"/>`).join('')}<circle class="preview-pin" cx="${center.x}" cy="${center.y}" r="2.2"/></svg>`;
+        $("startTheater").textContent=cap.lon>60?'亚洲 / 太平洋':cap.lon< -30?'美洲战区':cap.lat<0?'南半球战区':'欧洲 / 非洲';
+      }
     }
     sel.addEventListener("change", updateCountry);
     updateCountry();
@@ -280,15 +296,16 @@ const UI = (function(){
     });
     function updateScen(){
       const s = SCENARIOS.find(x => x.id === sc.value);
-      $("scenDesc").textContent = s ? s.desc : "";
+      $("scenDesc").textContent = s ? ({sandbox36:'自由选择国家',poland39:'德国 · 东西两线',barbarossa41:'德国 · 东线战役',pacific42:'日本 · 跨海作战'}[s.id]||'') : "";
       sel.disabled=!!(s && s.player);
-      if(s && s.player){sel.value=s.player;updateCountry();}
+      if(s && s.player)sel.value=s.player;
+      updateCountry();
     }
     sc.addEventListener("change", updateScen);
     updateScen();
     function updateDiff(){
       const d = DIFFICULTY[$("selDifficulty").value];
-      $("diffDesc").textContent = d ? d.desc : "";
+      $("diffDesc").textContent = d ? ({casual:'更宽裕的补给',standard:'均衡战局',hard:'更强的敌军'}[$("selDifficulty").value]||'') : "";
     }
     $("selDifficulty").addEventListener("change", updateDiff);
     updateDiff();
@@ -814,7 +831,8 @@ const UI = (function(){
       }
       if(cityAction==='recruit'){
         const t=UNIT_TYPES.infantry,player=Game.country(s.player),box=el('div','city-order');
-        box.appendChild(el('h4',null,'征募步兵'));
+        renderRecruitmentControls(box);
+        box.appendChild(el('h4',null,'手动追加步兵'));
         box.appendChild(el('p',null,people(t.man*1000)+' · '+t.time+' 月训练'));
         box.appendChild(el('p','task-status','装备 '+t.equip+' · 钢铁 '+t.res+' · 预备兵员 '+people(t.man*1000)));
         const reasons=Game.unitAvailability('infantry').reasons.slice();
@@ -981,6 +999,23 @@ const UI = (function(){
     }
   }
 
+  function renderRecruitmentControls(rp){
+    const status=Game.autoRecruitmentStatus();
+    const box=el('section','rp-section recruitment-status');
+    box.appendChild(el('p','task-status',status.summary));
+    if(status.reason&&status.reason!==status.summary)box.appendChild(el('p','action-reason',status.reason));
+    const details=el('details','recruitment-settings');details.appendChild(el('summary',null,'调整自动征兵'));
+    const label=el('label','logistics-toggle'),toggle=el('input');toggle.type='checkbox';toggle.checked=status.enabled;toggle.setAttribute('aria-label','自动征兵');
+    toggle.addEventListener('change',()=>{Game.setAutoRecruitment({enabled:toggle.checked});refresh();});label.appendChild(toggle);label.appendChild(el('span',null,'自动征兵'));details.appendChild(label);
+    const intensity=el('select','rp-select');intensity.setAttribute('aria-label','征兵强度');
+    [['reserve','保守 · 保留储备'],['balanced','均衡 · 稳步扩军'],['mobilize','积极 · 优先扩军']].forEach(([value,text])=>{const o=el('option',null,text);o.value=value;intensity.appendChild(o);});intensity.value=status.intensity;
+    intensity.addEventListener('focus',()=>setSpeed(0));intensity.addEventListener('change',()=>{Game.setAutoRecruitment({intensity:intensity.value});refresh();});details.appendChild(intensity);
+    const type=el('select','rp-select');type.setAttribute('aria-label','自动征兵兵种');
+    Object.values(UNIT_TYPES).filter(t=>t.kind==='land').forEach(t=>{const o=el('option',null,t.name);o.value=t.key;o.disabled=!Game.unitAvailability(t.key).available;type.appendChild(o);});type.value=status.unitType;
+    type.addEventListener('focus',()=>setSpeed(0));type.addEventListener('change',()=>{Game.setAutoRecruitment({unitType:type.value});refresh();});details.appendChild(type);
+    box.appendChild(details);rp.appendChild(box);
+  }
+
   function renderProductionView(rp){
     const s = Game.state;
     const c = Game.country(s.player);
@@ -992,6 +1027,7 @@ const UI = (function(){
     box.appendChild(el('p','army-totals',`陆军 ${totals.land} 师 · 海军 ${totals.naval} 编队 · 空军 ${totals.air} 联队 · 投入战斗 ${totals.engaged} 师`));
     box.appendChild(el('p','task-status','师级规模近似；人数按编制和当前实力估算。'+(baseline?' 开局约 '+baseline.land+' 师。':'')));
     rp.appendChild(box);
+    renderRecruitmentControls(rp);
     const types=Object.values(UNIT_TYPES),select=el('select','rp-select');select.setAttribute('aria-label','选择训练兵种');
     types.forEach(t=>{const o=el('option');o.value=t.key;o.textContent=t.name;select.appendChild(o);});
     if(!types.some(t=>t.key===selectedTrainingUnit))selectedTrainingUnit=types[0]?.key||null;
@@ -1014,7 +1050,7 @@ const UI = (function(){
     const box=el('section','rp-section fade-in logistics-status');
     box.appendChild(el('h3',null,'后勤与发展'));
     const label=el('label','logistics-toggle'),toggle=el('input');toggle.type='checkbox';toggle.checked=status.enabled;toggle.setAttribute('aria-label','自动后勤');
-    toggle.addEventListener('change',()=>{Game.setAutoLogistics(toggle.checked);refresh();});label.appendChild(toggle);label.appendChild(el('span',null,'自动后勤（每月按储备安排贸易、军事研究和步兵增援）'));box.appendChild(label);
+    toggle.addEventListener('change',()=>{Game.setAutoLogistics(toggle.checked);refresh();});label.appendChild(toggle);label.appendChild(el('span',null,'自动后勤 · 贸易与研究'));box.appendChild(label);
     const summary=el('p');summary.textContent=status.summary;box.appendChild(summary);
     status.reasons.forEach(text=>{const row=el('div','action-reason');row.textContent=text;box.appendChild(row);});
     box.appendChild(el('p','task-status',`库存：装备 ${Math.round(c.equipment)} · 钢铁 ${Math.round(c.res)} · 油 ${Math.round(c.oil)} · 稀有 ${Math.round(c.rare)} · 预备人力 ${people(c.manpower*1000)}`));
@@ -1231,7 +1267,8 @@ const UI = (function(){
       const step=el('li',cls);step.appendChild(el('span',null,String(i+1)));step.appendChild(el('b',null,name));
       if(i===2)step.appendChild(el('small',null,'尚未占领'));stages.appendChild(step);
     });
-    box.appendChild(el('p','combat-phase',marching?(b.phase==='naval'?'争夺海路 · 陆军尚未登陆':b.playerSide==='defend'?'敌军正在接近':'正在行军 · 尚未开始交战'):b.playerSide==='defend'?'守城交战':'正在攻城'));
+    const marchDays=Math.max(1,(b.preparationDays||2)-(b.days||0));
+    box.appendChild(el('p','combat-phase',marching?(b.phase==='naval'?'争夺海路 · 陆军尚未登陆':b.playerSide==='defend'?`敌军接近 · 预计 ${marchDays} 天后交战`:`正在行军 · 预计 ${marchDays} 天后接敌`):b.playerSide==='defend'?'守城交战':'正在攻城'));
     const progress=el('progress','combat-progress');progress.max=100;progress.value=b.progress;progress.setAttribute('aria-label','攻击方突破进度');box.appendChild(progress);
     box.appendChild(el('p','combat-breakthrough',`${b.playerSide==='defend'?'敌军突破':'突破'} ${Math.round(b.progress)}% · ${b.playerSide==='defend'?'守住阵地即可击退敌军':'达到 100% 才占领目标'}`));
     const details=el('details','combat-details');details.open=combatDetailsOpen;

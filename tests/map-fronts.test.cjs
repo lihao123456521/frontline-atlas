@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 
-function setup(){
+function setup(cityDefs=null){
   const elements=new Map();
   function element(){
     const e={children:[],attrs:{},style:{},appendChild(child){this.children.push(child);},
@@ -15,7 +15,7 @@ function setup(){
   for(const id of ['defs','mapSvg','layerOcean','layerLand','layerCountryFills','layerTerritory','layerBorders','layerSeaLinks','layerLabels','layerPlanHL','layerFronts','layerPlanArrows','layerMovePrev','layerAttackArrows','layerUnits','layerBattles','layerEffects','layerHilight'])elements.set(id,element());
   const shape=(id,x)=>({id,d:`M${x},0L${x+100},0L${x+100},100L${x},100Z`,
     rings:[[[x,0],[x+100,0],[x+100,100],[x,100]]]});
-  const defs=[
+  const defs=cityDefs || [
     {id:'a0',owner:'west',x:20,y:50},{id:'b1',owner:'west',x:70,y:50},
     {id:'c2',owner:'east',x:120,y:50},{id:'d3',owner:'east',x:170,y:50},
   ];
@@ -38,14 +38,71 @@ function polygon(d){const values=[...d.matchAll(/-?\d+(?:\.\d+)?/g)].map(x=>+x[0
 function area(points){let n=0;for(let i=0;i<points.length;i++){
   const a=points[i],b=points[(i+1)%points.length];n+=a[0]*b[1]-a[1]*b[0];
 }return Math.abs(n)/2;}
+function edgePoints(points,a,b){
+  const start=points.findIndex(p=>p[0]===a[0]&&p[1]===a[1]),result=[];
+  assert.ok(start>=0);
+  for(let i=0;i<=points.length;i++){
+    const p=points[(start+i)%points.length];result.push(p);
+    if(i && p[0]===b[0]&&p[1]===b[1])return result;
+  }
+  throw new Error('edge endpoint missing');
+}
+function contains(points,x,y){
+  let hit=false;
+  for(let i=0,j=points.length-1;i<points.length;j=i++){
+    const a=points[i],b=points[j];
+    if((a[1]>y)!==(b[1]>y) && x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])hit=!hit;
+  }
+  return hit;
+}
 
 test('neighbor cells share exactly the same curved edge, including endpoints',()=>{
   const {map}=setup();
   const left=map.smoothCell([[0,0],[10,0],[10,10],[0,10]]);
   const right=map.smoothCell([[10,0],[20,0],[20,10],[10,10]]);
-  const a=left.slice(12,25),b=right.slice(36).concat([right[0]]).reverse();
+  const a=edgePoints(left,[10,0],[10,10]),b=edgePoints(right,[10,10],[10,0]).reverse();
   assert.deepEqual(JSON.parse(JSON.stringify(a)),JSON.parse(JSON.stringify(b)));
   assert.ok(a.some(p=>p[0]!==10),'shared edge is visibly curved');
+  assert.ok(a.length>=24,'enough samples for high zoom without long straight segments');
+});
+
+test('long province boundaries curve visibly while keeping narrow city anchors clear',()=>{
+  const {map}=setup();
+  const poly=[[0,0],[0,80],[40,80],[40,0]];
+  const large=edgePoints(map.smoothCell(poly,[{x:-15,y:40},{x:15,y:40}]),[0,0],[0,80]);
+  assert.ok(Math.max(...large.map(p=>Math.abs(p[0])))>2,'long edge must not retain the old 0.8-unit cap');
+  const narrow=edgePoints(map.smoothCell(poly,[{x:-.08,y:40},{x:.08,y:40}]),[0,0],[0,80]);
+  assert.ok(Math.max(...narrow.map(p=>Math.abs(p[0])))<.04,'narrow island city remains inside its own cell');
+});
+
+test('shared province curves partition country bounds without overlaps or coastline gaps',()=>{
+  const c=setup();c.map.renderTerritory();
+  const [left,right]=c.map.getCells();
+  assert.ok(Math.abs(area(left)+area(right)-102*102)<.002,'internal curve areas cancel and outer bounds stay fixed');
+  for(let y=1;y<100;y+=3.7)for(let x=1;x<100;x+=3.1){
+    assert.ok(c.map.provinceUnderPoint(x,y)>=0,`no uncovered point at ${x},${y}`);
+  }
+});
+
+test('three-city junctions stay a complete subdivision and never mutate strategic city positions',()=>{
+  const c=setup([
+    {id:'a0',owner:'west',x:20,y:20},{id:'b1',owner:'west',x:80,y:20},
+    {id:'c2',owner:'west',x:50,y:80},{id:'d3',owner:'east',x:170,y:50},
+  ]);
+  const before=JSON.stringify(c.Game.state.provinces);
+  c.map.renderTerritory();
+  const cells=c.map.getCells().slice(0,3);
+  assert.ok(Math.abs(cells.reduce((n,p)=>n+area(p),0)-102*102)<.002);
+  for(let y=.37;y<100;y+=2.97)for(let x=.19;x<100;x+=2.61){
+    assert.equal(cells.filter(p=>contains(p,x,y)).length,1,`one city region at ${x},${y}`);
+  }
+  for(let i=0;i<3;i++){
+    const p=c.Game.state.provinces[i];assert.equal(c.map.provinceUnderPoint(p.x,p.y),i);
+  }
+  for(const cell of cells)for(const p of cell){
+    assert.ok(p[0]>=-1 && p[0]<=101 && p[1]>=-1 && p[1]<=101,'coastline clipping bounds stay covered');
+  }
+  assert.equal(JSON.stringify(c.Game.state.provinces),before);
 });
 
 test('two countries advance independently across target cells without changing ownership or click targets',()=>{

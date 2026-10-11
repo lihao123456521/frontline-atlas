@@ -13,9 +13,13 @@ function setup(scenario='sandbox36'){
   const Game=vm.runInContext('Game',ctx),types=vm.runInContext('UNIT_TYPES',ctx);
   Game.init('ger','fas',null,'standard',scenario);
   const unit=type=>{const t=types[type];return {type,kind:t.kind,atk:t.atk,def:t.def,hp:t.hp,maxHp:t.hp,org:t.org,maxOrg:t.org};};
-  const from=Game.provinceById('ger_rhine'),to=Game.provinceById('fra_normandy'),rear=Game.provinceById('ger_berlin');
-  Game.state.adj=Game.state.provinces.map(()=>[]);
-  Game.state.adj[from]=[to,rear];Game.state.adj[to]=[from,rear];Game.state.adj[rear]=[from,to];
+  const from=Game.provinceById('ger_berlin'),to=Game.provinceById('pol_poznan'),rear=Game.provinceById('ger_prussia');
+  // Isolate combat using real bordering city regions, so save migration preserves
+  // this battle. East Prussia must not gain a land shortcut to mainland Germany.
+  const region=new Set([from,to,rear]);
+  assert.ok(Game.neighbors(from).includes(to));assert.ok(Game.neighbors(rear).includes(to));
+  assert.ok(!Game.neighbors(from).includes(rear));
+  Game.state.adj=Game.state.adj.map((row,i)=>region.has(i)?row.filter(j=>region.has(j)):[]);
   Game.setAutoLogistics(false);
   return {Game,ctx,types,unit,from,to,rear};
 }
