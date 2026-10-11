@@ -1,0 +1,3 @@
+#mapSvg .combat-front{pointer-events:none}
+#mapSvg .combat-front-fill{opacity:.94;stroke:none}
+#mapSvg .combat-front-line{fill:none;stroke:#f5dfb0;stroke-width:calc(2px / var(--map-zoom, 1));stroke-linecap:round;vector-effect:non-scaling-stroke}

@@ -2,34 +2,40 @@
    main.js — 入口：DOM 就绪后初始化 UI，并启动动画循环
    ============================================================ */
 window.addEventListener("DOMContentLoaded", () => {
+  if(window.HoiRuntime?.failed)return;
+  const missing=[typeof Game==='undefined'?'游戏':null,typeof MapView==='undefined'?'地图':null,typeof UI==='undefined'?'界面':null,typeof OrderOfBattle==='undefined'?'历史编制':null].filter(Boolean);
+  if(missing.length){window.HoiRuntime?.report(missing.join('、')+'未能初始化','');return;}
   window.UI = UI;
   window.Game = Game;
   window.MapView = MapView;
   UI.init();
+  window.HoiRuntime?.ready();
 
-  // 开局引导: 点击关闭按钮, 或第一次选省份时自动消失
+  function clearMapTooltip(){
+    MapView.setHover(-1);
+    ['mapTooltip','tooltip'].forEach(id=>{const tip=document.getElementById(id);if(tip)tip.style.display='none';});
+  }
+  document.querySelectorAll('.nav-management,.map-tools,.time-settings').forEach(menu=>menu.addEventListener('toggle',()=>{if(menu.open)clearMapTooltip();}));
+  document.querySelectorAll('#commandNav button,#topBarSpeed button').forEach(button=>button.addEventListener('click',()=>{
+    clearMapTooltip();const menu=button.closest('details');if(menu)menu.open=false;
+  }));
+
+  // 开局提示由玩家主动关闭；情境操作说明会持续显示在地图上方。
   const hint = document.getElementById("mapHint");
   if (hint){
     const close = document.getElementById("mapHintClose");
     const dismiss = () => { if (!hint.classList.contains("fade")){ hint.classList.add("fade"); setTimeout(()=>{ if (hint.parentNode) hint.remove(); }, 400); } };
     if (close) close.addEventListener("click", dismiss);
-    // 包装 onMapClick: 第一次调用时关闭提示
-    const origClick = Game.onMapClick;
-    Game.onMapClick = function(idx){
-      dismiss();
-      return origClick.call(this, idx);
-    };
   }
 
-  // 键盘快捷键 (开始界面: Enter 开始; 游戏内 Esc 关面板 — 变速键由 ui.js 统一处理)
+  // 开始界面的 Enter；游戏内按键由 ui.js 统一处理。
   document.addEventListener("keydown", e => {
     const startScreen = document.getElementById("startScreen");
     if (startScreen && !startScreen.classList.contains("hidden")){
-      if (e.key === "Enter"){ e.preventDefault(); document.getElementById("btnStart").click(); }
+      if (e.key === "Enter" && !e.target.closest("input,select,textarea,button,[contenteditable]")){
+        e.preventDefault(); document.getElementById("btnStart").click();
+      }
       return;
-    }
-    if (Game.state && !Game.state.over){
-      if (e.key === "Escape"){ e.preventDefault(); document.getElementById("rpClose").click(); closeHotkeyPanel(); }
     }
   });
 
@@ -55,11 +61,12 @@ window.addEventListener("DOMContentLoaded", () => {
       <h4>⌨ 键盘快捷键</h4>
       <div class="hotkey-row"><span class="hk">Enter</span><span class="desc">开始游戏 (开始界面)</span></div>
       <div class="hotkey-row"><span class="hk">Space</span><span class="desc">暂停 / 继续</span></div>
-      <div class="hotkey-row"><span class="hk">1 / 2 / 3 / 4</span><span class="desc">慢速 / 正常 / 快速 / 极速</span></div>
-      <div class="hotkey-row"><span class="hk">5</span><span class="desc">跳到下个月</span></div>
+      <div class="hotkey-row"><span class="hk">1 / 2 / 3</span><span class="desc">慢速 2秒/日 / 标准 1秒/日 / 快速 0.5秒/日</span></div>
+      <div class="hotkey-row"><span class="hk">5</span><span class="desc">暂停并推进一天；月底结算生产与研究</span></div>
       <div class="hotkey-row"><span class="hk">0</span><span class="desc">暂停</span></div>
-      <div class="hotkey-row"><span class="hk">Esc</span><span class="desc">关闭面板</span></div>
-      <div class="hotkey-row" style="margin-top:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:6px"><span class="desc" style="color:var(--muted);font-size:11px">💡 鼠标操作: 点自己国家省份 → 点邻国 → 进攻</span></div>
+      <div class="hotkey-row"><span class="hk">Esc</span><span class="desc">取消命令，或收起面板</span></div>
+      <div class="hotkey-row" style="margin-top:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:6px"><span class="desc" style="color:var(--muted);font-size:11px">💡 地图：滚轮缩放，拖动浏览；左下角跳转各洲或本国。城市与部队随放大逐步显示。</span></div>
+      <div class="hotkey-row"><span class="desc" style="color:var(--muted);font-size:11px">出征：选目标 → 确认出征 → 自动行军与交战 → 占领。需要时暂停指挥、增援或撤退。</span></div>
     `;
     document.body.appendChild(div);
   }
@@ -68,11 +75,11 @@ window.addEventListener("DOMContentLoaded", () => {
     if (p) p.remove();
   }
 
-  // 动画循环：持续刷新地图以播放战线流动 / 战斗特效（轻量，仅 SVG 属性更新）
+  // 动画循环：刷新局部交战标记与短暂战果反馈。
   let lastFx = 0, lastIdle = 0;
   function animLoop(ts){
     if(Game.state && !Game.state.over){
-      // 战斗动画期间全速刷新（~12fps）；空闲时降频到 ~2fps（前线虚线仍缓慢流动，省 CPU）
+      // 短暂战果期间加速；平时约 2fps，保留交战标记而不堆叠动画。
       if(MapView.isAnimating && MapView.isAnimating()){
         if(ts - lastFx > 80){ MapView.render(); lastFx = ts; }
         lastIdle = ts;
@@ -84,50 +91,4 @@ window.addEventListener("DOMContentLoaded", () => {
     requestAnimationFrame(animLoop);
   }
   requestAnimationFrame(animLoop);
-});
-
-// 全局错误浮层
-window.addEventListener("error", (e) => {
-  const msg = (e && (e.message || (e.error && e.error.message))) || "未知错误";
-  const where = (e && (e.filename || (e.error && e.error.fileName)) || ""); // 来源文件
-  const line = (e && (e.lineno != null ? e.lineno : (e.error && e.error.lineNumber)));
-  const col  = (e && e.colno) || (e.error && e.error.columnNumber);
-  const stack = (e && e.error && e.error.stack) ? e.error.stack.split("\n").slice(0, 3).join(" | ") : "";
-  console.error("[钢铁雄心] 运行错误：", e && e.error);
-  try {
-    let d = document.getElementById("hoi-error-toast");
-    if (!d){
-      d = document.createElement("div");
-      d.id = "hoi-error-toast";
-      document.body.appendChild(d);
-    }
-  // 跨源脚本错误: 浏览器只给 "Script error." 不给具体位置 (来自扩展或 file:// 限制)
-  // 这种情况是浏览器扩展的噪音, 不显示浮层, 只在 console 记录
-  const isCrossOrigin = (msg === "Script error." || msg === "Script Error") && !where && !stack;
-  if (isCrossOrigin){
-    console.warn("[钢铁雄心] 跨源脚本错误已忽略(浏览器扩展/file:// 限制):", e);
-    return;
-  }
-  d.textContent =
-      "运行错误：" + msg +
-      (where ? "\n位置：" + where + (line != null ? ":" + line + (col != null ? ":" + col : "") : "") : "") +
-      (stack ? "\n堆栈：" + stack : "");
-    setTimeout(() => { if (d && d.parentNode) d.parentNode.removeChild(d); }, 12000);
-  } catch (_) {}
-});
-window.addEventListener("unhandledrejection", (e) => {
-  const reason = e && e.reason;
-  const msg = (reason && (reason.message || reason)) || "Promise 拒绝";
-  const stack = (reason && reason.stack) ? reason.stack.split("\n").slice(0, 3).join(" | ") : "";
-  console.error("[钢铁雄心] 未处理 Promise 拒绝：", reason);
-  try {
-    let d = document.getElementById("hoi-error-toast");
-    if (!d){
-      d = document.createElement("div");
-      d.id = "hoi-error-toast";
-      document.body.appendChild(d);
-    }
-    d.textContent = "Promise 拒绝：" + msg + (stack ? "\n堆栈：" + stack : "");
-    setTimeout(() => { if (d && d.parentNode) d.parentNode.removeChild(d); }, 12000);
-  } catch (_) {}
 });

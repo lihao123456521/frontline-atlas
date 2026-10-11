@@ -107,9 +107,9 @@ const SCENARIOS = [
     objective:"控制全球 60% 以上领土，或消灭所有其它主要国家。",
     victoryText:"你以一己之力重塑了二战的走向。从 1936 年的列强之一，到掌控全球命运的主导者——历史由你书写。",
     defeatText:"你的国家在内忧外患中走向覆灭。乱世之中，胜负本就悬于一线。",
-    date:{year:1936,month:1}, player:null, owner:{}, garrison:{}, wars:[], grant:{} },
+    date:{year:1936,month:1,day:1}, player:null, owner:{}, garrison:{}, wars:[], grant:{} },
   { id:"poland39", name:"1939 · 闪击波兰", desc:"1939 年 9 月，德军越过波兰边境，欧洲战事爆发。指挥德国装甲集群在严冬前碾碎波兰防线，并西进吞并低地、斯堪的纳维亚与巴尔干。",
-    date:{year:1939,month:9}, player:"ger",
+    date:{year:1939,month:9,day:1}, player:"ger",
     brief:"1939 年 9 月，德国闪击波兰，第二次世界大战在欧洲全面爆发。你指挥德意志国防军的装甲集群，要在严冬来临前碾碎波兰防线，并相机向西扩张，吞并低地、斯堪的纳维亚与巴尔干。",
     objective:"消灭波兰（中立），并尽可能扩张德意志的领土。",
     victoryText:"钢铁洪流碾过波兰平原，『闪电战』的威名响彻欧洲。德军在严冬前打穿了对手的脊梁，欧洲大陆的版图自此由柏林重绘。",
@@ -126,7 +126,7 @@ const SCENARIOS = [
     },
     wars:[], grant:{ equipment:220, res:140, oil:60, rare:40, pp:60 } },
   { id:"barbarossa41", name:"1941 · 巴巴罗萨", desc:"1941 年 6 月，德国撕毁条约大举入侵苏联。指挥德军东进，攻占乌克兰、斯大林格勒与高加索，将红旗插上莫斯科！",
-    date:{year:1941,month:6}, player:"ger",
+    date:{year:1941,month:6,day:22}, player:"ger",
     brief:"1941 年 6 月，德国撕毁苏德互不侵犯条约，发动『巴巴罗萨』行动大举入侵苏联。你已控制波兰、巴尔干与低地作为跳板，东线重兵对峙——目标是攻入苏联腹地。",
     objective:"攻占苏联核心领土（乌克兰、斯大林格勒、高加索），将红旗插上莫斯科。",
     victoryText:"『巴巴罗萨』势如破竹，红旗从莫斯科、斯大林格勒到高加索接连落下。苏维埃巨人的心脏被刺穿，德意志的东进神话终成现实。",
@@ -142,7 +142,7 @@ const SCENARIOS = [
     },
     wars:[["ger","sov"]], grant:{ equipment:340, res:200, oil:90, rare:60, pp:80 } },
   { id:"pacific42", name:"1942 · 太平洋战争", desc:"1942 年，日本在偷袭珍珠港后席卷南洋。指挥联合舰队与航空战队，夺取中南半岛、东印度与澳洲，击溃美国太平洋舰队！",
-    date:{year:1942,month:1}, player:"jpn",
+    date:{year:1942,month:1,day:1}, player:"jpn",
     brief:"1942 年，日本在偷袭珍珠港后席卷南洋诸岛，太平洋战争全面爆发。你指挥联合舰队与航空战队，沿西太平洋扩张，夺取资源区并威胁美国本土。",
     objective:"夺取南洋资源区并跨海登陆美国西海岸，击溃美国太平洋舰队。",
     victoryText:"联合舰队的旭日旗遍插南洋，航母编队击碎了美国太平洋舰队的防线。日本的『大东亚共荣圈』从构想走向了西太平洋的现实。",
@@ -168,9 +168,11 @@ const TECHS = [
   { id:"art1", name:"火炮研发",    cat:"陆军", cost:50, pre:["inf1"],
     desc:"陆军防御 +10%，装备产出 +10%", eff:{landDef:0.10, equip:0.10} },
   { id:"mob1", name:"机动战理论",  cat:"陆军", cost:75, pre:["art1"],
-    desc:"陆军攻击 +10%，部队机动 +1", eff:{landAtk:0.10, moveBonus:1} },
+    desc:"解锁摩托化步兵；陆军攻击 +10%", eff:{landAtk:0.10} },
   { id:"mech1",name:"机械化理论",  cat:"陆军", cost:80, pre:["art1"],
-    desc:"陆军攻击 +10%，机动 +1", eff:{landAtk:0.10, moveBonus:1} },
+    year:1940, desc:"解锁机械化步兵；陆军攻击 +10%", eff:{landAtk:0.10} },
+  { id:"at1",name:"反坦克武器",cat:"陆军",cost:45,pre:["art1"],desc:"解锁反坦克炮团，克制装甲突击",eff:{} },
+  { id:"aa1",name:"野战防空",cat:"陆军",cost:45,pre:["art1"],desc:"解锁防空炮团，削弱敌机支援",eff:{} },
   { id:"ind1", name:"工业生产 I",  cat:"工业", cost:40, pre:[],
     desc:"工厂产出 +15%", eff:{factoryOut:0.15} },
   { id:"ind2", name:"工业生产 II", cat:"工业", cost:85, pre:["ind1"],
@@ -188,7 +190,7 @@ const TECHS = [
   { id:"air3", name:"雷达与防空",  cat:"航空", cost:90, pre:["air2"],
     desc:"防空 +15%（降低遭空袭的损失）", eff:{airDef:0.15} },
   { id:"air4", name:"喷气时代",    cat:"航空", cost:110, pre:["air2"],
-    desc:"空袭支援 +20%、空袭破坏 +15%", eff:{airBonus:0.20, bombBonus:0.15} },
+    year:1944, desc:"制空效率 +20%、轰炸破坏 +15%", eff:{airBonus:0.20, bombBonus:0.15} },
   { id:"nav2", name:"舰队学说",    cat:"海军", cost:80, pre:["nav1"],
     desc:"两栖登陆 +15%、舰队攻击 +10%", eff:{navBonus:0.15, navyAtk:0.10} },
   { id:"nav3", name:"航母作战",    cat:"海军", cost:110, pre:["nav2"],
@@ -197,13 +199,24 @@ const TECHS = [
 
 // 军事单位（man=人力, oil/rare=战略资源；kind 决定作战方式）
 const UNIT_TYPES = {
-  infantry:   { key:"infantry",   name:"步兵师",   kind:"land",  atk:10, def:13, hp:50, org:60, equip:10, res:5,  oil:0,  rare:0, man:10, time:1, speed:1 },
-  cavalry:    { key:"cavalry",    name:"骑兵师",   kind:"land",  atk:12, def:8,  hp:40, org:70, equip:8,  res:4,  oil:0,  rare:0, man:8,  time:1, speed:2 },
-  armor:      { key:"armor",      name:"装甲师",   kind:"land",  atk:26, def:18, hp:85, org:45, equip:30, res:20, oil:10, rare:0, man:14, time:2, speed:2 },
-  artillery:  { key:"artillery",  name:"炮兵师",   kind:"land",  atk:32, def:9,  hp:45, org:40, equip:26, res:16, oil:0,  rare:8, man:10, time:2, speed:1 },
-  mechanized: { key:"mechanized", name:"机械化师", kind:"land",  atk:22, def:16, hp:70, org:50, equip:24, res:18, oil:6,  rare:4, man:16, time:2, speed:2 },
-  navy:       { key:"navy",       name:"舰队",     kind:"naval", atk:18, def:16, hp:90, org:40, equip:25, res:15, oil:12, rare:0, man:10, time:2, speed:1 },
-  air:        { key:"air",        name:"空军联队", kind:"air",   atk:14, def:14, hp:35, org:70, equip:18, res:8,  oil:6,  rare:4, man:6,  time:1, speed:3 },
+  infantry: {key:"infantry",name:"步兵师",kind:"land",role:"战线骨干，防守与占领",atk:10,def:13,hp:50,org:60,equip:10,res:5,oil:0,rare:0,man:10,time:1,year:1936},
+  cavalry: {key:"cavalry",name:"骑兵师",kind:"land",role:"无需燃油的轻装部队；森林作战",atk:12,def:8,hp:40,org:70,equip:8,res:4,oil:0,rare:0,man:8,time:1,year:1936},
+  armor: {key:"armor",name:"装甲师",kind:"land",role:"平原突破；山地与城市受限",atk:26,def:18,hp:85,org:45,equip:30,res:20,oil:10,rare:0,man:14,time:2,year:1936},
+  artillery: {key:"artillery",name:"牵引炮兵团",kind:"land",role:"与步兵混编增益；独立突击较弱",atk:24,def:9,hp:35,org:40,equip:20,res:14,oil:0,rare:4,man:6,time:2,year:1936,tech:"art1"},
+  mechanized: {key:"mechanized",name:"机械化步兵师",kind:"land",role:"装甲掩护与混编进攻",atk:22,def:20,hp:70,org:60,equip:30,res:20,oil:8,rare:4,man:14,time:3,year:1940,tech:"mech1"},
+  motorized: {key:"motorized",name:"摩托化步兵师",kind:"land",role:"补充装甲突击群，平原攻势",atk:15,def:13,hp:50,org:65,equip:18,res:9,oil:5,rare:0,man:10,time:2,year:1936,tech:"mob1"},
+  mountain: {key:"mountain",name:"山地步兵师",kind:"land",role:"山地与丘陵专精",atk:12,def:15,hp:48,org:70,equip:14,res:7,oil:0,rare:0,man:10,time:2,year:1936},
+  marines: {key:"marines",name:"海军陆战师",kind:"land",role:"降低登陆惩罚，沿海突击",atk:14,def:12,hp:50,org:65,equip:18,res:10,oil:0,rare:2,man:10,time:2,year:1936,tech:"nav1"},
+  antiTank: {key:"antiTank",name:"反坦克炮团",kind:"land",role:"克制敌方装甲，需步兵掩护",atk:8,def:12,hp:32,org:45,equip:16,res:10,oil:0,rare:3,man:5,time:2,year:1936,tech:"at1"},
+  antiAir: {key:"antiAir",name:"防空炮团",kind:"land",role:"削弱敌机支援与轰炸",atk:5,def:10,hp:32,org:45,equip:15,res:9,oil:0,rare:3,man:5,time:2,year:1936,tech:"aa1"},
+  navy: {key:"navy",name:"主力舰编队",kind:"naval",role:"制海与岸轰；易受潜艇威胁",atk:22,def:22,hp:110,org:50,equip:38,res:28,oil:15,rare:2,man:10,time:4,year:1936},
+  destroyer: {key:"destroyer",name:"驱逐舰队",kind:"naval",role:"反潜护航，保护登陆运输",atk:12,def:14,hp:60,org:65,equip:22,res:14,oil:7,rare:0,man:6,time:2,year:1936},
+  submarine: {key:"submarine",name:"潜艇群",kind:"naval",role:"袭扰登陆运输，克制主力舰",atk:17,def:8,hp:45,org:60,equip:20,res:12,oil:6,rare:2,man:4,time:2,year:1936,tech:"nav1"},
+  carrier: {key:"carrier",name:"航空母舰编队",kind:"naval",role:"海上制空与登陆航空支援",atk:20,def:16,hp:95,org:60,equip:48,res:35,oil:18,rare:8,man:12,time:5,year:1936,tech:"nav3"},
+  air: {key:"air",name:"战斗机联队",kind:"air",role:"争夺制空权，拦截敌机",atk:0,def:0,hp:35,org:70,equip:18,res:8,oil:6,rare:4,man:6,time:1,year:1936,range:650},
+  cas: {key:"cas",name:"近距支援机联队",kind:"air",role:"在制空掩护下支援陆军",atk:0,def:0,hp:30,org:60,equip:20,res:10,oil:7,rare:4,man:6,time:2,year:1936,range:450,tech:"air1"},
+  tacticalBomber: {key:"tacticalBomber",name:"战术轰炸机联队",kind:"air",role:"远程攻击敌方驻军",atk:0,def:0,hp:40,org:55,equip:26,res:14,oil:10,rare:6,man:7,time:2,year:1936,range:1400,tech:"air1"},
+  strategicBomber: {key:"strategicBomber",name:"战略轰炸机联队",kind:"air",role:"远程破坏工业、装备与资源",atk:0,def:0,hp:50,org:50,equip:36,res:22,oil:14,rare:8,man:8,time:3,year:1938,range:2300,tech:"air2"},
 };
 
 // 地形
@@ -451,7 +464,7 @@ function resOf(lon, lat){
   return { res, oil, rare };
 }
 function relKey(a, b){ return a < b ? a + "|" + b : b + "|" + a; }
-function fmtDate(d){ return d.year + "年" + String(d.month).padStart(2,"0") + "月"; }
+function fmtDate(d){ return d.year + "年" + String(d.month).padStart(2,"0") + "月" + (d.day ? String(d.day).padStart(2,"0") + "日" : ""); }
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
 /* ===========================================================
@@ -474,6 +487,21 @@ const UNIT_GLYPH_COLOR = {
 };
 // 兵种简字（用于地图圆点，清晰可读）
 const UNIT_SHORT = { infantry:"步", cavalry:"骑", armor:"坦", artillery:"炮", mechanized:"装", navy:"舰", air:"空" };
+Object.assign(UNIT_GLYPH,{
+  motorized:"M3 8h12v8H3z M15 11h4l3 4v1h-7 M6 16v3 M18 16v3",
+  mountain:"M2 20L9 5l5 10 3-7 5 12 M6 12l3 2 3-2",
+  marines:"M12 3v17 M7 7h10 M3 13c0 9 18 9 18 0 M8 3h8",
+  antiTank:"M3 17h16 M6 17v3 M17 17v3 M9 17l2-6 11-5 M9 11h6",
+  antiAir:"M3 19h18 M6 19v3 M18 19v3 M10 19V9l6-6 M7 9h6",
+  destroyer:"M3 15h18l-4 5H7z M9 15V9h6v6 M12 9V4",
+  submarine:"M3 14h17c4 0 4 6 0 6H3z M10 14V9h6v5 M14 9V5h4",
+  carrier:"M2 16h20l-4 5H5z M4 13h17 M17 13V8h3v5 M10 4v7 M7 8h6",
+  cas:"M12 3v18 M3 12l9-5 9 5 M8 19l4-3 4 3 M5 13v4 M19 13v4",
+  tacticalBomber:"M12 3v18 M2 13l10-6 10 6 M7 19l5-3 5 3 M5 13v5 M19 13v5",
+  strategicBomber:"M12 2v20 M1 14l11-7 11 7 M6 21l6-4 6 4 M4 14v5 M20 14v5",
+});
+Object.assign(UNIT_SHORT,{motorized:"摩",mountain:"山",marines:"陆",antiTank:"反",antiAir:"防",destroyer:"驱",submarine:"潜",carrier:"航",cas:"援",tacticalBomber:"战",strategicBomber:"轰"});
+Object.keys(UNIT_TYPES).forEach(key=>{if(!UNIT_GLYPH_COLOR[key]) UNIT_GLYPH_COLOR[key]=UNIT_TYPES[key].kind==='land'?'#dfcc96':UNIT_TYPES[key].kind==='naval'?'#7ec8f5':'#c4e8ff';});
 const TERRAIN_GLYPH = {
   plain:    "M4 16h16M4 19h16",
   hill:     "M3 18l6-8 5 5 4-3 3 6z",

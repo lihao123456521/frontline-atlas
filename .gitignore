@@ -7,3 +7,13 @@
 # 依赖
 node_modules/
 .video_agent/
+
+# Local Netlify folder
+.netlify
+
+# Rebuildable release and Python cache files
+dist/
+.netlify-upload-*.zip
+.netlify_upload_temp_*/
+__pycache__/
+*.pyc

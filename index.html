@@ -4,93 +4,94 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>钢铁雄心 · 浏览器版</title>
-<link rel="stylesheet" href="css/style.css?v=28">
+<meta name="hoi-version" content="43">
+<link rel="stylesheet" href="css/style.css?v=43">
+<link rel="stylesheet" href="css/command-center.css?v=43">
+<link rel="stylesheet" href="css/historical-map.css?v=43">
+<link rel="stylesheet" href="css/war-command.css?v=43">
+<link rel="stylesheet" href="css/map-fronts.css?v=43">
+<link rel="stylesheet" href="css/map-command.css?v=43">
 </head>
 <body>
+<script src="js/runtime.js?v=43"></script>
 
 <!-- 开始界面 -->
 <div id="startScreen">
-  <div class="panel">
-    <h1>钢 铁 雄 心</h1>
-    <div class="sub">HEARTS OF IRON · BROWSER EDITION</div>
-    <label>选择国家</label>
-    <select id="selCountry"></select>
-    <div id="countryPreview" class="country-preview"></div>
-    <label>剧本</label>
-    <select id="selScenario"></select>
-    <div class="diff-desc" id="scenDesc"></div>
-    <label>难度</label>
-    <select id="selDifficulty">
-      <option value="casual">新兵</option>
-      <option value="standard" selected>正规</option>
-      <option value="hard">老兵</option>
-    </select>
-    <div class="diff-desc" id="diffDesc"></div>
-    <button id="btnStart">开始游戏</button>
-    <button id="btnContinue" class="btn-continue" style="display:none">继续游戏</button>
-    <div class="ribbon">THE GRAND CAMPAIGN</div>
+  <div class="start-layout">
+    <section class="start-briefing" aria-label="战役简报">
+      <div class="start-eyebrow"><span class="start-rule"></span> 全球战略 / 战役档案 <span class="start-rule"></span></div>
+      <h1>钢铁雄心</h1>
+      <div class="sub">HEARTS OF IRON · BROWSER EDITION</div>
+      <p class="start-lead">点选城市，下达命令。看战线推进，也看世界风云变幻。</p>
+      <div class="briefing-divider"></div>
+      <p class="start-section-title">作战简报 <span>01 / 指挥要点</span></p>
+      <div class="briefing-points">
+        <div><b>01</b><span><strong>指挥出征</strong><small>点敌城、确认出征，战线随战斗逐步推进。</small></span></div>
+        <div><b>02</b><span><strong>世界在行动</strong><small>各国同步调兵作战，重要事件在地图中央播报。</small></span></div>
+        <div><b>03</b><span><strong>补充军队</strong><small>训练部队，后勤默认自动安排；需要时可关闭并手动管理。</small></span></div>
+      </div>
+      <div class="start-dateline">1936 — 1945 <span>大国命运，始于一项命令</span></div>
+    </section>
+    <section class="panel start-setup" aria-label="战役设置">
+      <div class="setup-kicker">NEW CAMPAIGN <span>战役设置</span></div>
+      <h2>选择你的起点</h2>
+      <p class="setup-intro">选一个国家，进入地图。科研与后勤自动处理，你来决定扩张方向。</p>
+      <div class="setup-field"><label for="selCountry">指挥国家</label><select id="selCountry"></select></div>
+      <div id="countryPreview" class="country-preview"></div>
+      <div class="setup-two-col">
+        <div class="setup-field"><label for="selScenario">战役剧本</label><select id="selScenario"></select><div class="diff-desc" id="scenDesc"></div></div>
+        <div class="setup-field"><label for="selDifficulty">作战难度</label><select id="selDifficulty"><option value="casual">新兵</option><option value="standard" selected>正规</option><option value="hard">老兵</option></select><div class="diff-desc" id="diffDesc"></div></div>
+      </div>
+      <button id="btnStart">进入战区 <span aria-hidden="true">→</span></button>
+      <button id="btnContinue" class="btn-continue" style="display:none">继续上次战役</button>
+      <p class="setup-footnote">指挥台 · 全球战区 · 本地存档 <span id="releaseVersion">版本 v43</span></p>
+    </section>
   </div>
 </div>
 
-<!-- 顶部栏 -->
-<div id="topbar" class="hidden">
-  <div class="tb-side">
-    <div id="topBarCountry">
-      <div class="flag" id="topBarFlag"></div>
-      <div class="name" id="topBarName"></div>
-    </div>
-    <div class="tb-group" title="内政">
-      <div class="tb-stat" title="政治权力"><span class="res-ic pp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4.5v9L12 20l-8-4.5v-9z" opacity=".55"/><path d="M12 6l4.5 2.5v5L12 16l-4.5-2.5v-5z"/></svg></span><span class="val" id="tbPP">0</span></div>
-      <div class="tb-stat" title="稳定度"><span class="res-ic stab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg></span><span class="val" id="tbStab">0%</span></div>
-      <div class="tb-stat" title="战争支援度"><span class="res-ic ws"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l13 13M19 5L6 18"/><path d="M14.5 19.5l5-5M4.5 14.5l5 5"/></svg></span><span class="val" id="tbWS">0%</span></div>
-    </div>
-    <div class="tb-group" title="工业">
-      <div class="tb-stat" title="民用工厂"><span class="res-ic civ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V9l5 3V9l5 3V9l5 3v9z"/><path d="M3 21h18"/></svg></span><span class="val" id="tbCiv">0</span></div>
-      <div class="tb-stat" title="军用工厂"><span class="res-ic mil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 21V10l6 4v-4l6 4v-4l6 4v7z"/><path d="M3 21h18"/></svg></span><span class="val" id="tbMil">0</span></div>
-      <div class="tb-stat" title="装备"><span class="res-ic equip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="6.5"/><path d="M12 2.5V7M12 17v4.5M2.5 12H7M17 12h4.5"/></svg></span><span class="val" id="tbEquip">0</span></div>
-      <div class="tb-stat" title="人力"><span class="res-ic man"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20c0-3.4 3-5.6 6.5-5.6s6.5 2.2 6.5 5.6"/></svg></span><span class="val" id="tbMan">0</span></div>
-    </div>
-    <div class="tb-group" title="战略资源">
-      <div class="tb-stat" title="钢铁"><span class="res-ic res"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="13" width="16" height="5" rx="1"/><rect x="7" y="6" width="10" height="5" rx="1"/></svg></span><span class="val" id="tbRes">0</span></div>
-      <div class="tb-stat" title="石油"><span class="res-ic oil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3c4 5 6.5 8 6.5 11a6.5 6.5 0 11-13 0c0-3 2.5-6 6.5-11z"/></svg></span><span class="val" id="tbOil">0</span></div>
-      <div class="tb-stat" title="稀有材料"><span class="res-ic rare"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 4h10l4 6-9 11L3 10z"/><path d="M3 10h18M12 21L8 10l4-6 4 6z" opacity=".5"/></svg></span><span class="val" id="tbRare">0</span></div>
-    </div>
+<!-- 精简指挥栏 -->
+<header id="topbar" class="hidden">
+  <div id="topBarCountry"><div class="flag" id="topBarFlag"></div><div class="name" id="topBarName"></div></div>
+  <div class="essential-resources">
+    <button class="resource-chip" id="btnCities" title="查看我方城市"><span>城市</span><strong id="tbCities">0</strong></button>
+    <div class="resource-chip" title="用于征兵和补员的装备"><span>装备</span><strong id="tbEquip">0</strong></div>
+    <div class="resource-chip reserve-chip" title="可征召的预备兵员"><span>预备</span><strong id="tbMan">0</strong></div>
   </div>
-  <div id="topBarDate">1936年01月</div>
-  <div id="topBarSpeed">
-    <button data-s="0" title="暂停 (Space)">❚❚</button>
-    <button data-s="1" title="慢速 (1)">1</button>
-    <button data-s="2" title="正常 (2)">2</button>
-    <button data-s="3" title="快速 (3)">3</button>
-    <button data-s="4" title="极速 (4)">4</button>
-    <button data-s="5" title="跳到下月 (5)">▶▶</button>
+  <div class="clock-controls">
+    <div id="topBarDate"></div>
+    <button id="btnPause" title="Space 暂停或继续">▶ 继续游戏</button>
+    <div id="topBarSpeed"><details class="time-settings"><summary aria-label="时间速度">速度</summary><div class="time-options">
+      <button data-s="0">暂停</button><button data-s="1">慢速 · 2秒/日</button><button data-s="2">标准 · 1秒/日</button><button data-s="3">快速 · 0.5秒/日</button>
+      <button id="btnAdvance">单步一天（高级）</button>
+    </div></details></div>
   </div>
-  <div id="hotkeyHelp" title="键盘快捷键">?</div>
-  <div id="topBarRight">
-    <button class="tb-btn" id="btnFocus">国策</button>
-    <button class="tb-btn" id="btnTech">科研</button>
-    <button class="tb-btn" id="btnDiplo">外交</button>
-    <button class="tb-btn danger" id="btnSurrender">投降</button>
-  </div>
-</div>
+</header>
+
+<nav id="commandNav" class="hidden" aria-label="指挥导航">
+  <button data-view="cities" class="nav-primary"><span class="nav-glyph" aria-hidden="true">▦</span><span>城市</span></button>
+  <button data-view="war" class="nav-primary"><span class="nav-glyph" aria-hidden="true">⚑</span><span>战局</span><small id="warCount"></small></button>
+  <button data-view="diplo" class="nav-primary"><span class="nav-glyph" aria-hidden="true">◇</span><span>外交</span></button>
+  <details class="nav-management"><summary>更多 ···</summary><div class="management-options">
+    <button data-view="production">军队与训练</button><button data-view="logistics">后勤与发展</button><button data-view="news">世界大事</button>
+    <button data-view="campaign">战役任务</button><button data-view="overview">国家详情</button><button id="btnOpenLog">战况记录</button>
+    <button id="btnFocus">国策</button><button id="btnTech">科研</button><button id="btnDiplo">外交详情</button>
+    <button id="btnSave">保存战役</button><button id="btnHome">返回主界面</button><button id="hotkeyHelp">操作帮助</button><button id="btnSurrender">投降</button>
+  </div></details>
+</nav>
 
 <!-- 地图 -->
 <div id="mapWrap" class="hidden">
   <!-- 开局引导: 选中省份后自动消失 -->
   <div id="mapHint" class="map-hint">
-    <div class="mh-title">指挥您的国家 · 欧洲战场</div>
+    <div class="mh-title">点一座城市，开始指挥</div>
     <div class="mh-body">
-      点击地图上 <b>任意一个省份</b> 即可开始<br>
-      <span class="mh-tip">提示：点击自己国家（金色光晕）省份查看详情，点击邻国发起进攻——部队出征与白刃战将实时演算</span>
+      我方城市：<b>出征 · 征兵</b><br><span class="mh-tip">点敌城安排进攻。拖动地图，滚轮或双指缩放。敌军进攻会暂停并警报。</span>
     </div>
     <button id="mapHintClose" class="mh-close">知道了</button>
   </div>
   <!-- 顶部目标提示条 -->
-  <div id="objectiveBar" class="objective-bar hidden">
-    <span class="obj-icon">🎯</span>
-    <span class="obj-text">目标: <span id="objText">占领 3 个邻国省份</span></span>
-    <span class="obj-progress" id="objProgress">(0/3)</span>
-  </div>
+  <button id="objectiveBar" class="objective-bar hidden" title="查看战役任务"><span class="obj-icon" aria-hidden="true">◎</span><span class="obj-text">当前任务：<span id="objText">完成战役准备</span></span><span class="obj-progress" id="objProgress">0 / 2</span><span class="obj-arrow" aria-hidden="true">↗</span></button>
+  <div id="contextHint" class="context-hint" aria-live="polite">选择地图上的省份，查看详情并下达命令。</div>
   <svg id="mapSvg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
     <defs>
       <radialGradient id="oceanGrad" cx="50%" cy="50%" r="75%">
@@ -142,29 +143,43 @@
     <g id="layerEffects"></g>
     <g id="layerHilight"></g>
   </svg>
-  <div class="mapmode-bar">
-    <button class="mapmode-btn on" data-mode="political" title="政治地图">▣</button>
-    <button class="mapmode-btn" data-mode="terrain" title="地形地图">⛰</button>
-    <button class="mapmode-btn" data-mode="diplomatic" title="外交地图">☮</button>
-  </div>
-  <div class="zoom-ctrl">
+  <details class="mapmode-bar map-tools"><summary>地图视图</summary><div class="map-tools-options">
+    <button class="mapmode-btn on" data-mode="political" title="政治地图">政治</button>
+    <button class="mapmode-btn" data-mode="terrain" title="地形地图">地形</button>
+    <button class="mapmode-btn" data-mode="diplomatic" title="外交地图">外交</button>
+    <button id="zoomReset" title="世界总览" aria-label="世界总览">世界总览</button>
+  </div></details>
+  <div class="zoom-ctrl" style="gap:2px;max-width:calc(100% - 20px);flex-wrap:wrap" aria-label="地图缩放与区域导航">
     <button id="zoomIn" title="放大">＋</button>
     <button id="zoomOut" title="缩小">－</button>
-    <button id="zoomReset" title="重置视图">⟲</button>
+    <select id="mapRegionSelector" aria-label="地图区域跳转" title="快速跳转地图区域" style="width:103px;min-width:0;height:29px;padding:0 5px;border:1px solid #597181;background:#193146;color:#e0e8e8;font-size:11px;border-radius:2px">
+      <option value="" disabled selected>地图跳转</option>
+      <option value="global">世界总览</option>
+      <option value="europe">欧洲</option>
+      <option value="asia">亚洲</option>
+      <option value="americas">美洲</option>
+      <option value="africa">非洲</option>
+      <option value="pacific">大洋洲 / 太平洋</option>
+    </select>
+    <button id="mapFocusPlayer" title="聚焦当前国家" aria-label="聚焦当前国家" style="width:auto;padding:0 6px;font-size:11px">本国</button>
   </div>
   <div class="speed-indicator" id="speedLabel">已暂停</div>
   <div id="mapTooltip" class="map-tooltip"></div>
 </div>
 
 <!-- 右侧面板 -->
+<section id="worldNews" class="world-news hidden" aria-live="polite" aria-label="世界重点事件"></section>
 <div id="rightPanel" class="hidden">
-  <button class="rp-close" id="rpClose">×</button>
+  <div class="context-head"><span id="panelTitle">城市指挥</span><small>COMMAND</small></div>
+  <button class="rp-close" id="rpClose" aria-label="关闭指挥卡">×</button>
   <div id="rpContent"></div>
+  <div id="campaignSummary" class="campaign-summary"></div>
 </div>
 <button id="panelToggle" class="hidden" title="折叠/展开面板">◀</button>
 
 <!-- 底部日志 -->
 <div id="bottomLog" class="hidden">
+  <div class="log-compact"><span class="log-label">战况记录</span><span id="logSummary">暂无战况记录</span><button id="btnLogToggle" aria-label="展开战况记录" title="展开战况记录">展开 ↗</button></div>
   <div id="logTabs">
     <div class="lt on" data-tab="all">全部</div>
     <div class="lt" data-tab="battle">战报<span class="badge hidden" id="badgeBattle">0</span></div>
@@ -187,12 +202,19 @@
 <!-- 提示框 -->
 <div id="tooltip"></div>
 
-<script src="js/data.js?v=28"></script>
-<script src="js/data_world.js?v=28"></script>
-<script src="js/data_provinces.js?v=28"></script>
-<script src="js/game.js?v=28"></script>
-<script src="js/map.js?v=28"></script>
-<script src="js/ui.js?v=28"></script>
-<script src="js/main.js?v=28"></script>
+<script src="js/data.js?v=43"></script>
+<script src="js/data_world.js?v=43"></script>
+<script src="js/data_provinces.js?v=43"></script>
+<script src="js/data_historical_map.js?v=43"></script>
+<script src="js/data_world_historical.js?v=43"></script>
+<script src="js/history.js?v=43"></script>
+<script src="js/world.js?v=43"></script>
+<script src="js/campaign.js?v=43"></script>
+<script src="js/order_of_battle.js?v=43"></script>
+<script src="js/game.js?v=43"></script>
+<script src="js/map.js?v=43"></script>
+<script src="js/world-news.js?v=43"></script>
+<script src="js/ui.js?v=43"></script>
+<script src="js/main.js?v=43"></script>
 </body>
 </html>

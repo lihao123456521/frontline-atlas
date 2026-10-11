@@ -1,0 +1,85 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const vm=require('node:vm');
+
+function setup(){
+  const elements=new Map();
+  function element(){
+    const e={children:[],attrs:{},style:{},appendChild(child){this.children.push(child);},
+      setAttribute(key,value){this.attrs[key]=String(value);},querySelector(){return elements.get('defs');}};
+    Object.defineProperty(e,'innerHTML',{set(){this.children=[];}});
+    return e;
+  }
+  for(const id of ['defs','mapSvg','layerOcean','layerLand','layerCountryFills','layerTerritory','layerBorders','layerSeaLinks','layerLabels','layerPlanHL','layerFronts','layerPlanArrows','layerMovePrev','layerAttackArrows','layerUnits','layerBattles','layerEffects','layerHilight'])elements.set(id,element());
+  const shape=(id,x)=>({id,d:`M${x},0L${x+100},0L${x+100},100L${x},100Z`,
+    rings:[[[x,0],[x+100,0],[x+100,100],[x,100]]]});
+  const defs=[
+    {id:'a0',owner:'west',x:20,y:50},{id:'b1',owner:'west',x:70,y:50},
+    {id:'c2',owner:'east',x:120,y:50},{id:'d3',owner:'east',x:170,y:50},
+  ];
+  const provinces=defs.map((p,i)=>({...p,owner:['a','b','c','d'][i],garrison:[]}));
+  const state={provinces,countries:{a:{id:'a',color:'#bd4335'},b:{id:'b',color:'#4373af'},
+    c:{id:'c',color:'#58a065'},d:{id:'d',color:'#7b60aa'}},player:'b',wars:[],alliances:{},
+    activeCombats:[
+      {id:'west-fight',from:0,to:1,attacker:'a',defender:'b',phase:'engagement',progress:25},
+      {id:'east-fight',from:2,to:3,attacker:'c',defender:'d',phase:'engagement',progress:60},
+    ]};
+  const source=fs.readFileSync(path.join(__dirname,'../js/map.js'),'utf8')
+    .replace('return { W,H,','return { smoothCell, getCells:()=>cellHitPolygons, renderTerritory, renderFronts, W,H,');
+  const c=vm.createContext({document:{getElementById:id=>elements.get(id),createElementNS:()=>element()},
+    PROVINCES_DEF:defs,HISTORICAL_MAP:{land:[],shapes:[shape('west',0),shape('east',100)]},Game:{state}});
+  vm.runInContext(source+'\nthis.map=MapView;',c);
+  return {map:c.map,Game:c.Game,layers:elements};
+}
+function polygon(d){const values=[...d.matchAll(/-?\d+(?:\.\d+)?/g)].map(x=>+x[0]);
+  return Array.from({length:values.length/2},(_,i)=>[values[2*i],values[2*i+1]]);}
+function area(points){let n=0;for(let i=0;i<points.length;i++){
+  const a=points[i],b=points[(i+1)%points.length];n+=a[0]*b[1]-a[1]*b[0];
+}return Math.abs(n)/2;}
+
+test('neighbor cells share exactly the same curved edge, including endpoints',()=>{
+  const {map}=setup();
+  const left=map.smoothCell([[0,0],[10,0],[10,10],[0,10]]);
+  const right=map.smoothCell([[10,0],[20,0],[20,10],[10,10]]);
+  const a=left.slice(12,25),b=right.slice(36).concat([right[0]]).reverse();
+  assert.deepEqual(JSON.parse(JSON.stringify(a)),JSON.parse(JSON.stringify(b)));
+  assert.ok(a.some(p=>p[0]!==10),'shared edge is visibly curved');
+});
+
+test('two countries advance independently across target cells without changing ownership or click targets',()=>{
+  const c=setup(),state=c.Game.state;
+  c.map.renderTerritory();c.map.renderFronts();
+  const layer=c.layers.get('layerFronts');
+  assert.equal(layer.children.length,2);
+  const west=layer.children[0],east=layer.children[1];
+  assert.equal(west.attrs['data-combat-id'],'west-fight');
+  assert.equal(east.attrs['data-combat-id'],'east-fight');
+  assert.equal(west.attrs['clip-path'],'url(#clipT-west)');
+  assert.equal(east.attrs['clip-path'],'url(#clipT-east)');
+  assert.equal(west.children[0].attrs.fill,'#bd4335');
+  assert.equal(east.children[0].attrs.fill,'#58a065');
+  assert.equal(west.children[1].attrs.class,'combat-front-line');
+  const before=polygon(west.children[0].attrs.d),beforeArea=area(before);
+  state.activeCombats[0].progress=75;c.map.renderFronts();
+  const after=polygon(layer.children[0].children[0].attrs.d);
+  assert.ok(area(after)>beforeArea*2);
+  assert.ok(Math.max(...after.map(p=>p[0]))>Math.max(...before.map(p=>p[0])));
+  assert.equal(state.provinces[1].owner,'b');
+  assert.equal(c.map.provinceUnderPoint(65,50),1);
+  assert.equal(c.map.provinceUnderPoint(90,50),1);
+  assert.equal(layer.children[1].children[0].attrs.d,east.children[0].attrs.d);
+});
+
+test('preparation, retreat and loaded state remove stale fronts',()=>{
+  const c=setup(),layer=c.layers.get('layerFronts'),state=c.Game.state;
+  c.map.renderFronts();assert.equal(layer.children.length,2);
+  state.activeCombats[0].phase='preparation';c.map.renderFronts();assert.equal(layer.children.length,1);
+  state.activeCombats=[];c.map.renderFronts();assert.equal(layer.children.length,0);
+  const loaded={...state,provinces:state.provinces.map(p=>({...p})),activeCombats:[
+    {id:'loaded',from:0,to:1,attacker:'a',defender:'b',phase:'engagement',progress:50}]};
+  c.Game.state=loaded;c.map.renderFronts();assert.equal(layer.children.length,1);
+  assert.equal(layer.children[0].attrs['data-combat-id'],'loaded');
+  loaded.provinces[1].owner='a';c.map.renderFronts();assert.equal(layer.children.length,0);
+});

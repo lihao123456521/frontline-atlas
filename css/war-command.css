@@ -1,0 +1,195 @@
+/* War-first hierarchy; map geometry and viewport dimensions remain in command-center.css. */
+#commandNav > .nav-primary{min-height:62px;font-size:13px;font-weight:700;letter-spacing:1px;color:#e3e7df}
+#commandNav > .nav-primary .nav-glyph{font-size:21px;color:#c9d5d7}
+#commandNav > .nav-primary.on{background:#ad8c59;border-color:#e1c18b;color:#142536}
+#commandNav > .nav-primary.on .nav-glyph{color:#142536}
+#commandNav > .nav-secondary{font-size:11px;color:#9eb3be;min-height:42px}
+#commandNav > .nav-secondary[data-view="logistics"]{margin-top:8px;border-top-color:#3e5568}
+#commandNav button:focus-visible,#rpContent button:focus-visible,#rpContent summary:focus-visible,#rpContent input:focus-visible{outline:2px solid #f3cc86;outline-offset:2px}
+#rpContent{overflow-wrap:anywhere}
+#rpContent .rp-btn{white-space:normal;text-align:left;line-height:1.55;padding:8px 10px;min-height:39px}
+#rpContent .rp-btn:disabled{opacity:.66;color:#c5d0d5}
+#rpContent details{border:1px solid #496173;border-radius:3px;background:#1b3043;margin:10px 0;padding:0 10px}
+#rpContent summary{cursor:pointer;padding:11px 0;color:#d9e2df;font-weight:650;font-size:12px;line-height:1.5}
+#rpContent summary:hover{color:#efce91}
+#rpContent details[open] > summary{border-bottom:1px solid #405668;margin-bottom:9px}
+#rpContent details .rp-section{margin-bottom:9px}
+.frontline-list{display:grid;gap:8px}
+.frontline-item,.alliance-card{border:1px solid #4b6273;border-radius:3px;background:#21384b;padding:10px;margin:8px 0;min-width:0}
+.frontline-item .rp-btn{margin-top:7px}
+.frontline-actions,.diplomacy-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.frontline-actions > button,.diplomacy-actions > button{flex:1 1 112px;min-width:0}
+.war-status,.logistics-status{color:#bfced5;font-size:12px;line-height:1.7}
+.battle-command-actions{position:sticky;bottom:0;z-index:2;display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:10px 0;background:#16283a;border-top:1px solid #7c735b;box-shadow:0 -8px 12px #16283a}
+.battle-command-count{grid-column:1/-1;color:#e9d6ae;font-size:12px}
+.battle-command-actions > button{flex:1;min-width:0}
+.command-summary,.diplomacy-confirm{border:1px solid #a48d67;background:#354034;border-radius:3px;padding:11px;margin:10px 0;font-size:12px;line-height:1.75;color:#f0e3c6}
+.command-summary strong,.diplomacy-confirm strong{color:#ffdf9e}
+.alliance-search{display:block;width:100%;height:39px;min-width:0;padding:7px 10px;border:1px solid #5c778a;border-radius:3px;color:#f1eee4;background:#122a3d;font:13px var(--font);margin:8px 0 13px}
+.alliance-search::placeholder{color:#9db2bf}
+.alliance-group{margin:14px 0 9px;color:#e0ca9e;font-size:12px;letter-spacing:1px}
+.logistics-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;font-size:13px;color:#edf0e9}
+.logistics-toggle input[type="checkbox"]{width:19px;height:19px;accent-color:#d2ac70}
+#rpContent .action-reason{color:#bfccd4;font-size:11px;line-height:1.65;padding:4px 1px}
+@media(max-width:760px){
+  #commandNav > .nav-primary{flex:0 0 58px;min-height:44px;font-size:11px;gap:1px;letter-spacing:0}
+  #commandNav > .nav-primary .nav-glyph{font-size:17px}
+  #commandNav > .nav-secondary{flex:0 0 46px;min-height:44px;font-size:10px}
+  #commandNav > .nav-secondary[data-view="logistics"]{margin-top:0;border-top:0;border-left:1px solid #3e5568;margin-left:5px}
+  #rpContent .rp-btn{min-height:40px;font-size:12px}
+  .frontline-actions > button,.diplomacy-actions > button{flex-basis:105px}
+}
+
+/* Focused command flow: target cards and a quiet map. */
+:root{--top-h:100px;--panel-w:350px}
+#topbar{grid-template-rows:44px 56px}
+.tb-brand{padding-top:12px}
+#topBarSpeed{padding-right:16px}
+.time-settings{position:relative;color:#c2d0d5;font-size:12px}
+.time-settings summary{cursor:pointer;list-style:none;padding:8px 12px;border:1px solid #425a6b;border-radius:5px;background:#1b3040}
+.time-settings summary::after{content:' ▾';color:#8096a5}
+.time-options{position:absolute;right:0;top:38px;z-index:100;display:grid;grid-template-columns:1fr;gap:5px;padding:9px;min-width:185px;background:#152938;border:1px solid #4c6474;border-radius:6px;box-shadow:0 12px 28px #08111e88}
+#topBarSpeed .time-options button{width:auto;height:34px;font-size:12px}
+.time-options button:first-child{grid-column:1/-1}
+.tb-stat:has(#tbCiv),.tb-stat:has(#tbMil),.tb-stat:has(#tbRare){display:none}
+#rpContent .frontline-target{border:1px solid #3f5665;border-radius:8px;background:#1d3343;padding:12px;margin:9px 0;box-shadow:none}
+#rpContent .frontline-target h4{font-size:14px;letter-spacing:0;border:0;margin:0 0 6px;padding:0;color:#e9e6d8}
+#rpContent .frontline-target .rp-btn{margin:8px 0 0;border-radius:5px;background:#2a4657;color:#e5ece9;border:1px solid #5b7889;box-shadow:none;min-height:39px}
+#rpContent .frontline-target:first-child .rp-btn{background:#c5a36e;color:#142333;border-color:#dbbd88}
+.frontline-target-metrics{font-size:12px;line-height:1.6;color:#c2d2d6}
+.frontline-target-metrics .advantage{color:#afd1b3}
+.battlefield-filter{display:block;width:100%;height:36px;margin:9px 0 0;border:1px solid #4c6576;border-radius:5px;color:#e2e8e6;background:#172d3c;font:12px var(--font);padding:0 8px}
+.battle-plan-summary{padding:12px 0;color:#d5dfe0;font-size:13px;line-height:1.8}
+.battle-plan-summary .rp-row{padding:6px 0}
+.battle-plan-summary strong{color:#ebd9b7}
+.battle-route{font-weight:600;color:#e7dfcb;margin-bottom:12px}
+.battle-win-box{display:grid;gap:6px;padding:14px;background:#213c46;border:1px solid #4b6a6e;border-radius:7px;margin:10px 0}
+.battle-win-box strong{font-size:23px;color:#b6d4b7}.battle-win-box span{font-size:13px}.battle-win-box small{font-size:11px;color:#abc0c7}
+.battle-risk{padding:9px 11px;margin:9px 0;color:#edc5a2;background:#443b30;border-radius:5px;font-size:12px;line-height:1.7}
+.battle-adjustments .origin-picker{padding:6px 0;background:none;box-shadow:none;border:0}
+.latest-battle{border-left:3px solid #b1a27a;padding:10px 12px;background:#263c43;border-radius:5px;line-height:1.65;font-size:12px;color:#d3ddd8;margin:10px 0}
+#rpContent .battle-command-actions{border-radius:0;background:#16283a;padding:10px 0;gap:8px}
+#rpContent .battle-command-actions .rp-btn{min-height:43px;text-align:center;border-radius:5px;margin:0}
+#rpContent .battle-command-count{font-size:12px;line-height:1.4}
+#rpContent details{border-radius:6px;border-color:#3d5566;background:#192e3e}
+#rpContent .alliance-card{border-radius:8px;border-color:#405968;box-shadow:none}
+#rpContent .military-option .rp-btn{border-radius:6px}
+#mapSvg .order-marker{pointer-events:none}
+#mapSvg .order-marker-ring{fill:#15293888;stroke-width:2}
+#mapSvg .order-origin .order-marker-ring{stroke:#9ac9e6}
+#mapSvg .order-target .order-marker-ring{stroke:#f0cb81;fill:#dbb26933}
+#mapSvg .order-candidate .order-marker-ring{stroke:#ebc080;fill:#e2b77455;stroke-width:1.4}
+#mapSvg .order-destination .order-marker-ring{stroke:#aacbac}
+#mapSvg .order-marker-label{font:600 11px var(--font);text-anchor:middle;fill:#f6e9c9;stroke:#122332;stroke-width:3;paint-order:stroke fill;stroke-linejoin:round}
+#mapSvg .order-origin .order-marker-label{fill:#c8e6f2}
+#mapSvg .battle-feedback-ring{fill:#233c3599;stroke:#bcd5b5;stroke-width:1.5}
+#mapSvg .battle-feedback.lost .battle-feedback-ring{fill:#52352e99;stroke:#d7ad9e}
+#mapSvg .battle-feedback-label{font:600 11px var(--font);text-anchor:middle;fill:#f3e8cc;stroke:#182b35;stroke-width:2;paint-order:stroke fill}
+#mapSvg .historical-land{stroke-width:calc(.65px / var(--map-zoom,1))}
+#mapSvg .historical-border{stroke:#172b35;stroke-width:calc(.8px / var(--map-zoom,1));opacity:.82}
+#mapSvg .historical-cell-selected{fill:#f4dc9c14;stroke:#d7c091;stroke-width:calc(1.4px / var(--map-zoom,1));vector-effect:non-scaling-stroke}
+#mapSvg .historical-cell-hover{stroke:#d6e2cf;stroke-width:calc(1px / var(--map-zoom,1));vector-effect:non-scaling-stroke}
+#mapSvg .sel-ring,#mapSvg .hover-ring{fill:none;filter:none;animation:none;stroke-width:calc(1.5px / var(--map-zoom,1));opacity:.7}
+#mapSvg .density-unit-box{stroke-width:.8;rx:3;filter:none}
+#mapSvg .sea-link{opacity:0;pointer-events:none}
+#mapSvg .sea-link.hl{opacity:0}
+#hoi-error-toast.runtime-recovery{position:fixed;z-index:1000;left:50%;right:auto;bottom:auto;top:18px;transform:translateX(-50%);max-width:calc(100vw - 32px);width:420px;padding:18px;background:#263644;border:1px solid #b1956a;border-radius:8px;color:#ece6d7;font:13px/1.6 var(--font);white-space:normal;box-shadow:0 16px 40px #05111d88}
+.runtime-recovery strong{font-size:16px}.runtime-recovery p{margin:8px 0}.runtime-recovery button{padding:7px 13px;background:#cfb17c;border:0;border-radius:4px;color:#172634;cursor:pointer}.runtime-recovery details{font-size:11px;overflow-wrap:anywhere;margin-top:8px;color:#bdcad2}
+@media(max-width:760px){
+  :root{--top-h:138px;--panel-w:min(345px,88vw)}
+  #topbar{grid-template-rows:40px 98px}
+  #topbar .tb-side{min-height:0}
+  #topBarCountry{height:34px}
+  .tb-group{height:31px}
+  .tb-brand{font-size:12px;padding:11px 8px 0}.tb-brand small{display:none}
+  #topBarSpeed{padding-right:7px}.time-settings summary{padding:6px 8px;font-size:11px}
+  #rpContent .frontline-target{padding:10px}
+  #rpContent .battle-plan-summary{font-size:12px}
+}
+
+/* Daily war: keep the command surface small while preserving management tools. */
+#objectiveBar,#campaignSummary{display:none!important}
+.nav-management{position:relative;margin-top:5px;color:#bccbd0;font-size:12px}
+.nav-management>summary{cursor:pointer;list-style:none;text-align:center;padding:11px 4px;border:1px solid #3e5668;border-radius:5px;background:#1b3141}
+.nav-management>summary::after,.map-tools>summary::after{content:' ▾';color:#91a5b0}
+.management-options{position:absolute;left:calc(100% + 7px);bottom:0;width:168px;padding:7px;background:#172d3d;border:1px solid #4c6677;border-radius:6px;box-shadow:0 10px 25px #08132099;z-index:110}
+#commandNav .management-options button{width:100%;min-height:39px;justify-content:flex-start;padding:0 12px;color:#e2e5db}
+#commandNav .management-options button:hover{background:#2e4859}
+.map-tools{display:block;padding:0;z-index:44;border-radius:5px}
+.map-tools>summary{list-style:none;cursor:pointer;padding:9px 11px;color:#d0dedf;font-size:11px}
+.map-tools-options{position:absolute;top:38px;left:0;min-width:132px;display:grid;gap:4px;padding:7px;background:#172e40;border:1px solid #4c6878;border-radius:5px}
+.map-tools-options button{min-height:34px;text-align:left;padding:0 9px;color:#d4e1df;background:#20394a;border:1px solid #466073;border-radius:4px;font:11px var(--font)}
+.ongoing-battle-card{border:1px solid #4d6c76;border-radius:9px;background:#1c3341;padding:13px;margin:7px 0 14px}
+.ongoing-battle-card h3{margin-top:0!important}.ongoing-battle-card h4{border:0!important;margin:7px 0;color:#eed6ab;font-size:15px}
+.combat-selector,.combat-tactics,.reinforcement-origin,.reinforcement-count{width:100%;min-height:37px;padding:6px 8px;border:1px solid #4b6b7c;border-radius:5px;background:#132d3b;color:#dfe7e1;font:12px var(--font)}
+.combat-progress{display:block;width:100%;height:9px;margin:10px 0;accent-color:#d4b278}
+.combat-sides{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.combat-side{padding:9px 8px;border:1px solid #435e6a;border-radius:6px;background:#213d48;font-size:12px;line-height:1.85;min-width:0}
+.combat-side strong{display:block;color:#ddd8c4;font-size:12px}.combat-side progress{width:100%;height:6px;accent-color:#a9c8ac;margin:3px 0 7px}
+.combat-support-status,.combat-events{color:#bbced3;font-size:11px;line-height:1.75;margin:9px 0}
+.combat-tactics-label{display:grid;gap:6px;margin:9px 0;color:#d3ddd9;font-size:12px}
+.combat-actions{position:sticky;bottom:0;z-index:3;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px;padding:10px 0;background:#1c3341;border-top:1px solid #587079;box-shadow:0 -8px 12px #1c3341}
+#rpContent .combat-actions .rp-btn{min-height:40px;text-align:center;margin:0;border-radius:5px}
+.combat-retreat-confirm{padding:10px;border:1px solid #8e7160;border-radius:6px;margin-top:10px;color:#e3c2a3;font-size:12px;line-height:1.6}
+.combat-reinforcements label{display:grid;gap:5px;font-size:12px;color:#c4d2d5;margin:8px 0}
+.combat-events{border-top:1px solid #3a5361;padding-top:8px}.combat-events p{margin:4px 0}
+.army-totals{padding:10px 12px;background:#233c47;border:1px solid #435d6c;border-radius:6px;font-size:12px;line-height:1.8;color:#d2ddd8;margin-bottom:12px}
+.rp-select,.frontline-selector{display:block;width:100%;min-height:40px;padding:7px 9px;margin:9px 0;border:1px solid #4b6b7c;border-radius:5px;background:#132d3b;color:#dfe7e1;font:12px var(--font)}
+.auto-offensive-status{padding:10px 12px;margin:0 0 10px;background:#203a44;border:1px solid #425e68;border-radius:6px}
+.auto-offensive-toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:#e4dcc5;cursor:pointer}
+.auto-offensive-toggle input{width:17px;height:17px;margin:0;accent-color:#d4b278}
+.auto-offensive-status p{margin:6px 0 0;color:#baccd0;font-size:11px;line-height:1.5}
+.combat-selector{margin-bottom:10px}
+.combat-reinforcements{margin-top:9px;padding-top:5px;border-top:1px solid #415c68}
+.combat-reinforcements h4{font-size:12px!important}
+#speedLabel{max-width:calc(100% - 20px);font-size:11px}
+#mapSvg .combat-marker{cursor:pointer;pointer-events:all}
+#mapSvg .combat-marker-ring{fill:#213c47;stroke:#526f7b;stroke-width:2}
+#mapSvg .combat-marker-progress{fill:none;stroke:#e6c37c;stroke-width:2.5;stroke-linecap:round}
+#mapSvg .combat-marker.defending .combat-marker-progress{stroke:#d79d88}
+#mapSvg .combat-marker-label{fill:#f4e5c8;stroke:none;text-anchor:middle;font:600 12px var(--font)}
+#mapSvg .combat-marker:focus{outline:none}#mapSvg .combat-marker:hover .combat-marker-ring,#mapSvg .combat-marker:focus .combat-marker-ring{stroke:#f3d8a0}
+@media(max-width:760px){
+  #commandNav{overflow:visible}
+  .nav-management{flex:none;margin:0 0 0 5px;align-self:center}
+  .nav-management>summary{padding:11px 8px;font-size:11px}
+  .management-options{position:fixed;left:auto;right:8px;top:calc(var(--top-h) + 52px);bottom:auto;width:170px}
+  .ongoing-battle-card{padding:10px}.combat-side{padding:7px 6px;font-size:11px}
+}
+
+/* v41: one clock control, visible phases and actual personnel. */
+#commandNav .nav-controls #btnPause{min-height:45px;font-size:12px;white-space:normal;line-height:1.5}
+#rpContent .army-personnel{font-size:30px;font-weight:750;color:#f1d6a4;line-height:1.35;margin:9px 0 3px}
+#rpContent .army-totals{font-size:11px;color:#abc1c8;padding:8px}
+#rpContent .combat-stages{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;list-style:none;padding:0;margin:13px 0}
+.combat-stages li{display:flex;flex-direction:column;align-items:center;gap:5px;font-size:11px;color:#7d969f;border-top:2px solid #405863;padding-top:8px;text-align:center}
+.combat-stages li>span{display:grid;place-items:center;width:23px;height:23px;border:1px solid #516876;border-radius:50%;font-size:12px}
+.combat-stages li.current{border-color:#d8b775;color:#f2d8a5}.combat-stages li.current>span{background:#d1ae71;color:#162a37;border-color:#e9cd97}.combat-stages li.done{border-color:#99b9ac;color:#a7c9b4}.combat-stages small{font-size:10px}
+#rpContent .combat-phase{font-size:13px;color:#e7d2a8;line-height:1.6;margin:8px 0}
+#rpContent .combat-breakthrough{font-size:12px;color:#e4dac3;line-height:1.7;margin:6px 0}
+#rpContent .combat-personnel{font-size:19px;color:#f0ddba;white-space:nowrap;letter-spacing:-.4px}
+#rpContent .combat-loss{font-size:10px;color:#b5c7cc;margin:5px 0 0}
+.combat-pause-note{font-size:12px;padding:9px;border:1px solid #837a5e;background:#3d4036;color:#ead3a4;border-radius:5px;line-height:1.6;margin:8px 0}
+#rpContent .latest-battle{margin:0 0 12px;padding:11px;border-color:#bd9f75;background:#34413c}
+#rpContent .latest-battle h4{color:#f1dab0;border:0;margin:0 0 4px;padding:0;font-size:13px;line-height:1.6}
+#rpContent .latest-battle p{font-size:12px;margin:4px 0;color:#c8d8cf}
+#rpContent .latest-battle small{display:block}.latest-battle.captured{border-left-color:#9fc8a8}
+#rpContent .latest-battle .rp-btn{min-height:31px;margin:7px 0 0;text-align:center;font-size:11px;background:#294b48;border-color:#607d70}
+#rpContent .auto-offensive-status{padding:0;margin:12px 0 4px;background:#192e3e;border-color:#3d5566}
+.auto-offensive-status>summary{font-size:11px;padding:9px 10px;color:#aebfc4;cursor:pointer}
+.auto-offensive-status>label,.auto-offensive-status>p{margin:8px 10px;font-size:11px;line-height:1.6}.auto-offensive-toggle span{flex:1}
+#mapSvg .combat-stage-label{fill:#f3dfb7;text-anchor:middle;font:600 10px var(--font);paint-order:stroke fill;stroke:#142d3b;stroke-width:2.5px}
+#mapSvg .combat-result-label{fill:#c1ddbd;stroke:#132e36;stroke-width:3px;paint-order:stroke fill;font:600 10px var(--font);text-anchor:middle}
+@media(max-width:760px){#commandNav .nav-controls #btnPause{font-size:11px;padding:6px 8px;min-width:68px}.combat-personnel{font-size:17px!important}#rpContent .combat-stages{gap:3px}.combat-stages li{font-size:10px}}
+
+#rpContent .ongoing-battle-card{padding:10px;margin:0 0 9px}
+#rpContent .ongoing-battle-card h3{font-size:15px;margin-bottom:9px;padding-bottom:8px}
+#rpContent .combat-selector{min-height:34px;margin-bottom:7px}
+#rpContent .combat-stages{margin:8px 0;gap:4px}.combat-stages li{padding-top:5px;gap:3px}.combat-stages li>span{width:20px;height:20px}
+#rpContent .combat-phase{font-size:12px;margin:6px 0;line-height:1.45}
+#rpContent .combat-pause-note{font-size:11px;margin:5px 0;padding:6px;line-height:1.5}
+#rpContent .combat-breakthrough{font-size:11px;line-height:1.5;margin:4px 0}
+#rpContent .combat-sides{margin:8px 0;gap:6px}.combat-side{padding:7px!important;line-height:1.55!important}
+#rpContent .combat-side h4{font-size:12px;margin:0 0 3px;padding:0}
+#rpContent .combat-tactics-label{margin:7px 0;gap:3px}.combat-tactics{min-height:34px}
+#rpContent .combat-actions{margin-top:7px;padding:8px 0}

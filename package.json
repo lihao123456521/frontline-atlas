@@ -1,4 +1,9 @@
 {
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "build": "node scripts/build-site.cjs",
+    "deploy": "node scripts/deploy-site.cjs"
+  },
   "dependencies": {
     "d3-geo": "^3.1.1",
     "topojson-client": "^3.1.0",
