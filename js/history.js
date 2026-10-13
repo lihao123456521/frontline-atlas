@@ -27,7 +27,8 @@ const History = (() => {
     ['ltu','立陶宛','ltu_kaunas',23.9,54.9,'neu','#a9ab83'],
   ];
   const coastal = new Set(['nld','swe','yug','grc','tur','esp','prt','bel','nor','fin','dnk','irl','rom','bul','alb','est','lva','ltu']);
-  const names = {neu_poland:'华沙',neu_lowlands:'阿姆斯特丹',neu_scandinavia:'斯德哥尔摩',neu_balkans:'贝尔格莱德',neu_greece:'雅典',neu_turkey:'安卡拉',neu_spain:'马德里',neu_portugal:'里斯本',uk_ireland:'都柏林'};
+  const names = {neu_poland:'华沙',neu_lowlands:'阿姆斯特丹',neu_scandinavia:'斯德哥尔摩',neu_balkans:'贝尔格莱德',neu_greece:'雅典',neu_turkey:'安卡拉',neu_spain:'马德里',neu_portugal:'里斯本',uk_ireland:'都柏林',
+    bel_brussels:'布鲁塞尔',lux_city:'卢森堡',nor_oslo:'奥斯陆',fin_helsinki:'赫尔辛基',dnk_copenhagen:'哥本哈根',aut_vienna:'维也纳',che_bern:'伯尔尼',cze_prague:'布拉格',hun_budapest:'布达佩斯',rom_bucharest:'布加勒斯特',bul_sofia:'索非亚',alb_tirana:'地拉那',est_tallinn:'塔林',lva_riga:'里加',ltu_kaunas:'考纳斯'};
   MINOR_COUNTRIES.splice(0,MINOR_COUNTRIES.length,...minors.map(([id,name,capital,lon,lat,ideo,color])=>({id,name,capital,color,ideo,startCiv:id==='pol'?6:4,startMil:id==='pol'?4:2,startRes:24,startPP:14,stability:65,warSupport:30})));
   PLAYABLE_COUNTRIES.splice(0,PLAYABLE_COUNTRIES.length,...EUROPEAN_COUNTRIES,...minors.map(m=>m[0]));
   for(const [id,name,capital,lon,lat] of minors){
@@ -131,7 +132,8 @@ const History = (() => {
     const data=typeof WORLD_HISTORICAL_MAP!=='undefined'?WORLD_HISTORICAL_MAP:typeof HISTORICAL_MAP!=='undefined'?HISTORICAL_MAP:null;
     if(!data?.shapes?.length)return null;
     const identity=p=>p.shapeOwner||p.originalOwner||p.owner;
-    const signature=provinces.map(p=>`${p.id}:${p.x}:${p.y}:${identity(p)}`).join('|');
+    const historical=typeof HistoricalRegions!=='undefined'?HistoricalRegions:null;
+    const signature=(historical?.version||0)+'|'+provinces.map(p=>`${p.id}:${p.x}:${p.y}:${identity(p)}`).join('|');
     const copy=g=>({adj:g.adj.map(row=>row.slice()),distances:g.distances.map(row=>({...row}))});
     if(landGraphCache?.signature===signature)return copy(landGraphCache);
     const adj=provinces.map(()=>[]),distances=provinces.map(()=>({}));
@@ -145,6 +147,7 @@ const History = (() => {
       return 12742*Math.asin(Math.min(1,Math.sqrt(Math.sin(lat/2)**2+Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(lon/2)**2)));};
     const add=(i,j,point)=>{
       if(i===j||!allowsProvinceLink(provinces[i],provinces[j]))return;
+      if(historical?.anchorBoundaryContains&&[provinces[i],provinces[j]].some(p=>historical.ringsFor(p)&&!historical.anchorBoundaryContains(p,...point)))return;
       const waypoint={lon:point[0]/1000*360-180,lat:90-point[1]/500*180};
       const cost=Math.max(km(provinces[i],provinces[j]),km(provinces[i],waypoint)+km(waypoint,provinces[j]));
       if(!adj[i].includes(j)){adj[i].push(j);adj[j].push(i);}
@@ -157,6 +160,7 @@ const History = (() => {
       const bounds=[Math.min(...xs)-.01,Math.min(...ys)-.01,Math.max(...xs)+.01,Math.max(...ys)+.01];
       for(let a=0;a<own.length;a++)for(const b of own.slice(a+1)){
         const from=own[a];if(!allowsProvinceLink(from.p,b.p))continue;
+        if(historical?.ringsFor(from.p)&&historical.ringsFor(b.p))continue;
         const dx=b.p.x-from.p.x,dy=b.p.y-from.p.y,length=Math.hypot(dx,dy);if(length<1e-8)continue;
         const middle=[(from.p.x+b.p.x)/2,(from.p.y+b.p.y)/2],direction=[-dy/length,dx/length];
         let lo=-Infinity,hi=Infinity;
@@ -180,6 +184,12 @@ const History = (() => {
         }
       }
     }
+    if(historical){
+      const indexes=new Map(provinces.map((p,i)=>[p.id,i]));
+      for(const edge of historical.adjacency){
+        const i=indexes.get(edge.a),j=indexes.get(edge.b);if(i!==undefined&&j!==undefined)add(i,j,edge.point);
+      }
+    }
     const parts=data.componentAdjacency||data.adjacency.flatMap(([a,b])=>{
       const left=shapes.get(a),right=shapes.get(b);return left&&right?left.rings.flatMap((_,i)=>right.rings.map((_,j)=>[a,i,b,j])):[];
     });
@@ -198,8 +208,12 @@ const History = (() => {
       const grid=new Map();for(const segment of segments(id,part))for(const bucket of buckets(segment)){if(!grid.has(bucket))grid.set(bucket,[]);grid.get(bucket).push(segment);}segmentGrids.set(key,grid);
     }const grid=segmentGrids.get(key),result=new Set();for(const bucket of buckets(s))for(const segment of grid.get(bucket)||[])result.add(segment);return result;
     };
-    const nearest=(own,point)=>own.reduce((best,q)=>{const distance=(q.p.x-point[0])**2+(q.p.y-point[1])**2;return !best||distance<best.distance?{...q,distance}:best;},null);
-    const splits=(own,a,b)=>{const cuts=[];for(let i=0;i<own.length;i++)for(const q of own.slice(i+1)){
+    const nearest=(own,point)=>{
+      const actual=historical?.ownerAt(point[0],point[1],own),found=actual&&own.find(q=>q.p.id===actual);if(found)return found;
+      return own.reduce((best,q)=>{const distance=(q.p.x-point[0])**2+(q.p.y-point[1])**2;return !best||distance<best.distance?{...q,distance}:best;},null);
+    };
+    const splits=(own,a,b)=>{if(historical&&own.some(q=>historical.ringsFor(q.p)))return historical.boundaryCuts(own,a,b);
+      const cuts=[];for(let i=0;i<own.length;i++)for(const q of own.slice(i+1)){
       const p=own[i].p,dx=q.p.x-p.x,dy=q.p.y-p.y,den=2*(dx*(b[0]-a[0])+dy*(b[1]-a[1]));if(Math.abs(den)<1e-8)continue;
       const t=(q.p.x*q.p.x+q.p.y*q.p.y-p.x*p.x-p.y*p.y-2*(dx*a[0]+dy*a[1]))/den;if(t>1e-6&&t<1-1e-6)cuts.push(t);
     }return cuts;};
@@ -222,6 +236,66 @@ const History = (() => {
       }
     }
     adj.forEach(row=>row.sort((a,b)=>a-b));landGraphCache={signature,adj,distances};return copy(landGraphCache);
+  }
+  // Administrative geometry is also the playable province model. Appending keeps
+  // all old province indexes valid for selections, queues and battles in saves.
+  function expandProvinces(s){
+    const historical=typeof HistoricalRegions!=='undefined'?HistoricalRegions:null;
+    if(!historical?.nodes?.length)return false;
+    const groups=new Map(),byId=new Map(s.provinces.map(p=>[p.id,p]));
+    for(const node of historical.nodes){
+      const key=node.strategicProvinceId;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(node);
+    }
+    const added=[];
+    for(const [sourceId,nodes]of groups){
+      const source=byId.get(sourceId);if(!source)continue;
+      const original={...source},unexpanded=!source.administrativeRegionId;
+      const area=node=>node.areaKm2||node.area||1,totalArea=nodes.reduce((n,node)=>n+area(node),0);
+      for(const node of nodes){
+        let p=byId.get(node.id);
+        if(!p){
+          p={id:node.id,name:node.name,lon:node.lon,lat:node.lat,x:node.x,y:node.y,
+            owner:original.owner,originalOwner:original.originalOwner,shapeOwner:node.shapeOwner,
+            terrain:node.terrain||'plain',resource:0,oil:0,rare:0,isCapital:false,coastal:!!node.coastal,
+            fort:0,infra:original.infra||0,garrison:[],poly:''};
+          s.provinces.push(p);byId.set(p.id,p);added.push({id:p.id,sourceId});
+        }
+        const definition=PROVINCES_DEF.find(d=>d.id===p.id);
+        const region=historical.regions.find(r=>r.id===node.regionId),sourceName=region?.name+(node.id.includes('_part_')?' · 分区 '+node.id.split('_part_')[1]:'');
+        if(!p.name||p.name===node.name||p.name===definition?.name||p.name===node.cityName||p.name===sourceName)p.name=node.name;
+        p.lon=node.lon;p.lat=node.lat;p.x=node.x;p.y=node.y;p.shapeOwner=node.shapeOwner;
+        p.administrativeRegionId=node.regionId;p.administrativeYear=node.year;p.strategicProvinceId=sourceId;
+        p.cityName=node.cityName||p.cityName||(p.id===sourceId?original.name:undefined);
+        p.anchorKind=node.cityName||p.id===sourceId?'city':'administrative-point';
+        if(node.coastal!==undefined)p.coastal=!!node.coastal;
+        if(node.terrain)p.terrain=node.terrain;
+        p.terrainBasis=node.terrainBasis||'strategic-approximation';
+        if(unexpanded){
+          const share=area(node)/totalArea;p.administrativeWeight=(original.administrativeWeight??1)*share;
+          for(const key of ['resource','oil','rare'])p[key]=(original[key]||0)*share;
+        }else if(!Number.isFinite(p.administrativeWeight))p.administrativeWeight=0;
+      }
+    }
+    if(added.length){
+      if(s.campaign?.initialProvinceIds){const start=new Set(s.campaign.initialProvinceIds);
+        for(const node of added)if(start.has(node.sourceId)&&!start.has(node.id)){s.campaign.initialProvinceIds.push(node.id);start.add(node.id);}
+      }
+      s.administrativeMigration={version:1,added:added.map(node=>({...node})),preservedProvinceIndexes:true,
+        unitPolicy:'preserve-id-hp-at-original-city',controlPolicy:'copy-strategic-source-controller'};
+    }
+    s.administrativeRegionsVersion=historical.version;return added.length>0;
+  }
+  function administrativeSeaLinks(provinces){
+    const historical=typeof HistoricalRegions!=='undefined'?HistoricalRegions:null;
+    if(!historical?.nodes?.length)return [];
+    const addedIds=new Set(historical.nodes.filter(n=>n.id!==n.strategicProvinceId).map(n=>n.id));
+    const ports=provinces.filter(p=>p.coastal),pairs=new Map();
+    const distance=(a,b)=>{let dx=Math.abs(a.lon-b.lon);dx=Math.min(dx,360-dx);return Math.hypot(dx*Math.cos((a.lat+b.lat)*Math.PI/360),a.lat-b.lat);};
+    for(const p of ports.filter(p=>addedIds.has(p.id))){
+      for(const q of ports.filter(q=>q.id!==p.id&&q.shapeOwner===p.shapeOwner).sort((a,b)=>distance(p,a)-distance(p,b)).slice(0,2))pairs.set([p.id,q.id].sort().join('|'),[p.id,q.id]);
+      for(const q of ports.filter(q=>q.shapeOwner!==p.shapeOwner).sort((a,b)=>distance(p,a)-distance(p,b)).slice(0,2))pairs.set([p.id,q.id].sort().join('|'),[p.id,q.id]);
+    }
+    return [...pairs.values()];
   }
   function apply(s,make){
     s.historyVersion=1;
@@ -252,5 +326,5 @@ const History = (() => {
     // 和平民主国家不会无缘无故吞并邻国；侵略性政权在紧张局势中自由推演。
     return c&&['fas','com'].includes(c.ideo)&&s.date.year>=1939&&s.wt>=25;
   }
-  return {apply,allowsBorder,allowsProvinceLink,buildLandGraph,canAiDeclare,borders};
+  return {apply,allowsBorder,allowsProvinceLink,buildLandGraph,expandProvinces,administrativeSeaLinks,canAiDeclare,borders};
 })();

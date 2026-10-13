@@ -5,20 +5,23 @@ const fs=require('node:fs');
 const path=require('node:path');
 function setup(player='ger',scenario='sandbox36'){
   const ctx=vm.createContext({window:{},console,localStorage:{getItem:()=>null,setItem:()=>{}},Math:Object.create(Math)});ctx.Math.random=()=>.99;
-  for(const f of ['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','history.js','world.js','campaign.js','order_of_battle.js','game.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',f),'utf8'),ctx);
+  for(const f of ['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','data_historical_regions.js','historical_regions.js','history.js','world.js','campaign.js','order_of_battle.js','game.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',f),'utf8'),ctx);
   const Game=vm.runInContext('Game',ctx);Game.init(player,'fas',null,'standard',scenario);return {Game,ctx};
 }
 test('real world land routes cannot skip another city region or a neutral country',()=>{
   const {Game}=setup();const i=id=>Game.provinceById(id);
-  for(const [a,b]of [['ger_hamburg','bel_brussels'],['ger_rhine','fra_paris'],['fra_marseille','ita_rome'],['sov_siberia','chn_xian'],['cze_prague','rom_bucharest']]){
+  for(const [a,b]of [['ger_hamburg','bel_brussels'],['ger_rhine','fra_paris'],['fra_alsace','ita_milan'],['fra_marseille','ita_rome'],['sov_siberia','chn_xian'],['cze_prague','rom_bucharest']]){
     assert.equal(Game.neighbors(i(a)).includes(i(b)),false,a+' must not directly reach '+b);
   }
-  assert.equal(Game.neighbors(i('ger_rhine')).includes(i('fra_alsace')),true,'real German/French border remains playable');
+  assert.ok(Game.state.provinces.some((p,from)=>p.owner==='ger'&&Game.neighbors(from).some(to=>Game.province(to).owner==='fra')),'real German/French border remains playable');
+  assert.ok(Game.landRoute(i('ger_rhine'),i('fra_alsace'),'ger'),'German territory connects to the actual French border without crossing neutrals');
 });
 test('a real France-Italy shared boundary allows a route inside each country, with its detour distance',()=>{
-  const {Game}=setup(),from=Game.provinceById('fra_alsace'),to=Game.provinceById('ita_milan');
-  assert.ok(Game.neighbors(from).includes(to),'Alsace strategic cell extends to the Savoy border');
-  assert.ok(Game.state.landRouteKm[from][to]>450,'route goes through actual border instead of the 364 km line across Switzerland');
+  const {Game}=setup(),from=Game.provinceById('fra_marseille'),to=Game.provinceById('ita_milan');
+  assert.ok(!Game.neighbors(from).includes(to),'Marseille is separated from Italy by other French departments');
+  const route=Game.landRoute(from,to,'fra');assert.ok(route&&route.path.length>2,'legal expedition traverses actual French departments');
+  assert.ok(Number.isFinite(route.routeKm)&&route.routeKm>0,'route includes actual border waypoints');
+  assert.ok(route.path.slice(0,-1).every(i=>Game.province(i).owner==='fra'));
 });
 test('army orders reject a distant target before declaring war or detaching soldiers',()=>{
   const {Game}=setup();const from=Game.provinceById('ger_rhine'),to=Game.provinceById('fra_paris');
@@ -37,7 +40,8 @@ test('occupation changes control without granting a shortcut over an intervening
   const {Game}=setup('ger','barbarossa41'),i=id=>Game.provinceById(id);
   assert.equal(Game.province(i('fra_paris')).owner,'ger');
   assert.equal(Game.moveUnits(i('ger_rhine'),i('fra_paris'),1),false);
-  assert.equal(Game.neighbors(i('fra_paris')).includes(i('fra_normandy')),true,'occupied adjacent French regions can still share a land route');
+  assert.equal(Game.neighbors(i('fra_paris')).includes(i('fra_normandy')),false,'Paris and Normandy are separate nonadjacent departments');
+  assert.ok(Game.landRoute(i('fra_paris'),i('fra_normandy'),'ger'),'occupied French territory retains a legal multi-department route');
 });
 test('land graph remains symmetric and every playable country has an external land or port connection',()=>{
   const {Game,ctx}=setup();
@@ -82,8 +86,8 @@ test('legacy recruitment baseline includes soldiers already committed to a battl
   delete saved.orderOfBattle;delete saved.countries.ger.initialLandDivisions;
   assert.equal(Game.load(JSON.stringify(saved)),true);assert.equal(Game.country('ger').initialLandDivisions,land);
 });
-test('reinforcements use the same real shared border and cannot arrive from a distant capital',()=>{
-  const {Game}=setup('ger','poland39'),from=Game.provinceById('ger_rhine'),to=Game.provinceById('fra_alsace'),far=Game.provinceById('ger_berlin');
+test('reinforcements use legal land routes and cannot cross hostile Poland from disconnected East Prussia',()=>{
+  const {Game}=setup('ger','poland39'),from=Game.provinceById('ger_rhine'),to=Game.provinceById('fra_alsace'),far=Game.provinceById('ger_prussia');
   assert.equal(Game.doAssault('ger',from,to,0,1),true);const c=Game.state.activeCombats[0],units=Game.province(far).garrison.slice();
   assert.ok(!Game.combatReinforcements(c.id).some(o=>o.from===far));
   assert.equal(Game.reinforceCombat(c.id,far,1),false);assert.deepEqual(Game.province(far).garrison,units);
@@ -109,4 +113,11 @@ test('mixed aircraft rebasing moves only wings whose individual range reaches th
   const fighter=unit('air','test-short'),bomber=unit('strategicBomber','test-long');Game.province(from).garrison=[fighter,bomber];
   assert.equal(Game.moveUnits(from,to,2,'air'),true);assert.ok(Game.province(from).garrison.includes(fighter));
   assert.ok(!Game.province(to).garrison.includes(fighter));assert.ok(Game.province(to).garrison.includes(bomber));
+});
+test('legacy generic capital names update to real cities without changing control, IDs or HP',()=>{
+  const {Game}=setup(),idx=Game.provinceById('bel_brussels'),custom=Game.provinceById('ger_berlin'),saved=JSON.parse(Game.save());
+  const original=saved.provinces[idx],owner=original.owner,units=original.garrison.map(d=>({id:d.id,hp:d.hp,owner:d.owner}));
+  original.name='比利时首都';saved.provinces[custom].name='自定首都';
+  assert.equal(Game.load(JSON.stringify(saved)),true);assert.equal(Game.province(idx).name,'布鲁塞尔');assert.equal(Game.province(idx).owner,owner);
+  assert.deepEqual(Array.from(Game.province(idx).garrison,d=>({id:d.id,hp:d.hp,owner:d.owner})),units);assert.equal(Game.province(custom).name,'自定首都');
 });

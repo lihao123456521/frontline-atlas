@@ -70,7 +70,8 @@ const MapView = (() => {
     occupiedRects.push(r); return true;
   }
   function importantProvince(p,i){
-    return i===Game.state.selectedIdx || i===hoverIdx || battleEffects.some(b=>b.from===i || b.to===i);
+    return i===Game.state.selectedIdx || i===hoverIdx || battleEffects.some(b=>b.from===i || b.to===i)
+      || (Game.state.activeCombats||[]).some(b=>b.from===i || b.to===i);
   }
   function installWorldWrap(){
     if(!worldMode) return;
@@ -452,10 +453,11 @@ const MapView = (() => {
     return outline;
   }
   function polygonPath(poly){return poly?.length>=3 ? "M"+poly.map(p=>`${p[0]},${p[1]}`).join("L")+"Z" : "";}
-  let cellCache = null, cellSignature="", cellPolygons=[], cellHitPolygons=[];
+  let cellCache = null, cellSignature="", cellPolygons=[], cellHitPolygons=[], cellRegions=[];
   function controlCells(){
     const ps = historicalMap ? Game.state.provinces.map(displayProvince) : Game.state.provinces;
-    const signature=ps.map(p=>`${p.id}:${p.x}:${p.y}:${geometryCountry(p)}`).join("|");
+    const regionVersion=typeof HistoricalRegions!=="undefined"?HistoricalRegions.version:"";
+    const signature=regionVersion+":"+ps.map(p=>`${p.id}:${p.x}:${p.y}:${geometryCountry(p)}`).join("|");
     if(cellCache && signature===cellSignature) return cellCache;
     cellSignature=signature;
     if(historicalMap){
@@ -463,6 +465,9 @@ const MapView = (() => {
         const cid=geometryCountry(p), shape=historicalShapes.get(cid);
         if(!shape) return null;
         ensureClip(cid);
+        // Real administrative provinces already have their exact geometry. Do
+        // not split them again into city Voronoi cells or curved approximations.
+        if(typeof HistoricalRegions!=="undefined"&&HistoricalRegions.regionsFor(p.id).length)return null;
         const [minX,minY,maxX,maxY]=shape.bounds;
         const loX=minX-1, hiX=maxX+1, loY=minY-1, hiY=maxY+1;
         let poly=[[loX,loY],[hiX,loY],[hiX,hiY],[loX,hiY]];
@@ -481,7 +486,10 @@ const MapView = (() => {
       });
       for(const [cid,polys]of polysByCountry)curvesByCountry.set(cid,sharedCellCurves(polys,sitesByCountry.get(cid)));
       cellHitPolygons=cellPolygons.map((poly,i)=>poly?.length>=3?smoothCell(poly,sitesByCountry.get(geometryCountry(ps[i])),curvesByCountry.get(geometryCountry(ps[i]))):null);
-      cellCache=cellHitPolygons.map(polygonPath);
+      cellRegions=ps.map(p=>typeof HistoricalRegions!=="undefined" && HistoricalRegions.regionsFor(p.id).length
+        ?HistoricalRegions.regionsFor(p.id):null);
+      cellCache=cellHitPolygons.map((poly,i)=>cellRegions[i]
+        ?cellRegions[i].flatMap(region=>region.rings.map(polygonPath)).join(" "):polygonPath(poly));
       return cellCache;
     }
     // 先确保所有省份所属国家的裁剪就绪（有真实国界的省才用大半径）
@@ -504,6 +512,26 @@ const MapView = (() => {
       return polyToPath(poly);
     });
     return cellCache;
+  }
+  function provinceCellNode(idx,className){
+    const regions=cellRegions[idx],node=document.createElementNS(NS,regions?"g":"path");
+    node.setAttribute("class",className);
+    node.setAttribute("data-province",Game.state.provinces[idx].id);
+    if(regions){
+      // Separate regions are ORed by painting; evenodd applies only inside each
+      // administrative polygon, keeping holes without cancelling overlaps.
+      for(const region of regions){
+        const path=document.createElementNS(NS,"path");
+        path.setAttribute("d",region.rings.map(polygonPath).join(" "));
+        path.setAttribute("fill-rule","evenodd");
+        path.setAttribute("data-region",region.id);
+        path.setAttribute("vector-effect","non-scaling-stroke");node.appendChild(path);
+      }
+    }else{
+      node.setAttribute("d",cellCache[idx]);
+      node.setAttribute("vector-effect","non-scaling-stroke");
+    }
+    return node;
   }
   const clipReady = {};
   function clipIdFor(cid){ return "clipT-" + cid; }
@@ -564,11 +592,9 @@ const MapView = (() => {
       }
       const cid = historicalMap ? geometryCountry(p) : p.originalOwner;
       ensureClip(cid);
-      const path = document.createElementNS(NS,"path");
-      path.setAttribute("d", cells[i]);
+      const path = provinceCellNode(i,historicalMap?"historical-control":"");
       path.setAttribute("fill", fill);
       path.setAttribute("opacity", op);
-      if(historicalMap) path.setAttribute("class","historical-control");
       if (clipReady[cid]) path.setAttribute("clip-path", `url(#${clipIdFor(cid)})`);
       path.setAttribute("pointer-events","none");
       L.territory.appendChild(path);
@@ -576,10 +602,40 @@ const MapView = (() => {
   }
 
   // ---------- 国界 (Voronoi 多边形已经画了, 这里画战时前线高亮) ----------
+  const administrativeBorderGroups=[];
+  function updateAdministrativeBorders(){
+    if(!administrativeBorderGroups.length)return;
+    const k=visibleAnchor().k;
+    for(const group of administrativeBorderGroups){
+      group.setAttribute("opacity",k<6?0:k<10?.12:.19);
+      group.setAttribute("stroke-width",String(.6/scale));
+    }
+  }
   function renderBorders(){
-    if(historicalMap && historicalBordersReady) return;
+    if(historicalMap && historicalBordersReady){updateAdministrativeBorders();return;}
     L.borders.innerHTML = "";
     if(!historicalMap) return;
+    if(typeof HistoricalRegions!=="undefined"){
+      const byCountry=new globalThis.Map();
+      for(const region of HistoricalRegions.regions){
+        if(!historicalShapes.has(region.shapeOwner))continue;
+        if(!byCountry.has(region.shapeOwner))byCountry.set(region.shapeOwner,[]);
+        byCountry.get(region.shapeOwner).push(region);
+      }
+      for(const [cid,regions]of byCountry){
+        ensureClip(cid);
+        const group=document.createElementNS(NS,"g");
+        group.setAttribute("class","historical-administrative-borders");group.setAttribute("data-country",cid);
+        group.setAttribute("clip-path",`url(#${clipIdFor(cid)})`);group.setAttribute("pointer-events","none");
+        group.setAttribute("fill","none");group.setAttribute("stroke","#b9ccc2");
+        group.setAttribute("stroke-linejoin","round");group.setAttribute("stroke-linecap","round");
+        for(const region of regions){
+          const path=document.createElementNS(NS,"path");path.setAttribute("d",region.rings.map(polygonPath).join(" "));
+          path.setAttribute("vector-effect","non-scaling-stroke");path.setAttribute("data-region",region.id);group.appendChild(path);
+        }
+        administrativeBorderGroups.push(group);L.borders.appendChild(group);
+      }
+    }
     historicalMap.shapes.forEach(shape=>{
       const path=document.createElementNS(NS,"path");
       path.setAttribute("d",shape.d); path.setAttribute("class","historical-border");
@@ -587,6 +643,7 @@ const MapView = (() => {
       L.borders.appendChild(path);
     });
     historicalBordersReady=true;
+    updateAdministrativeBorders();
   }
 
   // ---------- 海路 ----------
@@ -599,14 +656,15 @@ const MapView = (() => {
   function renderProvinces(){
     L.labels.innerHTML=""; provHits=[];
     const state=Game.state, k=visibleAnchor().k;
-    const ranked=state.provinces.map((raw,i)=>{const p=displayProvince(raw);return {p,i,priority:importantProvince(p,i)?100:p.isCapital&&p.owner===state.player?80:p.isCapital?60:10};}).sort((a,b)=>b.priority-a.priority);
+      const ranked=state.provinces.map((raw,i)=>{const p=displayProvince(raw);return {p,i,priority:importantProvince(p,i)?100:p.isCapital&&p.owner===state.player?80:p.isCapital?60:p.garrison.length?30:10};}).sort((a,b)=>b.priority-a.priority);
     // Labels use screen-pixel sizes and share collision space with the already placed unit counters.
     for(const {p,i,priority} of ranked){
       provHits.push({idx:i,x:p.x,y:p.y});
       const important=importantProvince(p,i);
       if(!important && (k<2.8 || (!p.isCapital && k<6))) continue;
-      const pt=screenPoint(p.x,p.y), font=important?13:p.isCapital?12:11;
-      const width=Math.max(font*2,[...p.name].reduce((n,ch)=>n+(ch.charCodeAt(0)>255?font:font*.58),0));
+      if(!important&&!p.isCapital&&p.administrativeRegionId&&!p.cityName)continue;
+      const pt=screenPoint(p.x,p.y), font=important?13:p.isCapital?12:11,label=p.cityName||p.name;
+      const width=Math.max(font*2,[...label].reduce((n,ch)=>n+(ch.charCodeAt(0)>255?font:font*.58),0));
       const dot=document.createElementNS(NS,"circle");
       dot.setAttribute("cx",pt.vx);dot.setAttribute("cy",p.y);dot.setAttribute("r",(important?3:p.isCapital?2.5:1.8)/k);
       dot.setAttribute("class","density-city-dot"+(important?" selected":""));
@@ -616,7 +674,7 @@ const MapView = (() => {
         const t=document.createElementNS(NS,"text");
         t.setAttribute("x",pt.vx);t.setAttribute("y",p.y+(dy+font*.34)/k);
         t.setAttribute("class","density-city-label"+(p.isCapital?" capital":""));
-        t.setAttribute("font-size",font/k);t.textContent=p.name;
+        t.setAttribute("font-size",font/k);t.textContent=label;
         L.labels.appendChild(t);break;
       }
     }
@@ -644,27 +702,28 @@ const MapView = (() => {
   function renderFronts(){
     const state=Game.state, active=state?.activeCombats || [];
     if(historicalMap && active.length) controlCells();
-    const signature=cellSignature+":"+active.map(c=>`${c.id}:${c.from}:${c.to}:${c.attacker}:${c.defender}:${c.phase}:${c.progress}:${state.provinces[c.to]?.owner}:${countryColor(c.attacker)}`).join("|");
+    const signature=cellSignature+":"+active.map(c=>`${c.id}:${c.from}:${c.to}:${(c.routePath||[]).join(",")}:${c.attacker}:${c.defender}:${c.phase}:${c.progress}:${state.provinces[c.to]?.owner}:${countryColor(c.attacker)}`).join("|");
     if(signature===frontSignature) return;
     frontSignature=signature;
     L.fronts.innerHTML="";
     if(!historicalMap || !active.length) return;
     for(const combat of active){
-      const target=state.provinces[combat.to],source=state.provinces[combat.from];
+      const route=Array.isArray(combat.routePath)&&combat.routePath.length>=2&&combat.routePath[0]===combat.from&&
+        combat.routePath.at(-1)===combat.to&&combat.routePath.every(i=>state.provinces[i])?combat.routePath:[combat.from,combat.to];
+      const target=state.provinces[combat.to],source=state.provinces[route.at(-2)];
       if(!target || !source || target.owner!==combat.defender || target.owner===combat.attacker ||
         combat.phase!=="engagement" || !Number.isFinite(combat.progress) || combat.progress<=0 || combat.progress>=100) continue;
-      const cell=cellHitPolygons[combat.to];
-      if(!cell?.length) continue;
+      const cell=cellHitPolygons[combat.to],regions=cellRegions[combat.to]||(cell?.length?[{rings:[cell]}]:[]);
+      const points=regions.flatMap(region=>region.rings.flat());
+      if(!points.length) continue;
       const from=displayCenter(source),to=displayCenter(target);
       let dx=to.x-from.x,dy=to.y-from.y;
       if(worldMode && Math.abs(dx)>W/2) dx-=Math.sign(dx)*W;
       const length=Math.hypot(dx,dy);
       if(length<1e-6) continue;
-      const ux=dx/length,uy=dy/length,positions=cell.map(p=>ux*p[0]+uy*p[1]);
+      const ux=dx/length,uy=dy/length,positions=points.map(p=>ux*p[0]+uy*p[1]);
       const low=Math.min(...positions),high=Math.max(...positions);
       const cut=low+(high-low)*clamp(combat.progress/100,0,1);
-      const covered=clipHalfPlane(cell,ux,uy,cut);
-      if(covered.length<3) continue;
       const cid=geometryCountry(target);
       ensureClip(cid);
       const group=document.createElementNS(NS,"g");
@@ -672,22 +731,36 @@ const MapView = (() => {
       group.setAttribute("data-combat-id",combat.id);
       group.setAttribute("data-target",combat.to);
       if(clipReady[cid]) group.setAttribute("clip-path",`url(#${clipIdFor(cid)})`);
-      const fill=document.createElementNS(NS,"path");
-      fill.setAttribute("d",polygonPath(covered));
-      fill.setAttribute("fill",countryColor(combat.attacker));
-      fill.setAttribute("class","combat-front-fill");
-      group.appendChild(fill);
-      const crossings=[];
-      for(let i=0;i<cell.length;i++){
-        const a=cell[i],b=cell[(i+1)%cell.length],va=positions[i]-cut,vb=positions[(i+1)%cell.length]-cut;
-        if((va<0&&vb>=0)||(vb<0&&va>=0)){
-          const t=va/(va-vb);
-          crossings.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]);
+      const intervals=[];
+      for(const region of regions){
+        const covered=region.rings.map(ring=>clipHalfPlane(ring,ux,uy,cut)).filter(ring=>ring.length>=3);
+        if(covered.length){
+          const fill=document.createElementNS(NS,"path");
+          fill.setAttribute("d",covered.map(polygonPath).join(" "));fill.setAttribute("fill-rule","evenodd");
+          fill.setAttribute("fill",countryColor(combat.attacker));fill.setAttribute("class","combat-front-fill");
+          if(region.id)fill.setAttribute("data-region",region.id);group.appendChild(fill);
         }
+        const crossings=[];
+        for(const ring of region.rings)for(let i=0;i<ring.length;i++){
+          const a=ring[i],b=ring[(i+1)%ring.length],va=ux*a[0]+uy*a[1]-cut,vb=ux*b[0]+uy*b[1]-cut;
+          if((va<0&&vb>=0)||(vb<0&&va>=0)){
+            const t=va/(va-vb),p=[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+            crossings.push({p,n:-uy*p[0]+ux*p[1]});
+          }
+        }
+        crossings.sort((a,b)=>a.n-b.n);
+        for(let i=0;i+1<crossings.length;i+=2)intervals.push({a:crossings[i],b:crossings[i+1]});
       }
-      if(crossings.length>=2){
+      intervals.sort((a,b)=>a.a.n-b.a.n);
+      const merged=[];
+      for(const interval of intervals){
+        const last=merged.at(-1);
+        if(last&&interval.a.n<=last.b.n+1e-5){if(interval.b.n>last.b.n)last.b=interval.b;}
+        else merged.push({...interval});
+      }
+      if(merged.length){
         const line=document.createElementNS(NS,"path");
-        line.setAttribute("d",`M${crossings[0][0]},${crossings[0][1]}L${crossings[1][0]},${crossings[1][1]}`);
+        line.setAttribute("d",merged.map(segment=>`M${segment.a.p[0]},${segment.a.p[1]}L${segment.b.p[0]},${segment.b.p[1]}`).join(" "));
         line.setAttribute("class","combat-front-line");
         group.appendChild(line);
       }
@@ -882,8 +955,7 @@ const MapView = (() => {
       const cells=controlCells();
       [curSel,hoverIdx].forEach((idx,k)=>{
         if(idx<0 || !cells[idx] || (k===1 && idx===curSel)) return;
-        const path=document.createElementNS(NS,"path"), p=Game.state.provinces[idx];
-        path.setAttribute("d",cells[idx]); path.setAttribute("class",k?"historical-cell-hover":"historical-cell-selected");
+        const path=provinceCellNode(idx,k?"historical-cell-hover":"historical-cell-selected"), p=Game.state.provinces[idx];
         path.setAttribute("clip-path",`url(#${clipIdFor(geometryCountry(p))})`);
         path.setAttribute("vector-effect","non-scaling-stroke"); L.hilight.appendChild(path);
       });
@@ -949,7 +1021,7 @@ const MapView = (() => {
     }else if(attackableFrom>=0){
       const s=Game.state,from=s.provinces[attackableFrom];
       if(from?.owner===s.player && from.garrison.length){
-        const targets=Game.neighbors(attackableFrom).filter(i=>{
+        const targets=(Game.landTargets?Game.landTargets(attackableFrom):Game.neighbors(attackableFrom)).filter(i=>{
           const p=s.provinces[i];return p && p.owner!==s.player && (!p.owner || !Game.isAllied(s.player,p.owner));
         });
         if(targets.length) orderMarker(L.planHL,attackableFrom,"origin","出发");
@@ -1015,10 +1087,11 @@ const MapView = (() => {
     if(worldMode) sx=((sx%W)+W)%W;
     if(historicalMap && Game.state){
       controlCells();
-      // The hit region uses exactly the same country geometry and Voronoi cell as its fill.
+      // True administrative polygons and fallback cells use their painted shape.
       for(let i=0;i<Game.state.provinces.length;i++){
-        const poly=cellHitPolygons[i], shape=historicalShapes.get(geometryCountry(Game.state.provinces[i]));
-        if(poly && shape && pointInRing(sx,sy,poly) && pointInShape(sx,sy,shape)) return i;
+        const p=Game.state.provinces[i],poly=cellHitPolygons[i],shape=historicalShapes.get(geometryCountry(p));
+        const inside=cellRegions[i]?HistoricalRegions.contains(p.id,sx,sy):poly&&pointInRing(sx,sy,poly);
+        if(inside && shape && pointInShape(sx,sy,shape)) return i;
       }
       return -1;
     }

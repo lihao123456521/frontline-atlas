@@ -3,8 +3,10 @@ const OrderOfBattle = (() => {
   const sources = Object.freeze({
     ger36: Object.freeze({year:1936,title:'FRUS 1936：德国陆军扩编报告',url:'https://history.state.gov/historicaldocuments/frus1936v01/d276',scope:'1936 年 10 月报告扩编自 24 至 36 师；1 月开局取中间规模近似，非该日逐师战斗序列。'}),
     poland39: Object.freeze({year:1939,title:'美国陆军官方史 The German Campaign in Poland',url:'https://www.ibiblio.org/hyperwar/USA/DAP-Poland/Campaign-I.html',scope:'德国 1939 年 3 月 102 现役和预备师；9 月组成与动员规模取近似。'}),
+    fronts39: Object.freeze({year:1939,title:'美国陆军官方史：1939年双方部署',url:'https://www.ibiblio.org/hyperwar/USA/DAP-Poland/Campaign-II.html',scope:'西线C集团军群33个步兵师；波军波莫瑞5师、波兹南4师、克拉科夫7师。东部/中央战略节点与师数映射仍是聚合近似。'}),
     polish39: Object.freeze({year:1939,title:'The German Campaign in Poland：波兰军队',url:'https://www.ibiblio.org/hyperwar/USA/DAP-Poland/Campaign-II.html',scope:'波兰 30 现役师、预备动员与独立骑兵旅；旅不按 1:1 算成师。'}),
-    east41: Object.freeze({year:1941,title:'美国陆军官方史 Moscow to Stalingrad',url:'https://www.ibiblio.org/hyperwar/USA/USA-EF-Decision/USA-EF-Decision-1.html',scope:'德国东线 148 师，另有北方兵力与其他战区；全国总量和类型分配是近似。'}),
+    east41: Object.freeze({year:1941,title:'美国陆军官方史 Moscow to Stalingrad',url:'https://www.ibiblio.org/hyperwar/USA/USA-EF-Decision/USA-EF-Decision-1.html',scope:'德主东线148师（19装甲、15摩托化）+芬兰北部4师；苏西部170师分56/52/62三个梯队。全国总量、其余类型和具体节点驻地仍近似。'}),
+    nominal41: Object.freeze({year:1941,title:'美国陆军官方史：德国1941师级授权人数',url:'https://www.ibiblio.org/hyperwar/USA/USA-EF-Decision/USA-EF-Decision-1.html',scope:'第一章脚注9：步兵师15000、装甲师17000、摩托化师14000；仅初始德国1941相应兵种采用。现员随HP比例，其他兵种/国家及新训练不冒称同一史实口径；不含非师直属部队。'}),
     sov41: Object.freeze({year:1941,title:'美国国防大学：苏联战略与兵力',url:'https://ndupress.ndu.edu/Joint-Force-Quarterly/Joint-Force-Quarterly-112/Article/Article/3680005/converting-a-political-to-a-military-strategic-objective/',scope:'1941 年 6 月苏联 303 师；许多编制并未满员，类型与战力用游戏近似。'}),
     japan: Object.freeze({year:1941,title:'Japanese Monograph No.45：帝国大本营陆军部史',url:'https://www.ibiblio.org/hyperwar/Japan/Monos/JM-45/index.html',scope:'表 2：1939 年末 41 师、1941 年 11 月 51 师；1941 年 12 月仍 51 师。独立旅和航空团另计。'}),
     usa41: Object.freeze({year:1941,title:'美国陆军官方史 Origins of the Army Ground Forces',url:'https://history.army.mil/Research/Series-and-Collections/American-Forces-in-Action-Series/Origins-of-the-Army-Ground-Forces-General-Headquarters/Chapter-1-Origins-Of-the-Army-Ground-Forces-General-Headquarters/notes01/',scope:'1941 年组织 27 步兵师、4 装甲师、2 骑兵师；不意味着均已完成训练或满员。'}),
@@ -37,7 +39,7 @@ const OrderOfBattle = (() => {
       can:minor(2),aus:minor(3),nzl:minor(1),saf:minor(2),man:minor(3,0,2),ccp:minor(6)
     }),
     poland39:Object.freeze({
-      ger:profile({infantry:86,armor:6,motorized:8,mountain:3},['poland39'],'约 103 师级编制；4 轻装师并入机动兵种，实际装甲师没有夸大成 10 师。',.9),
+      ger:profile({infantry:86,armor:6,motorized:8,mountain:3},['poland39','fronts39'],'约103师级编制；西线33全步兵，东方62与本土8为全国量级的战略投影；4轻装师并入机动兵种。',.9),
       sov:estimated({infantry:150,cavalry:30,armor:10,motorized:5,mountain:5},'扩军与动员后的全国规模近似，不等同于西部前线兵力。',.8),
       uk:profile({infantry:28,armor:2,motorized:2},['britain','estimate'],'本土、殖民地及后备兵力的规模投影，远征部队只是其中一部分。',.85),
       fra:estimated({infantry:70,cavalry:5,armor:2,motorized:4,mountain:5},'9 月动员后的师级规模近似；预备师平均缺装。',.85),
@@ -45,13 +47,13 @@ const OrderOfBattle = (() => {
       jpn:profile({infantry:41},['japan'],'以 1939 年末统计作 9 月近似；不另伪造装甲师。',.9),
       usa:profile({infantry:6,cavalry:2},['usa41','estimate'],'欧洲战争初期的欠员现役编制近似。',.65),
       chn:profile({infantry:240,cavalry:10},['china41','estimate'],'抗战扩军后的名义师级规模近似；大量编制欠员缺装。',.6),
-      pol:profile({infantry:37,mountain:2},['polish39'],'30 现役与约 9 预备步兵师；11 骑兵旅属于支援抽象，未偷换成 11 骑兵师。',.85),
+      pol:profile({infantry:37,mountain:2},['polish39','fronts39'],'30现役与约9预备师；西北9、克拉科夫7、中部预备18、东北4、东南1为战略聚合，骑兵旅不额外算师。',.85),
       rom:minor(24,3,3),hun:minor(10,0,2),yug:minor(20,3,3),fin:minor(9,2),bel:minor(18),nld:minor(10),
       swe:minor(8),nor:minor(4,2),grc:minor(12,3),tur:minor(22,2,2),che:minor(6,3),bul:minor(10,0,2),
       esp:minor(24,2,2),prt:minor(4),dnk:minor(2),svk:minor(3),can:minor(3),aus:minor(5),nzl:minor(1),saf:minor(2),man:minor(5,0,2),ccp:minor(8)
     }),
     barbarossa41:Object.freeze({
-      ger:profile({infantry:164,armor:20,motorized:17,mountain:6,cavalry:1},['east41','estimate'],'约 208 师级编制是全国量级；约 148 师在主东线，并非全国都投入一个目标。',.92),
+      ger:profile({infantry:164,armor:20,motorized:17,mountain:6,cavalry:1},['east41','nominal41','estimate'],'全国约208师；主东线148（19装甲、15摩托化）、北方4、其他56；北方4以挪威基地投影，非精确芬兰驻地。',.92),
       sov:profile({infantry:199,armor:61,motorized:31,cavalry:12},['sov41','east41'],'303 师的全国名义规模；部分机械化编制未满员，装甲师并不等于拥有满额坦克。',.72),
       uk:profile({infantry:35,armor:6,motorized:3,marines:1},['britain','estimate'],'多战区部队、后备与殖民地兵力的规模近似。',.85),
       fra:estimated({infantry:5,motorized:1},'法国战败后，仅将继续抵抗阵营投影为少量师级战斗群；维希军单列。',.7),
@@ -105,17 +107,94 @@ const OrderOfBattle = (() => {
       const home=distance(p)<=20;
       // 海外普通节点保留少量驻防；当前主战方向和可用舰队港口才集中可出征兵力。
       const weight=primary?26:enemy?12:seaPrimary?24:seaEnemy?(landApproach?10:18):fleet?(home?(landApproach?6:16):4):p===capital?6:border?(home?6:1.5):(home?2:.5);
-      return {p,enemy,fleet,home,weight,count:0,placed:{}};
+      return {p,enemy,border,fleet,home,weight,count:0,placed:{}};
     }).sort((a,b)=>b.weight-a.weight||a.p.id.localeCompare(b.p.id));
+    // A more detailed administrative map must not give a densely subdivided
+    // rear area more formations than the front merely because it has more nodes.
+    const administrativeGroups=new Map();
+    for(const slot of scored){const group=slot.p.strategicProvinceId||slot.p.id;
+      if(!administrativeGroups.has(group))administrativeGroups.set(group,[]);administrativeGroups.get(group).push(slot);
+    }
+    for(const slots of administrativeGroups.values())if(slots.length>1){
+      if(slots.some(a=>a.enemy))for(const slot of slots)if(!slot.enemy&&!slot.fleet&&slot.p!==capital)slot.weight*=.1;
+      const sum=slots.reduce((n,a)=>n+a.weight,0),priority=Math.max(...slots.map(a=>a.weight))*(slots.some(a=>a.enemy)?2:1);
+      for(const slot of slots)slot.weight=slot.weight/sum*priority;
+    }
     let assigned=0;
     const seed=(slot,count)=>{const n=Math.min(count,total-assigned);slot.count+=n;assigned+=n;};
     const capitalSlot=scored.find(a=>a.p===capital);
     seed(capitalSlot,total>=6?Math.max(2,Math.floor(total*.08)):Math.min(1,total));
     for(const slot of scored.filter(a=>a.fleet))if(assigned<total)seed(slot,total>=6?2:1);
+    // Historical armies guard their actual frontier; detail must not leave every
+    // border department empty while all formations are spread over rear areas.
+    if(total>=20)for(const slot of scored.filter(a=>a.border&&a.p.administrativeRegionId))if(assigned<total&&!slot.count)seed(slot,1);
     // 余下编制按战略权重配额分配，不因殖民节点较多而切成每省一师。
     for(let n=assigned;n<total;n++){
       const best=scored.reduce((a,b)=>(b.count+1)/b.weight<(a.count+1)/a.weight?b:a);
       best.count++;
+    }
+    const distribute=(slots,count)=>{for(let n=0;n<count;n++){
+      const best=slots.reduce((a,b)=>(b.count+1)/b.weight<(a.count+1)/a.weight?b:a);best.count++;
+    }};
+    if(id==='ger'&&s.scenario==='poland39'){
+      const east=scored.filter(a=>(s.adj[s.provinces.indexOf(a.p)]||[]).some(i=>s.provinces[i]?.owner==='pol'));
+      const west=scored.filter(a=>(s.adj[s.provinces.indexOf(a.p)]||[]).some(i=>s.provinces[i]?.owner==='fra'));
+      const rear=scored.filter(a=>!east.includes(a)&&!west.includes(a));
+      if(east.length&&west.length&&rear.length&&total===103){
+        scored.forEach(a=>a.count=0);west.forEach(a=>a.allowedTypes=['infantry']);
+        // US Army official history: Army Group C had 12+6+12+3 infantry divisions.
+        // Eastern 62 and interior 8 remain strategic projections of the national total.
+        distribute(west,33);distribute(east,62);distribute(rear,8);
+      }
+    }
+    if(id==='pol'&&s.scenario==='poland39'){
+      const plan={neu_poland:18,pol_poznan:9,pol_krakow:7,pol_vilnius:4,pol_lwow:1};
+      if(total===39&&Object.keys(plan).every(id=>scored.some(a=>a.p.id===id))){
+        scored.forEach(a=>{a.count=0;});
+        const byRegion=regionId=>scored.find(a=>a.p.administrativeRegionId===regionId);
+        const pomorze=byRegion('pol_1934_1'),poznan=byRegion('pol_1934_4');
+        if(pomorze&&poznan){
+          pomorze.count=5;poznan.count=4;
+          // The central and eastern armies remain an explicitly approximate
+          // projection; Pomorze/Poznan and Cracow use the documented front totals.
+          for(const [source,count]of Object.entries({...plan,pol_poznan:0}))if(count){
+            const slots=scored.filter(a=>(a.p.strategicProvinceId||a.p.id)===source);
+            if(source==='pol_krakow')scored.find(a=>a.p.id===source).count=count;
+            else if(source==='neu_poland'){
+              const capital=scored.find(a=>a.p.id===source);capital.count=6;
+              distribute(slots.filter(a=>a!==capital),count-6);
+            }else distribute(slots,count);
+          }
+        }else scored.forEach(a=>{a.count=plan[a.p.id]||0;});
+        // Pomorze/Poznan armies: 5+4; Cracow army: 7. Warsaw combines Modlin,
+        // Lodz and the general reserve; eastern residual units are approximated.
+      }
+    }
+    if(id==='ger'&&s.scenario==='barbarossa41'){
+      const east=scored.filter(a=>(s.adj[s.provinces.indexOf(a.p)]||[]).some(i=>s.provinces[i]?.owner==='sov'));
+      const north=scored.filter(a=>a.p.id==='nor_trondheim');
+      const rear=scored.filter(a=>!east.includes(a)&&!north.includes(a));
+      if(east.length&&north.length&&rear.length&&total===208){
+        scored.forEach(a=>a.count=0);
+        const easternRoles={caps:{armor:19,motorized:15},placed:{}};east.forEach(a=>a.groupRoles=easternRoles);
+        north.forEach(a=>{a.allowedTypes=['infantry','mountain'];a.typeCaps={mountain:2};a.mountainBonus=25;});
+        // 148 main BARBAROSSA divisions + 4 German divisions in northern Finland.
+        // The northern force is represented by its Norwegian staging base.
+        distribute(east,148);distribute(north,4);distribute(rear,56);
+      }
+    }
+    if(id==='sov'&&s.scenario==='barbarossa41'){
+      const front=scored.filter(a=>(s.adj[s.provinces.indexOf(a.p)]||[]).some(i=>s.provinces[i]?.owner==='ger'));
+      const distance=new Map(front.map(a=>[s.provinces.indexOf(a.p),0])),queue=[...distance.keys()];
+      for(let n=0;n<queue.length;n++)for(const i of s.adj[queue[n]]||[])if(s.provinces[i]?.owner==='sov'&&!distance.has(i)){distance.set(i,distance.get(queue[n])+1);queue.push(i);}
+      const western=scored.filter(a=>!front.includes(a)&&distance.has(s.provinces.indexOf(a.p))&&a.p.lon<=40);
+      const interior=scored.filter(a=>!front.includes(a)&&!western.includes(a));
+      if(total===303&&front.length&&western.length&&interior.length){
+        scored.forEach(a=>a.count=0);
+        // The western military districts had 56 forward + 52 and 62 rear divisions.
+        // Keep the remaining national formations in the interior and Far East.
+        distribute(front,56);distribute(western,114);distribute(interior,133);
+      }
     }
     return scored;
   }
@@ -144,19 +223,26 @@ const OrderOfBattle = (() => {
       const roleOrder={mountain:0,marines:1,armor:2,mechanized:3,motorized:4,cavalry:5,infantry:6};
       const types=Object.entries(config.composition).sort(([a],[b])=>(roleOrder[a]??9)-(roleOrder[b]??9));
       for(const [type,count]of types)for(let n=0;n<count;n++){
-        const available=slots.filter(a=>a.count>0);
+        const available=slots.filter(a=>a.count>0&&(!a.allowedTypes||a.allowedTypes.includes(type))&&
+          (a.typeCaps?.[type]===undefined||(a.placed[type]||0)<a.typeCaps[type])&&
+          (a.groupRoles?.caps[type]===undefined||(a.groupRoles.placed[type]||0)<a.groupRoles.caps[type]));
+        const required=available.filter(a=>a.groupRoles?.caps[type]!==undefined);
         const roleScore=a=>{
           const terrain=a.p.terrain,concentration=(a.placed[type]||0)*2;
-          if(type==='mountain')return (terrain==='mountain'?20:terrain==='hill'?10:0)+a.weight-concentration;
+          if(type==='mountain')return (terrain==='mountain'?20:terrain==='hill'?10:0)+a.weight+(a.mountainBonus||0)-concentration;
           if(type==='marines')return (a.p.coastal?20:0)+a.weight-concentration;
           if(['armor','mechanized','motorized'].includes(type))return (terrain==='plain'?10:terrain==='mountain'?-12:0)+a.weight-concentration;
           return a.count/a.weight;
         };
-        const chosen=available.reduce((a,b)=>roleScore(b)>roleScore(a)?b:a);
+        const chosen=(required.length?required:available).reduce((a,b)=>roleScore(b)>roleScore(a)?b:a);
         const d=makeDivision(type);
+        if(id==='ger'&&s.scenario==='barbarossa41'){
+          const nominal={infantry:15000,armor:17000,motorized:14000}[type];if(nominal)d.nominalPersonnel=nominal;
+        }
         d.hp=Math.max(1,Math.round(d.maxHp*config.readiness));
         d.org=Math.max(1,Math.round(d.maxOrg*Math.min(1,config.readiness+.1)));
         chosen.p.garrison.push(d);chosen.count--;chosen.placed[type]=(chosen.placed[type]||0)+1;
+        if(chosen.groupRoles)chosen.groupRoles.placed[type]=(chosen.groupRoles.placed[type]||0)+1;
       }
     }
     s.orderOfBattleVersion=1;s.orderOfBattle=report;return report;

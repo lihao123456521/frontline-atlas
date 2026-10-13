@@ -55,12 +55,13 @@ test('at most two player attacks, locked sources and targets, no neutral or ally
   Game.advanceDay({automatic:true});Game.advanceDay({automatic:true});
   assert.equal(Game.state.activeCombats.filter(c=>c.attacker==='ger').length,2);
   assert.ok(Game.state.activeCombats.every(c=>c.to!==neutral&&c.to!==ally));
-  assert.ok(Game.state.activeCombats.every(c=>c.from===front));
+  assert.ok(Game.state.activeCombats.every(c=>Game.landRoute(c.from,c.to,'ger')));
+  assert.ok(Game.state.activeCombats.every(c=>Game.province(c.from).garrison.some(d=>d.kind==='land')),'each real source retains a garrison');
   assert.equal(Game.armyTotals('ger').land,before);
   assert.equal(Game.state.wars.length,1);
 });
 
-test('rear moves one legal land hop, conserves troops, and never crosses sea or empties a province',()=>{
+test('rear can march through a friendly city, conserves troops, and cannot cross sea or empty its source',()=>{
   const {Game,front,rear,first,unit}=setup();Game.province(front).garrison=[unit('infantry')];
   Game.state.adj[rear]=[front];Game.state.adj[front]=[first,rear];
   const before=Game.armyTotals('ger').land,rearBefore=Game.province(rear).garrison.length;
@@ -68,12 +69,14 @@ test('rear moves one legal land hop, conserves troops, and never crosses sea or 
   assert.ok(Game.province(rear).garrison.length<rearBefore);
   assert.ok(Game.province(rear).garrison.some(d=>d.kind==='land'));
   assert.equal(Game.armyTotals('ger').land,before);
-  assert.equal(Game.state.activeCombats.length,0);
+  assert.equal(Game.state.activeCombats.length,1);
+  assert.deepEqual(Array.from(Game.state.activeCombats[0].routePath),[rear,front,first]);
   Game.state.adj[rear]=[];Game.state.adj[front]=[first];
   Game.state.coastal[rear]=Game.state.coastal[front]=true;
   Game.state.seaAdj[rear]=[front];Game.state.seaAdj[front]=[rear];
-  const after=Game.province(rear).garrison.length;Game.advanceDay({automatic:true});
-  assert.equal(Game.province(rear).garrison.length,after);
+  const after=Game.province(rear).garrison.length,sent=Game.state.activeCombats[0].attackers.length;Game.advanceDay({automatic:true});
+  assert.equal(Game.province(rear).garrison.length,after+sent,'cutting the land corridor returns its real marching army');
+  assert.equal(Game.state.activeCombats.length,0,'a sea-only link cannot replace the severed land route');
 });
 
 test('old saves enable automation; invalid toggle is rejected without replacing state',()=>{
@@ -195,6 +198,21 @@ test('a failed automatic assault reports and honors remaining regroup days',()=>
   Game.state.adj[front]=[];
   assert.match(Game.autoOffensiveStatus().text,/暂无可达目标/);
 });
+test('a failed target cannot be retried automatically from a fresh rear source while manual orders remain available',()=>{
+  const {Game,front,rear,first}=setup();Game.state.adj[front]=[first,rear];Game.state.adj[first]=[front];
+  Game.advanceDay({automatic:true});assert.equal(Game.state.activeCombats.length,1);Game.retreatCombat(Game.state.activeCombats[0].id);
+  Game.province(front).garrison.forEach(d=>{d.org=0;});
+  assert.ok(Game.landRoute(rear,first));assert.match(Game.autoOffensiveStatus().text,/重整.*14\s*天/);
+  assert.equal(Game.resolveAttack('ger',rear,first,1),true,'an explicit manual command can override automatic regrouping');
+  Game.retreatCombat(Game.state.activeCombats[0].id);Game.advanceDay({automatic:true});
+  assert.ok(!Game.state.activeCombats.some(c=>c.attacker==='ger'&&c.to===first));
+});
+test('AI shares a failed target cooldown across different source cities',()=>{
+  const {Game,front,rear,first}=setup();Game.state.player='ita';Game.state.adj[front]=[first,rear];Game.state.adj[first]=[front];
+  Game.state.recentBattles.push({attacker:'ger',defender:'fra',from:front,to:first,won:false,autoOffensiveDay:0});
+  Game.province(front).garrison.forEach(d=>{d.org=0;});Game.advanceDay();
+  assert.ok(!Game.state.activeCombats.some(c=>c.attacker==='ger'&&c.to===first));
+});
 
 test('a truly outmatched front waits for reinforcements and names the strength shortage',()=>{
   const {Game,unit,front,rear,first}=setup();
@@ -211,7 +229,7 @@ test('unmodified 1939 world opens a second declared-war offensive within 60 auto
   math.random=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/4294967296);
   const ctx=vm.createContext({window:{},console,Math:math,localStorage:{getItem:()=>null,setItem:()=>{}},setTimeout:()=>0,clearInterval:()=>{}});
   for(const file of ['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','history.js','world.js','campaign.js','order_of_battle.js','game.js'])
-    vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',file),'utf8'),ctx,{filename:file});
+    vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',file),'utf8').replace('init, onMapClick, endTurn,','assaultStrength, init, onMapClick, endTurn,'),ctx,{filename:file});
   const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard','poland39');
   const initialArmy=Game.armyTotals('ger').land,seen=new Set(),orders=[];
   assert.equal(initialArmy,103);
@@ -221,13 +239,14 @@ test('unmodified 1939 world opens a second declared-war offensive within 60 auto
       seen.add(c.id);orders.push({day:Game.state.daysElapsed,to:Game.province(c.to).id,defender:c.defender,tactics:c.tactics});
       assert.equal(Game.isAtWar('ger',c.defender),true);
       assert.equal(Game.isAllied('ger',c.defender),false);
+      const strength=Game.assaultStrength('ger',c.from,c.to,c.attackers.map(e=>e.unit),c.navBonus||0);
+      assert.equal(c.tactics,strength.aStr<strength.dStr*.85?'careful':'balanced','tactics follow real strength rather than the previous fixed source');
     }
   }
   const captures=Game.state.recentBattles.filter(r=>r.attacker==='ger'&&r.won);
   assert.ok(captures.length>=2,JSON.stringify({orders,captures:captures.map(r=>Game.province(r.to).id)}));
   assert.ok(orders.length>=2,JSON.stringify({orders,status:Game.autoOffensiveStatus()}));
   assert.ok(orders.some(o=>o.day>=16),JSON.stringify(orders));
-  assert.equal(orders[1].tactics,'careful');
   assert.ok(Game.armyTotals('ger').land<=initialArmy+2);
   assert.equal(Game.load(Game.save()),true);
 });

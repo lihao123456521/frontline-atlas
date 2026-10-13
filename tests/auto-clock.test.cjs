@@ -127,3 +127,45 @@ test('the main clock control names its action in play, pause, and active combat 
   UI.setSpeed(0);
   assert.match(button.textContent,/继续战斗/);
 });
+
+test('battle tactics are immediate commands and resume the remembered speed without a top-bar click',()=>{
+  const {Game,UI,get,from,to,activeTimers,fire}=setup();
+  Game.resolveAttack('ger',from,to,6);UI.setSpeed(3);UI.setSpeed(0);UI.refresh();
+  const combat=Game.getCombats()[0],before=Game.state.daysElapsed;
+  const assault=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.attributes['aria-label']==='强攻并推进');
+  assert.ok(assault,'a visible tactical command must exist outside the folded report');
+  assault.click();
+  assert.equal(Game.getCombat(combat.id).tactics,'assault');assert.equal(UI.getSpeed(),3);
+  assert.equal(activeTimers().length,1);assert.equal(Game.state.daysElapsed,before);
+  fire();assert.equal(Game.state.daysElapsed,before+1);assert.equal(Game.getCombat(combat.id).days,1);
+});
+
+test('the battle card owns a clear pause and execute command and rejected tactics stay paused',()=>{
+  const {Game,UI,get,from,to,activeTimers}=setup();
+  Game.resolveAttack('ger',from,to,6);UI.setSpeed(0);UI.refresh();
+  let command=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.textContent==='执行作战');
+  assert.ok(command);command.click();assert.equal(UI.getSpeed(),2);
+  command=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.textContent==='暂停布置');
+  assert.ok(command);command.click();assert.equal(UI.getSpeed(),0);
+  Game.setCombatTactics=()=>false;
+  const tactical=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.attributes['aria-label']==='谨慎并推进');
+  assert.ok(tactical);tactical.click();assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);
+});
+
+test('changing the advanced tactic selector also executes and resumes the battle',()=>{
+  const {Game,UI,get,from,to}=setup();Game.resolveAttack('ger',from,to,6);UI.setSpeed(2);UI.refresh();
+  const select=descendants(get('rpContent')).find(e=>e.tagName==='select'&&e.attributes['aria-label']==='我方战术');
+  assert.ok(select);select.listeners.focus();assert.equal(UI.getSpeed(),0);
+  select.value='careful';select.listeners.change();
+  assert.equal(Game.getCombats()[0].tactics,'careful');assert.equal(UI.getSpeed(),2);
+});
+
+test('battle execute cannot silently bypass an unacknowledged incoming attack',()=>{
+  const {Game,UI,get,from,to,activeTimers}=setup();Game.resolveAttack('ger',from,to,6);
+  Game.state.worldEvents.push({id:'e1',kind:'invasion',acknowledged:false});UI.setSpeed(0);UI.refresh();
+  const command=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.textContent==='执行作战');
+  assert.ok(command);assert.equal(command.disabled,true);command.click();assert.equal(UI.getSpeed(),0);
+  UI.resumeSpeed();assert.equal(activeTimers().length,0);
+  Game.state.worldEvents[0].acknowledged=true;UI.refresh();
+  descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.textContent==='执行作战').click();assert.equal(UI.getSpeed(),2);
+});

@@ -30,6 +30,7 @@ function setup(){
   ctx.MapView={setSelect:()=>{},isProvinceInView:()=>true,focusProvince:idx=>focuses.push(idx),showBattlePlan:()=>{},showAttackable:()=>{},clearAttackable:()=>{}};
   const source=fs.readFileSync(path.join(__dirname,'../js/ui.js'),'utf8').replace('return { init, refresh,','return { mapHandlers, navigate, renderRightPanel, advanceClock, init, refresh,');vm.runInContext(source,ctx);
   const UI=vm.runInContext('UI',ctx),panel=get('rpContent');
+  get('eventModal').classList.add('hidden');
   ctx.window.UI=UI;
   const descendants=e=>[e,...e.children.flatMap(descendants)];
   const buttons=(text)=>descendants(panel).filter(e=>e.tagName==='button'&&e.textContent.includes(text));
@@ -73,7 +74,7 @@ test('enemy city recommends a reachable source and canceling its attack changes 
   const from=Game.state.provinces.findIndex((p,i)=>p.owner==='ger'&&Game.landCount(i)>1&&Game.neighbors(i).some(n=>Game.province(n).owner!=='ger'));
   const to=Game.neighbors(from).find(n=>Game.province(n).owner!=='ger');
   UI.mapHandlers().provinceClick(to);assert.ok(buttons('进攻这座城市').length);
-  const before=JSON.parse(Game.save());buttons('进攻这座城市')[0].click();assert.match(panel.textContent,/确认后自动开始/);
+  const before=JSON.parse(Game.save());buttons('进攻这座城市')[0].click();assert.match(panel.textContent,/确认后自动推进/);
   buttons('取消命令')[0].click();const after=JSON.parse(Game.save());after.selectedIdx=before.selectedIdx;
   assert.deepEqual(after,before);
 });
@@ -206,9 +207,9 @@ test('adjusting troop count updates actual strength and confirm count without re
   range.value=3;range.listeners.input();assert.ok(descendants(panel).includes(range));assert.match(panel.textContent,/出击 3\.0 万人.*3 \/ 3 师/);assert.match(panel.textContent,/出发地不留驻军/);
   const comparison=descendants(panel).find(e=>e.className==='battle-win-box'),targetName=buttons('确认进攻')[0];
   const to=Game.state.provinces.findIndex(p=>p.name===descendants(panel).find(e=>e.className==='battle-route').textContent.split(' → ')[1]);
-  assert.ok(to>=0);assert.match(comparison.textContent,new RegExp('进攻 '+Math.round(Game.battlePreview(from,to,3,false).aStr)));
+  assert.ok(to>=0);assert.match(descendants(advanced).find(e=>e.className==='battle-strength').textContent,new RegExp('进攻 '+Math.round(Game.battlePreview(from,to,3,false).aStr)));
   assert.equal(Game.state.battles,0);targetName.click();assert.equal(Game.getCombats().length,1);assert.equal(Game.getCombats()[0].attackers,3);assert.equal(Game.state.battles,0);
-  assert.match(panel.textContent,/正在交战/);assert.doesNotMatch(panel.textContent,/省份行动/);assert.equal(buttons('进攻目标').length,0);
+  assert.ok(descendants(panel).some(e=>(e.className||'').includes('ongoing-battle-card')));assert.match(panel.textContent,/作战推进中/);assert.doesNotMatch(panel.textContent,/省份行动/);assert.equal(buttons('进攻目标').length,0);
 });
 
 test('province movement uses one persistent unit selector and passes the selected kind into movement planning',()=>{
@@ -251,6 +252,7 @@ test('amphibious recommendations require actual sea routes and naval support; pr
   s.provinces.some((p,i)=>Game.coastalOf(i)&&Game.seaAdj(i).some(n=>{if(Game.coastalOf(n)&&!Game.neighbors(n).includes(i)){from=i;to=n;return true;}return false;}));
   assert.ok(from!==undefined&&to!==undefined);
   s.provinces.forEach(p=>{p.owner='ger';p.garrison=[];});s.provinces[to].owner='pol';s.provinces[to].isCapital=false;
+  s.adj=s.provinces.map(()=>[]); // This fixture isolates a sea route, not a land path through the rest of the world.
   s.provinces[from].garrison=[{...land},{...land},{...land}];s.wars=[{a:'ger',b:'pol',since:'1936-1'}];
   UI.renderRightPanel();assert.equal(buttons('进攻目标').length,0);
   s.provinces[from].garrison.push(naval);UI.renderRightPanel();assert.equal(buttons('进攻目标').length,1);assert.match(buttons('进攻目标')[0].textContent,/登陆/);

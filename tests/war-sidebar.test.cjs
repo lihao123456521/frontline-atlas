@@ -139,6 +139,17 @@ test('finishing a required event keeps the clock paused when an incoming attack 
   UI.closeEvent(); assert.equal(UI.getSpeed(), 2);
 });
 
+test('touching the in-battle pause button keeps it paused after the press handler pauses time',()=>{
+  const {Game,UI,button,click,emit,flush}=setup();
+  const combat={id:'c1',to:1,name:'前线',playerSide:'attack',attacker:'ger',defender:'pol',phase:'preparation',days:0,progress:0,supply:100,attackers:3,defenders:2,aOrg:90,dOrg:90,aPersonnel:30000,dPersonnel:20000,aPersonnelLoss:0,dPersonnelLoss:0,tactics:'balanced',canRetreat:true,allies:[]};
+  Game.getCombats=()=>[combat];Game.getCombat=()=>combat;
+  UI.navigate('war');UI.setSpeed(2);UI.refresh();
+  const pause=button('暂停布置');assert.ok(pause);
+  emit(pause,'pointerdown');assert.equal(UI.getSpeed(),0);emit(pause,'pointerup');click(pause);flush();
+  assert.equal(UI.getSpeed(),0,'pause intent must not be reversed by pointerdown auto-pause');
+  const execute=button('执行作战');assert.ok(execute);emit(execute,'pointerdown');emit(execute,'pointerup');click(execute);flush();assert.equal(UI.getSpeed(),2);
+});
+
 test('city and army recruitment controls change real automatic settings and preserve them across views', () => {
   const f=setup(),{Game,UI,panel,descendants,button,click,emit}=f;
   const control=label=>descendants(panel).find(n=>n.attributes['aria-label']===label);
