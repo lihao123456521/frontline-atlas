@@ -697,26 +697,64 @@ const MapView = (() => {
     }
   }
 
+  // Route positions are geographic feedback, not additional army/control state.
+  function combatRoute(combat){
+    const state=Game.state;
+    const route=Array.isArray(combat.routePath)&&combat.routePath.length>=2&&combat.routePath[0]===combat.from&&
+      combat.routePath.at(-1)===combat.to?combat.routePath:[combat.from,combat.to];
+    if(!route.every(i=>state.provinces[i]))return null;
+    if(combat.kind!=="amphib"&&state.adj?.some(row=>row?.length)&&
+      route.some((i,k)=>k&&!state.adj[route[k-1]]?.includes(i)))return null;
+    const points=route.map(i=>({...displayCenter(state.provinces[i])}));
+    for(let i=1;i<points.length;i++)if(worldMode)points[i].x+=Math.round((points[i-1].x-points[i].x)/W)*W;
+    const lengths=points.slice(1).map((p,i)=>Math.hypot(p.x-points[i].x,p.y-points[i].y));
+    return {route,points,lengths,total:lengths.reduce((n,v)=>n+v,0)};
+  }
+  function combatMarch(combat,route=combatRoute(combat)){
+    if(!route||route.total<1e-6)return null;
+    const fraction=clamp((Number(combat.days)||0)/(combat.preparationDays||2),0,1);
+    let remaining=route.total*fraction,index=0;
+    while(index<route.lengths.length-1&&remaining>=route.lengths[index])remaining-=route.lengths[index++];
+    const a=route.points[index],b=route.points[index+1],t=clamp(remaining/(route.lengths[index]||1),0,1);
+    return {x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,dx:b.x-a.x,dy:b.y-a.y,index,fraction};
+  }
+  function combatDirection(group,point,dx,dy,kind){
+    const marker=document.createElementNS(NS,"g"),k=visibleAnchor().k;
+    marker.setAttribute("class","combat-direction combat-direction-"+kind);
+    marker.setAttribute("transform",`translate(${point.x},${point.y}) rotate(${Math.atan2(dy,dx)*180/Math.PI}) scale(${1/k})`);
+    const arrow=document.createElementNS(NS,"path");arrow.setAttribute("d","M-7,-5L1,0L-7,5 M0,-5L8,0L0,5");
+    marker.appendChild(arrow);group.appendChild(marker);
+  }
   // The contested fill is visual only. Control changes only when Game finishes a combat.
   let frontSignature="";
   function renderFronts(){
     const state=Game.state, active=state?.activeCombats || [];
     if(historicalMap && active.length) controlCells();
-    const signature=cellSignature+":"+active.map(c=>`${c.id}:${c.from}:${c.to}:${(c.routePath||[]).join(",")}:${c.attacker}:${c.defender}:${c.phase}:${c.progress}:${state.provinces[c.to]?.owner}:${countryColor(c.attacker)}`).join("|");
+    const signature=cellSignature+":"+visibleAnchor().k+":"+active.map(c=>`${c.id}:${c.from}:${c.to}:${(c.routePath||[]).join(",")}:${c.attacker}:${c.defender}:${c.phase}:${c.days}:${c.preparationDays}:${c.progress}:${state.provinces[c.to]?.owner}:${countryColor(c.attacker)}`).join("|");
     if(signature===frontSignature) return;
     frontSignature=signature;
     L.fronts.innerHTML="";
     if(!historicalMap || !active.length) return;
     for(const combat of active){
-      const route=Array.isArray(combat.routePath)&&combat.routePath.length>=2&&combat.routePath[0]===combat.from&&
-        combat.routePath.at(-1)===combat.to&&combat.routePath.every(i=>state.provinces[i])?combat.routePath:[combat.from,combat.to];
-      const target=state.provinces[combat.to],source=state.provinces[route.at(-2)];
+      const route=combatRoute(combat);if(!route)continue;
+      const target=state.provinces[combat.to],source=state.provinces[route.route.at(-2)];
+      if(combat.phase==="preparation"){
+        const march=combatMarch(combat,route);if(!march)continue;
+        const group=document.createElementNS(NS,"g");group.setAttribute("class","combat-front combat-march");
+        group.setAttribute("data-combat-id",combat.id);group.setAttribute("data-route-segment",march.index);
+        group.setAttribute("data-march-progress",march.fraction);group.setAttribute("data-position",`${march.x},${march.y}`);
+        const leg=document.createElementNS(NS,"path"),a=route.points[march.index],b=route.points[march.index+1];
+        leg.setAttribute("class","combat-march-leg");leg.setAttribute("d",`M${a.x},${a.y}L${b.x},${b.y}`);group.appendChild(leg);
+        combatDirection(group,march,march.dx,march.dy,"march");L.fronts.appendChild(group);continue;
+      }
       if(!target || !source || target.owner!==combat.defender || target.owner===combat.attacker ||
         combat.phase!=="engagement" || !Number.isFinite(combat.progress) || combat.progress<=0 || combat.progress>=100) continue;
       const cell=cellHitPolygons[combat.to],regions=cellRegions[combat.to]||(cell?.length?[{rings:[cell]}]:[]);
       const points=regions.flatMap(region=>region.rings.flat());
       if(!points.length) continue;
-      const from=displayCenter(source),to=displayCenter(target);
+      const edge=typeof HistoricalRegions!=="undefined"?HistoricalRegions.adjacency.find(e=>
+        (e.a===source.id&&e.b===target.id)||(e.b===source.id&&e.a===target.id)):null;
+      const from=edge?.point?{x:edge.point[0],y:edge.point[1]}:displayCenter(source),to=displayCenter(target);
       let dx=to.x-from.x,dy=to.y-from.y;
       if(worldMode && Math.abs(dx)>W/2) dx-=Math.sign(dx)*W;
       const length=Math.hypot(dx,dy);
@@ -730,6 +768,8 @@ const MapView = (() => {
       group.setAttribute("class","combat-front");
       group.setAttribute("data-combat-id",combat.id);
       group.setAttribute("data-target",combat.to);
+      group.setAttribute("data-direction",`${ux},${uy}`);
+      group.setAttribute("data-entry",`${from.x},${from.y}`);
       if(clipReady[cid]) group.setAttribute("clip-path",`url(#${clipIdFor(cid)})`);
       const intervals=[];
       for(const region of regions){
@@ -763,7 +803,18 @@ const MapView = (() => {
         line.setAttribute("d",merged.map(segment=>`M${segment.a.p[0]},${segment.a.p[1]}L${segment.b.p[0]},${segment.b.p[1]}`).join(" "));
         line.setAttribute("class","combat-front-line");
         group.appendChild(line);
+        // The longest visible interval puts the direction cue on actual target land.
+        const segment=merged.reduce((best,s)=>s.b.n-s.a.n>best.b.n-best.a.n?s:best);
+        combatDirection(group,{x:(segment.a.p[0]+segment.b.p[0])/2,y:(segment.a.p[1]+segment.b.p[1])/2},dx,dy,"advance");
       }
+      // Intersect again with the original compound province. Concave half-plane
+      // clipping can otherwise draw a chord across a bay or a disconnected gap.
+      const clip=document.createElementNS(NS,"clipPath"),clipId="combat-cell-"+active.indexOf(combat);
+      clip.setAttribute("id",clipId);
+      for(const region of regions){const path=document.createElementNS(NS,"path");
+        path.setAttribute("d",region.rings.map(polygonPath).join(" "));path.setAttribute("clip-rule","evenodd");clip.appendChild(path);}
+      for(const child of group.children)child.setAttribute("clip-path",`url(#${clipId})`);
+      group.appendChild(clip);
       L.fronts.appendChild(group);
     }
   }
@@ -847,14 +898,16 @@ const MapView = (() => {
     const combats=typeof Game.getCombats==='function'?Game.getCombats():[];
     combats.forEach(b=>{
       const base=Game.state.provinces[b.to];if(!base)return;
-      const p=displayProvince(base),pt=screenPoint(p.x,p.y);
+      const raw=(Game.state.activeCombats||[]).find(c=>c.id===b.id);
+      const march=b.phase==='preparation'&&raw?combatMarch(raw):null;
+      const p=displayProvince(base),position=march||p,pt=screenPoint(position.x,position.y);
       const g=document.createElementNS(NS,'g');
       g.setAttribute('class','combat-marker '+(b.playerSide==='defend'?'defending':'attacking'));
       g.setAttribute('data-combat-id',b.id);
-      g.setAttribute('transform',`translate(${pt.vx},${p.y}) scale(${1/k})`);
+      g.setAttribute('transform',`translate(${pt.vx},${position.y}) scale(${1/k})`);
       g.setAttribute('role','button');g.setAttribute('tabindex','0');
       const phase=b.phase==='preparation'||b.phase==='naval'?'行军':b.playerSide==='attack'&&(p.isCapital||p.terrain==='urban')?'攻城':'交战';
-      const progress=Math.max(0,Math.min(100,Math.round(b.progress||0)));
+      const progress=march?Math.round(march.fraction*100):Math.max(0,Math.min(100,Math.round(b.progress||0)));
       const forceLine=`攻 ${formatPersonnel(b.aPersonnel)} / 守 ${formatPersonnel(b.dPersonnel)}`;
       g.setAttribute('aria-label',`${b.name}：${phase} ${progress}%，${forceLine}，已进行${b.days}天；回车聚焦战斗`);
       const hit=document.createElementNS(NS,'rect');hit.setAttribute('class','combat-marker-hit');hit.setAttribute('x','-4');hit.setAttribute('y','-59');hit.setAttribute('width','138');hit.setAttribute('height','44');hit.setAttribute('fill','transparent');g.appendChild(hit);

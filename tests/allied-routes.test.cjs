@@ -31,6 +31,20 @@ test('a land route traverses direct allied cities and adds each physical segment
   assert.equal(Game.save(),before,'route queries never spend or mutate saves');
   const listed=Game.landTargets(from);assert.ok(listed.includes(to));assert.ok(!listed.some(i=>Game.province(i).owner==='fra'));
 });
+
+test('a later battle taking the route middle cancels an earlier march on the same day and preserves its soldiers',()=>{
+  const {Game,ctx,from,gate,through,to,chain}=setup();
+  const raw=vm.runInContext('History',ctx).buildLandGraph(Game.state.provinces).adj;
+  const enemy=raw[through].find(i=>!chain.includes(i)&&Game.province(i).garrison.some(d=>d.kind==='land'&&d.hp>0));assert.notEqual(enemy,undefined,'a real adjacent attack source exists');
+  Game.province(enemy).owner='ita';Game.province(enemy).garrison.forEach(d=>d.owner='ita');
+  Game.state.adj[enemy]=[through];Game.state.adj[through].push(enemy);
+  assert.equal(Game.doAssault('ger',from,to,0,1),true);const march=Game.state.activeCombats[0],soldier=march.attackers[0].unit,id=soldier.id,hp=soldier.hp;
+  assert.equal(Game.doAssault('ita',enemy,through,0,1),true);const cut=Game.state.activeCombats.find(c=>c.attacker==='ita');
+  cut.phase='engagement';cut.days=cut.preparationDays+1;Game.province(through).garrison=[];
+  Game.advanceDay();assert.equal(Game.province(through).owner,'ita');
+  assert.equal(Game.state.activeCombats.some(c=>c.id===march.id),false,'no invalid route remains until the next day');
+  assert.ok(Game.province(from).garrison.some(d=>d.id===id&&d.hp===hp));assert.equal(Game.load(Game.save()),true);
+});
 test('own rear territory is traversable while neutral, hostile and transitive allies are blocked',()=>{
   const {Game,key,from,gate,through,to}=setup();
   Game.province(gate).owner='ger';Game.province(through).owner='ger';assert.ok(Game.landRoute(from,to));

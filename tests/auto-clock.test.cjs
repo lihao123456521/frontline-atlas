@@ -42,8 +42,17 @@ function setup(){
   UI.init();
   const activeTimers=()=>timers.filter(t=>!t.cleared&&[500,1000,2000].includes(t.ms));
   const fire=()=>{const t=activeTimers().find(x=>[500,1000,2000].includes(x.ms));assert.ok(t,'expected an active auto-clock timeout');t.cleared=true;t.fn();return t;};
-  return {Game,UI,get,timers,activeTimers,fire,documentListeners,mapRefreshCount:()=>mapRefreshes,from,to};
+  return {Game,UI,get,timers,activeTimers,fire,documentListeners,mapRefreshCount:()=>mapRefreshes,from,to,ctx};
 }
+
+test('the real acknowledged defense news restores the clock and advances the day without pressing continue',()=>{
+  const {Game,UI,get,activeTimers,fire,from,to,ctx}=setup();
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/world-news.js'),'utf8'),ctx);ctx.document.body.classList.add('playing');
+  UI.setSpeed(3);assert.equal(Game.resolveAttack('fra',to,from,1),true);assert.equal(UI.getSpeed(),0);
+  const alert=get('worldNews').children.find(e=>e.attributes['aria-label']==='确认防御警报');assert.ok(alert);
+  const day=Game.state.date.day;alert.click();assert.equal(UI.getSpeed(),3);assert.equal(activeTimers().length,1);
+  fire();assert.equal(Game.state.date.day,day+1);
+});
 
 test('selected speed advances a live combat and redraws once per day',()=>{
   const {Game,UI,fire,mapRefreshCount,from,to}=setup();

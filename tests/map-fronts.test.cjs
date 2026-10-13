@@ -5,10 +5,11 @@ const path=require('node:path');
 const vm=require('node:vm');
 
 function setup(cityDefs=null){
-  const elements=new Map();
+  const elements=new Map(),frames=[];
   function element(){
     const e={children:[],attrs:{},style:{},appendChild(child){this.children.push(child);},
-      setAttribute(key,value){this.attrs[key]=String(value);},querySelector(){return elements.get('defs');}};
+      setAttribute(key,value){this.attrs[key]=String(value);},querySelector(){return elements.get('defs');},
+      addEventListener(){},getBoundingClientRect(){return {left:0,top:0,right:1000,bottom:600,width:1000,height:600};}};
     Object.defineProperty(e,'innerHTML',{set(){this.children=[];}});
     return e;
   }
@@ -27,11 +28,12 @@ function setup(cityDefs=null){
       {id:'east-fight',from:2,to:3,attacker:'c',defender:'d',phase:'engagement',progress:60},
     ]};
   const source=fs.readFileSync(path.join(__dirname,'../js/map.js'),'utf8')
-    .replace('return { W,H,','return { smoothCell, getCells:()=>cellHitPolygons, renderTerritory, renderFronts, W,H,');
+    .replace('return { W,H,','return { smoothCell, getCells:()=>cellHitPolygons, renderTerritory, renderFronts, renderBattleEffects, startAnim, W,H,');
   const c=vm.createContext({document:{getElementById:id=>elements.get(id),createElementNS:()=>element()},
+    window:{},requestAnimationFrame:fn=>frames.push(fn),
     PROVINCES_DEF:defs,HISTORICAL_MAP:{land:[],shapes:[shape('west',0),shape('east',100)]},Game:{state}});
   vm.runInContext(source+'\nthis.map=MapView;',c);
-  return {map:c.map,Game:c.Game,layers:elements};
+  return {map:c.map,Game:c.Game,layers:elements,frames};
 }
 function polygon(d){const values=[...d.matchAll(/-?\d+(?:\.\d+)?/g)].map(x=>+x[0]);
   return Array.from({length:values.length/2},(_,i)=>[values[2*i],values[2*i+1]]);}
@@ -132,11 +134,63 @@ test('two countries advance independently across target cells without changing o
 test('preparation, retreat and loaded state remove stale fronts',()=>{
   const c=setup(),layer=c.layers.get('layerFronts'),state=c.Game.state;
   c.map.renderFronts();assert.equal(layer.children.length,2);
-  state.activeCombats[0].phase='preparation';c.map.renderFronts();assert.equal(layer.children.length,1);
+  state.activeCombats[0].phase='preparation';c.map.renderFronts();assert.equal(layer.children.length,2);
+  assert.equal(layer.children[0].attrs.class,'combat-front combat-march');
+  assert.equal(layer.children[0].children.some(n=>n.attrs.class==='combat-front-fill'),false);
   state.activeCombats=[];c.map.renderFronts();assert.equal(layer.children.length,0);
   const loaded={...state,provinces:state.provinces.map(p=>({...p})),activeCombats:[
     {id:'loaded',from:0,to:1,attacker:'a',defender:'b',phase:'engagement',progress:50}]};
   c.Game.state=loaded;c.map.renderFronts();assert.equal(layer.children.length,1);
   assert.equal(layer.children[0].attrs['data-combat-id'],'loaded');
   loaded.provinces[1].owner='a';c.map.renderFronts();assert.equal(layer.children.length,0);
+});
+
+test('fronts advance from all four geographic sides and diagonals rather than a fixed horizontal sweep',()=>{
+  for(const [x,y]of [[10,50],[90,50],[50,10],[50,90],[10,10],[90,10],[10,90],[90,90]]){
+    const c=setup([{id:'a0',owner:'west',x,y},{id:'b1',owner:'west',x:50,y:50},
+      {id:'c2',owner:'east',x:120,y:50},{id:'d3',owner:'east',x:170,y:50}]);
+    const combat=c.Game.state.activeCombats[0];c.Game.state.activeCombats=[combat];c.map.renderFronts();
+    const group=c.layers.get('layerFronts').children[0],direction=group.attrs['data-direction'].split(',').map(Number);
+    const length=Math.hypot(50-x,50-y),expected=[(50-x)/length,(50-y)/length];
+    assert.ok(direction.every((v,i)=>Math.abs(v-expected[i])<1e-8));
+    const project=p=>direction[0]*p[0]+direction[1]*p[1];
+    const before=polygon(group.children[0].attrs.d),cutBefore=Math.max(...before.map(project));
+    combat.progress=75;c.map.renderFronts();
+    const next=c.layers.get('layerFronts').children[0],after=polygon(next.children[0].attrs.d);
+    assert.ok(Math.max(...after.map(project))>cutBefore,`advances toward target from ${x},${y}`);
+    assert.ok(area(after)>area(before));
+    const arrow=next.children.find(n=>n.attrs.class==='combat-direction combat-direction-advance');
+    assert.ok(arrow);assert.ok(arrow.attrs.transform.includes(`rotate(${Math.atan2(50-y,50-x)*180/Math.PI})`));
+    assert.equal(c.Game.state.provinces[1].owner,'b');
+  }
+});
+
+test('multi-leg march changes position and direction each day without filling or occupying the destination',()=>{
+  const c=setup([{id:'a0',owner:'west',x:10,y:10},{id:'b1',owner:'west',x:10,y:50},
+    {id:'c2',owner:'west',x:90,y:50},{id:'d3',owner:'east',x:170,y:50}]);
+  const combat={id:'march',from:0,to:2,routePath:[0,1,2],attacker:'a',defender:'c',phase:'preparation',progress:0,preparationDays:6,days:1};
+  c.Game.state.activeCombats=[combat];c.Game.state.adj=[[1],[0,2],[1],[]];
+  const snapshots=[[1,0,'10,30','rotate(90)'],[2,1,'10,50','rotate(0)'],[4,1,'50,50','rotate(0)'],[6,1,'90,50','rotate(0)']];
+  for(const [days,index,position,rotation]of snapshots){
+    combat.days=days;c.map.renderFronts();const group=c.layers.get('layerFronts').children[0];
+    assert.equal(group.attrs['data-route-segment'],String(index));assert.equal(group.attrs['data-position'],position);
+    assert.ok(group.children[1].attrs.transform.includes(rotation));
+    assert.equal(group.children.some(n=>n.attrs.class==='combat-front-fill'),false);
+    assert.equal(c.Game.state.provinces[2].owner,'c');
+  }
+  c.Game.state.adj[1]=[0];combat.days=5;c.map.renderFronts();
+  assert.equal(c.layers.get('layerFronts').children.length,0,'a broken land route is not drawn as a direct shortcut');
+});
+
+test('real animation callbacks keep march badges at the current route position across redraws and phase changes',()=>{
+  const c=setup();const combat={id:'moving',from:0,to:1,routePath:[0,1],attacker:'a',defender:'b',phase:'preparation',days:1,preparationDays:4,progress:0};
+  c.Game.state.activeCombats=[combat];
+  c.Game.getCombats=()=>c.Game.state.activeCombats.map(b=>({...b,name:'B',playerSide:'attack',aPersonnel:2000,dPersonnel:1500}));
+  const badge=()=>c.layers.get('layerBattles').children.find(n=>n.attrs['data-combat-id']==='moving');
+  const frame=()=>{c.map.startAnim();assert.equal(c.frames.length,1);c.frames.shift()();return badge();};
+  assert.ok(frame().attrs.transform.startsWith('translate(32.5,50)'));
+  assert.equal(badge().children.find(n=>n.attrs.y==='-40').textContent,'行军 25%');
+  combat.days=3;assert.ok(frame().attrs.transform.startsWith('translate(57.5,50)'));
+  combat.phase='engagement';combat.progress=20;assert.ok(frame().attrs.transform.startsWith('translate(70,50)'));
+  c.Game.state.activeCombats=[];assert.equal(frame(),undefined);
 });

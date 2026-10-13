@@ -171,4 +171,24 @@ test('compound-region combat fronts preserve holes and take their entry directio
   const line=group.children.find(n=>n.attrs.class==='combat-front-line');assert.ok(line);
   const numbers=[...line.attrs.d.matchAll(/-?\d+(?:\.\d+)?/g)].map(m=>+m[0]),ys=numbers.filter((_,i)=>i%2);
   assert.ok(ys.every(y=>Math.abs(y-ys[0])<1e-8),'the last route leg is vertical, so the front line is horizontal');
+  const clip=group.children.find(n=>n.tagName==='clipPath');assert.ok(clip);
+  const source=f.regions.regionsFor('p0');
+  assert.deepEqual(clip.children.map(n=>n.attrs.d),Array.from(source,r=>r.rings.map(ringPath).join(' ')));
+  assert.ok(clip.children.every(n=>n.attrs['clip-rule']==='evenodd'));
+  assert.ok(group.children.filter(n=>n!==clip).every(n=>n.attrs['clip-path']==='url(#'+clip.attrs.id+')'),
+    'fills, front segments and arrow cues are intersected with original holes and disconnected parts');
+});
+
+test('real shared administrative edge supplies the attack entry instead of a distant initial departure',()=>{
+  const f=setup(),state=f.Game.state,edge=f.regions.adjacency.find(e=>f.regions.nodes.some(n=>n.id===e.a)&&f.regions.nodes.some(n=>n.id===e.b));
+  assert.ok(edge);
+  const from=state.provinces.findIndex(p=>p.id===edge.a),to=state.provinces.findIndex(p=>p.id===edge.b);
+  state.provinces[from].owner='ger';state.provinces[to].owner='fra';
+  state.activeCombats=[{id:'edge-entry',from,to,routePath:[from,to],attacker:'ger',defender:'fra',phase:'engagement',progress:45}];
+  f.map.renderFronts();const group=f.layers.get('layerFronts').children[0];assert.ok(group);
+  assert.equal(group.attrs['data-entry'],edge.point.join(','));
+  const target=f.map.getProvinceAnchor(to),dx=target.x-edge.point[0],dy=target.y-edge.point[1],length=Math.hypot(dx,dy);
+  const direction=group.attrs['data-direction'].split(',').map(Number);
+  assert.ok(Math.abs(direction[0]-dx/length)<1e-8&&Math.abs(direction[1]-dy/length)<1e-8);
+  assert.equal(state.provinces[to].owner,'fra');
 });

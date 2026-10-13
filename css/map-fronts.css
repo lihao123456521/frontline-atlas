@@ -1,3 +1,5 @@
 #mapSvg .combat-front{pointer-events:none}
-#mapSvg .combat-front-fill{opacity:.94;stroke:none}
+#mapSvg .combat-front-fill{opacity:.28;stroke:none}
 #mapSvg .combat-front-line{fill:none;stroke:#f5dfb0;stroke-width:calc(2px / var(--map-zoom, 1));stroke-linecap:round;vector-effect:non-scaling-stroke}
+#mapSvg .combat-march-leg{fill:none;stroke:#e9c271;stroke-opacity:.6;stroke-width:calc(1.5px / var(--map-zoom, 1));stroke-dasharray:calc(5px / var(--map-zoom, 1)) calc(4px / var(--map-zoom, 1));vector-effect:non-scaling-stroke}
+#mapSvg .combat-direction path{fill:none;stroke:#ffe3a5;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;paint-order:stroke}

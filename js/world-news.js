@@ -10,7 +10,8 @@ const WorldNews=(()=>{
     const box=node();if(box){box.classList.add('hidden');box.innerHTML='';}
   }
   function blocked(){return !document.getElementById('eventModal')?.classList.contains('hidden');}
-  function dismiss(){
+  function dismiss(continuePlay=false){
+    const urgent=current&&defenseAlert(current);
     if(timer!==null)clearTimeout(timer);timer=null;
     if(current&&defenseAlert(current)){
       current.acknowledged=true;
@@ -18,6 +19,7 @@ const WorldNews=(()=>{
     }
     current=null;
     node()?.classList.add('hidden');showNext();
+    if(urgent&&continuePlay&&!blocked()&&!(stateRef?.worldEvents||[]).some(defenseAlert)&&typeof UI!=='undefined')UI.resumeSpeed?.();
   }
   function showNext(){
     if(current||!pending.length||blocked()||!document.body.classList.contains('playing'))return;
@@ -30,7 +32,7 @@ const WorldNews=(()=>{
     box.appendChild(element('div','news-eyebrow',(urgent?'前线警报 · 已暂停':related?'前线快报':'世界快报')+' / '+e.day));
     box.appendChild(element('h3','news-title',e.title));
     box.appendChild(element('p','news-detail',e.detail));
-    const close=element('button','news-close',urgent?'已知晓':'×');close.setAttribute('aria-label',urgent?'确认防御警报':'关闭重点事件');close.addEventListener('click',dismiss);box.appendChild(close);
+    const close=element('button','news-close',urgent?'已知晓 · 继续':'×');close.setAttribute('aria-label',urgent?'确认防御警报':'关闭重点事件');close.addEventListener('click',()=>dismiss(urgent));box.appendChild(close);
     if(Number.isInteger(e.provinceIdx)){
       const locate=element('button','news-locate',urgent?'查看战场 →':'查看地点 →');
       locate.addEventListener('click',()=>{

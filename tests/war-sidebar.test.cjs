@@ -52,6 +52,50 @@ function setup() {
   return {Game, UI, panel, descendants, get, button, click, emit, flush, window, document, timers};
 }
 
+test('a range retains its node after lost capture during a held drag, and maps continuous movement to whole divisions',()=>{
+  const f=setup(),{Game,UI,panel,descendants,emit,flush}=f;
+  const from=Game.provinceById('ger_berlin'),to=Game.provinceById('neu_poland');
+  const template=Game.province(from).garrison.find(d=>d.kind==='land');
+  Game.province(from).garrison=Array.from({length:8},(_,i)=>({...template,id:'slider'+i}));
+  Game.state.adj[from]=[to];Game.state.adj[to]=[from];UI.selectCity(from);UI.beginBattle('attack',to);
+  const range=descendants(panel).find(n=>n.attributes['aria-label']==='出击兵力数量');assert.ok(range);
+  assert.equal(range.step,'any','native thumb is continuous, while orders use whole divisions');
+  emit(range,'pointerdown');range.value='2.4';emit(range,'input');
+  UI.refresh();emit(range,'lostpointercapture');flush();
+  assert.ok(descendants(panel).includes(range),'a capture change cannot detach the slider while the pointer is held');
+  assert.match(panel.textContent,/2 \/ 8 师/);
+  range.value='5.7';emit(range,'input');assert.match(panel.textContent,/6 \/ 8 师/);
+  emit(range,'pointerup');flush();
+  const restored=descendants(panel).find(n=>n.attributes['aria-label']==='出击兵力数量');
+  assert.equal(+restored.value,6,'release commits the rounded whole-division selection');
+});
+
+test('recruitment can immediately mobilize depleted manpower and logistics can actively collect paid taxes',()=>{
+  const f=setup(),{Game,UI,button,click,panel}=f,c=Game.country('ger');c.manpower=0;
+  UI.selectCity(Game.provinceById('ger_berlin'));click(button('征兵'));assert.equal(button('确认征兵').disabled,true);
+  click(button('紧急动员'));assert.ok(c.manpower>=10);assert.equal(button('确认征兵').disabled,false);
+  click(button('确认征兵'));assert.equal(Game.state.buildQueue.filter(q=>q.kind==='div').length,1);
+  UI.navigate('logistics');const before=c.res,equipment=c.equipment;assert.ok(button('征收赋税'));
+  click(button('征收赋税'));assert.ok(c.res>before);assert.ok(c.equipment>equipment);
+  assert.match(panel.textContent,/征收赋税 · 30天/);
+});
+
+test('range keyboard repeats cancel a previous release and retain whole-division native steps',()=>{
+  const {Game,UI,panel,descendants,emit,flush}=setup();
+  const from=Game.provinceById('ger_berlin'),to=Game.provinceById('neu_poland'),template=Game.province(from).garrison.find(d=>d.kind==='land');
+  Game.province(from).garrison=Array.from({length:8},(_,i)=>({...template,id:'key-slider'+i}));
+  Game.state.adj[from]=[to];Game.state.adj[to]=[from];UI.selectCity(from);UI.beginBattle('attack',to);
+  const range=descendants(panel).find(n=>n.attributes['aria-label']==='出击兵力数量');range.value='2.4';
+  emit(range,'keydown',{key:'ArrowRight'});assert.equal(range.step,'1');assert.equal(+range.value,2);
+  range.value='3';emit(range,'input');emit(range,'keyup',{key:'ArrowRight'});UI.refresh();
+  emit(range,'keydown',{key:'ArrowRight'});flush();assert.ok(descendants(panel).includes(range));
+  emit(range,'keyup',{key:'ArrowRight'});flush();assert.equal(range.step,'any');
+  const current=descendants(panel).find(n=>n.attributes['aria-label']==='出击兵力数量');assert.equal(+current.value,3);
+  emit(current,'keydown',{key:'ArrowRight'});assert.equal(current.step,'1');
+  emit(current,'pointerdown');assert.equal(current.step,'any','switching directly from keyboard to pointer restores smooth dragging');
+  emit(current,'pointerup');flush();
+});
+
 test('city card keeps only war actions visible and preserves advanced city options through refresh', () => {
   const {Game, UI, panel, descendants, button, click} = setup();
   UI.selectCity(Game.state.provinces.findIndex(p => p.owner === 'ger'));

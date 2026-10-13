@@ -171,6 +171,7 @@ const Game = (function(){
     initIntel();
     // 顾问加成（须在所有初始化之后，避免被覆盖）
     applyAdvisor(playerId, playerAdvisor);
+    Object.values(state.countries).forEach(initializeMobilization);
     state.campaign = Campaign.create(state);
 
     log("游戏开始：" + country(playerId).name + "（" + IDEOLOGIES[state.playerIdeo].name + "）登上历史舞台。", "good");
@@ -251,6 +252,65 @@ const Game = (function(){
     state.provinces.forEach(p => { if (p.owner === id){ cap += 3*provinceWeight(p); if (p.isCapital) cap += 8; } });
     const c = country(id);
     c.manpowerCap = cap; c.manpower = cap;
+  }
+
+  // 人力使用千人为单位。后备池是有限游戏预算，不代表历史人口统计。
+  function initializeMobilization(c){
+    if(c.mobilization)return;
+    const capacity=Math.max(40,Math.round(c.manpowerCap*10));
+    c.mobilization={capacity,reserve:capacity,consumed:0,taxDay:null,mobilizeDay:null};
+  }
+  function manpowerMonthlyGain(c){return c.alive&&c.manpowerCap>0?Math.ceil(c.manpowerCap*.1):0;}
+  function addManpower(c,amount){
+    const pool=c.mobilization,gain=Math.max(0,Math.min(amount,pool.reserve,c.manpowerCap-c.manpower));
+    c.manpower+=gain;pool.reserve-=gain;pool.consumed+=gain;return gain;
+  }
+  function dailyManpower(year,month){
+    Object.values(state.countries).forEach(c=>addManpower(c,manpowerMonthlyGain(c)/daysInMonth(year,month)));
+  }
+  function nationalMobilizationStatus(){
+    if(!state)return null;
+    const c=country(state.player),pool=c.mobilization,now=state.daysElapsed||0;
+    const monthlyGain=Math.min(manpowerMonthlyGain(c),pool.reserve,Math.max(0,c.manpowerCap-c.manpower));
+    const dailyGain=Math.min(manpowerMonthlyGain(c)/daysInMonth(state.date.year,state.date.month),pool.reserve,Math.max(0,c.manpowerCap-c.manpower));
+    const actions={};
+    for(const id of ['tax','mobilize']){
+      const last=pool[id==='tax'?'taxDay':'mobilizeDay'],cooldownDays=last===null?0:Math.max(0,30-(now-last));
+      const costs=id==='tax'?{pp:2,stability:3}:{pp:2,stability:5,warSupport:2};
+      const gains=id==='tax'?{res:Math.max(20,c.civ*4),equipment:Math.max(10,c.mil*2)}:
+        {manpower:Math.max(0,Math.min(Math.max(10,c.manpowerCap*.5),pool.reserve,c.manpowerCap-c.manpower))};
+      let reason='';
+      if(state.over||!c.alive)reason='国家已退出战局';
+      else if(id==='mobilize'&&pool.reserve<=0)reason='可征后备已耗尽，无法继续动员';
+      else if(cooldownDays)reason='还需 '+cooldownDays+' 天可再次'+(id==='tax'?'征税':'动员');
+      else if(id==='mobilize'&&c.manpower>=c.manpowerCap)reason='预备兵源已达到容量';
+      else if(c.pp<costs.pp)reason='政治点不足：需 '+costs.pp+'，月初恢复 '+(1+Math.floor(c.stability/40));
+      actions[id]={available:!reason,reason,cooldownDays,costs,gains};
+    }
+    return {manpower:c.manpower,manpowerCap:c.manpowerCap,dailyGain,monthlyGain,recruitableReserve:pool.reserve,
+      capacity:pool.capacity,consumed:pool.consumed,budgetNote:'有限游戏动员预算，非历史人口统计',actions};
+  }
+  function nationalMobilizationAction(id){
+    if(!state||!['tax','mobilize'].includes(id))return false;
+    const action=nationalMobilizationStatus().actions[id];if(!action.available)return false;
+    const c=country(state.player);
+    c.pp-=action.costs.pp;c.stability=Math.max(0,c.stability-action.costs.stability);
+    if(id==='tax'){
+      c.res+=action.gains.res;c.equipment+=action.gains.equipment;c.mobilization.taxDay=state.daysElapsed||0;
+      log('征收赋税：资源 +'+action.gains.res+' / 装备 +'+action.gains.equipment+'；政治 -2 / 稳定 -3。','info');
+    }else{
+      c.warSupport=Math.max(0,c.warSupport-action.costs.warSupport);addManpower(c,action.gains.manpower);c.mobilization.mobilizeDay=state.daysElapsed||0;
+      log('紧急动员：预备兵源 +'+Math.round(action.gains.manpower*1000)+' 人；政治 -2 / 稳定 -5 / 战意 -2。','info');
+    }
+    state.autoRecruitment.reason='';autosave();if(window.UI)UI.refresh();return true;
+  }
+  function manpowerRecovery(c,required){
+    const status=nationalMobilizationStatus();
+    if(required>c.manpowerCap)return '当前预备容量不足此编制，需要选择更小兵种';
+    if(required>c.manpower+c.mobilization.reserve)return '预备与可征后备总量不足：还缺 '+Math.ceil((required-c.manpower-c.mobilization.reserve)*1000)+' 人';
+    if(status.actions.mobilize.available)return '可用紧急动员立即补充';
+    if(status.dailyGain>0)return '每日补充 '+Math.round(status.dailyGain*1000)+' 人，约 '+Math.ceil(Math.max(0,required-c.manpower)/status.dailyGain)+' 天后满足；'+status.actions.mobilize.reason;
+    return status.actions.mobilize.reason||'预备兵源已满';
   }
 
   /* ---------------- 顾问 ---------------- */
@@ -707,7 +767,12 @@ const Game = (function(){
     }
     if(won&&previous)checkCapitulation(previous,c.attacker);
     // 同日的后续交战可能夺走先处理进攻的基地，必须在自动存档前完成撤回。
-    state.activeCombats.filter(other=>province(other.from).owner!==other.attacker).slice().forEach(other=>finishCombat(other,false,'出发阵地失守'));
+    for(const other of state.activeCombats.slice()){
+      if(!activeCombat(other.id))continue;
+      if(province(other.from).owner!==other.attacker)finishCombat(other,false,'出发阵地失守');
+      else if(other.kind==='land'&&!routePathValid(other.routePath||[other.from,other.to],other.attacker))cancelCombat(other,'行军通道被切断，部队返回原基地。');
+      else withdrawBlockedReinforcements(other);
+    }
   }
   function checkCapitulation(id,byId){
     const c=country(id);if(!c?.alive)return;
@@ -1052,7 +1117,7 @@ const Game = (function(){
     if (c.res < t.res) lack.push("资源"+t.res);
     if (c.oil < t.oil) lack.push("石油"+t.oil);
     if (c.rare < t.rare) lack.push("稀有"+t.rare);
-    if (c.manpower < t.man) lack.push("人力"+t.man);
+    if (c.manpower < t.man) lack.push('预备兵源 '+Math.round(c.manpower*1000)+' / '+t.man*1000+' 人（'+manpowerRecovery(c,t.man)+'）');
     if (lack.length){ log("资源不足：需要 " + lack.join("、") + "。", "war"); if (window.UI&&!quiet) UI.refresh(); return false; }
     let target = state.selectedIdx;
     if (target < 0 || province(target).owner !== state.player) target = c.capitalIdx;
@@ -1148,13 +1213,24 @@ const Game = (function(){
     const base=state.orderOfBattle?.countries?.[state.player]?.land||c.initialLandDivisions||armyTotals(state.player).land;
     return Math.max(4,Math.ceil(base*recruitmentModes[auto.intensity].ratio));
   }
+  function recruitmentShortageReason(c,t,reserve){
+    const costs={equipment:t.equip,res:t.res,manpower:t.man,oil:t.oil,rare:t.rare};
+    const shortages=Object.keys(costs).filter(key=>costs[key]&&c[key]<costs[key]+reserve[key]);
+    if(!shortages.length)return '';
+    const names={equipment:'装备',res:'资源',manpower:'预备兵源',oil:'石油',rare:'稀有资源'};
+    return '储备不足：'+shortages.map(key=>names[key]).join('、')+'，暂停征兵；'+(shortages.includes('manpower')?manpowerRecovery(c,costs.manpower+reserve.manpower):'可征收赋税或等待月度收入');
+  }
   function autoRecruitmentStatus(){
     if(!state)return {enabled:true,intensity:'balanced',unitType:'infantry',summary:'自动征兵',actions:[],reason:'',queued:0,target:0,reserve:{res:40,equipment:24,manpower:5}};
     const auto=state.autoRecruitment,c=country(state.player),mode=recruitmentModes[auto.intensity];
     const queued=state.buildQueue.filter(q=>q.kind==='div'&&UNIT_TYPES[q.unitType].kind==='land').length;
-    const summary=!auto.enabled?'手动征兵':auto.reason||('自动征兵 · '+mode.name+' · '+UNIT_TYPES[auto.unitType].name);
-    return {enabled:auto.enabled,intensity:auto.intensity,unitType:auto.unitType,summary,actions:auto.actions.slice(),reason:auto.reason,
-      queued,target:recruitmentTarget(auto,c),monthlyLimit:mode.limit,reserve:recruitmentReserve(c)};
+    const target=recruitmentTarget(auto,c),reserve=recruitmentReserve(c);
+    const needsTraining=auto.enabled&&armyTotals(state.player).land+queued<target&&queued<mode.limit;
+    const shortage=needsTraining||auto.reason.startsWith('储备不足')?recruitmentShortageReason(c,UNIT_TYPES[auto.unitType],reserve):'';
+    const reason=auto.reason.startsWith('储备不足')?(shortage||'储备已够，等待月初自动征兵；也可立即手动训练'):auto.reason||shortage;
+    const summary=!auto.enabled?'手动征兵':reason||('自动征兵 · '+mode.name+' · '+UNIT_TYPES[auto.unitType].name);
+    return {enabled:auto.enabled,intensity:auto.intensity,unitType:auto.unitType,summary,actions:auto.actions.slice(),reason,
+      queued,target,monthlyLimit:mode.limit,reserve};
   }
   function setAutoRecruitment(settings){
     if(!state||!settings||typeof settings!=='object'||Array.isArray(settings))return false;
@@ -1182,7 +1258,6 @@ const Game = (function(){
     if(!auto.enabled||auto.lastMonth===month||!c.alive||state.over)return;
     auto.lastMonth=month;auto.actions=[];auto.reason='';
     const t=UNIT_TYPES[auto.unitType],mode=recruitmentModes[auto.intensity],reserve=recruitmentReserve(c);
-    const costs={equipment:t.equip,res:t.res,manpower:t.man,oil:t.oil,rare:t.rare};
     const availability=unitAvailability(auto.unitType);
     if(!availability.available){auto.reason=availability.reasons[0];return;}
     const prior=state.selectedIdx;
@@ -1193,7 +1268,8 @@ const Game = (function(){
         if(queued>=mode.limit){auto.reason='训练中 '+queued+' 支，等待交付';break;}
         const target=recruitmentDestination();
         if(target<0){auto.reason='没有可部署城市';break;}
-        if(Object.keys(costs).some(key=>costs[key]&&c[key]<costs[key]+reserve[key])){auto.reason='储备不足，暂停征兵';break;}
+        const shortageReason=recruitmentShortageReason(c,t,reserve);
+        if(shortageReason){auto.reason=shortageReason;break;}
         state.selectedIdx=target;
         if(!buildUnit(auto.unitType,true)){auto.reason='当前无法训练';break;}
         const name=t.name.replace(/师$/,'');
@@ -1416,12 +1492,13 @@ const Game = (function(){
   function daysInMonth(year,month){return new Date(Date.UTC(year,month,0)).getUTCDate();}
   function advanceDay(options={}){
     if(!state||state.over)return false;
+    const incomeYear=state.date.year,incomeMonth=state.date.month;
     state.date.day=(state.date.day||1)+1;state.daysElapsed=(state.daysElapsed||0)+1;
     let monthEnded=false;
     if(state.date.day>daysInMonth(state.date.year,state.date.month)){
       state.date.day=1;state.date.month++;if(state.date.month>12){state.date.month=1;state.date.year++;}monthEnded=true;
     }
-    processCombats();restDaily();
+    dailyManpower(incomeYear,incomeMonth);processCombats();restDaily();
     const briefItems=monthEnded?monthlySettlement(true):[];
     aiOrders();
     if(options?.automatic===true)issueAutoOffensive();
@@ -1430,6 +1507,8 @@ const Game = (function(){
   // 兼容旧调用：直接推进一个月；前端与实时速度统一调用 advanceDay。
   function endTurn(){
     if (state.over) return;
+    state.daysElapsed=(state.daysElapsed||0)+daysInMonth(state.date.year,state.date.month);
+    Object.values(state.countries).forEach(c=>addManpower(c,manpowerMonthlyGain(c)));
     state.date.day=1;
     state.date.month++;
     if (state.date.month > 12){ state.date.month = 1; state.date.year++; }
@@ -1446,10 +1525,7 @@ const Game = (function(){
         if (state.justifies[k] === 0){
           if (a === state.player) { log("对 " + country(t).name + " 的正当化已完成，可宣战。", "good");
             if (window.UI) UI.toast("对 " + country(t).name + " 的正当化已完成，可宣战！", "good"); }
-          else if (country(a).alive && country(t).alive && !isAtWar(a, t) && (typeof History === "undefined" || History.canAiDeclare(state,a,t))){
-            declareWar(a, t);
-            if (t === state.player && window.UI) UI.sfx("attack");
-          }
+          // 旧档 AI 正当化到期也由每日攻势统一决策，不能绕过通路、预算和战争冷却。
         }
       }
     });
@@ -1538,7 +1614,6 @@ const Game = (function(){
     const ppGain = 1 + Math.floor(c.stability / 40);
     c.res += resGain; c.oil += oilGain; c.rare += rareGain; c.equipment += equipGain;
     c.pp = Math.min(200, c.pp + ppGain);
-    c.manpower = Math.min(c.manpowerCap, c.manpower + Math.ceil(c.manpowerCap * 0.1));
     if (id === state.player) log("月度结算：资源+" + resGain + " 石油+" + oilGain + " 稀有+" + rareGain + " 装备+" + equipGain + " 政治+" + ppGain + "。", "l");
   }
 
@@ -1556,7 +1631,7 @@ const Game = (function(){
     rareGain = Math.round(rareGain * (1 + c.eff.resOut) * stabF * bonus);
     const equipGain = Math.round(c.mil * 3 * (1 + c.eff.factoryOut) * (1 + c.eff.equip) * bonus);
     const ppGain = 1 + Math.floor(c.stability / 40);
-    const mpGain = Math.ceil(c.manpowerCap * 0.1);
+    const mpGain = Math.min(manpowerMonthlyGain(c),c.mobilization.reserve,Math.max(0,c.manpowerCap-c.manpower));
     return { res:resGain, oil:oilGain, rare:rareGain, eq:equipGain, pp:ppGain, mp:mpGain };
   }
 
@@ -1615,43 +1690,78 @@ const Game = (function(){
   }
 
   /* ---------------- 简易 AI ---------------- */
-  function aiDiplomacy(){
-    Object.keys(state.countries).forEach(cid => {
-      if (cid === state.player || !country(cid).alive) return;
-      const a = cid;
-      if (!isAtWar(a, state.player)){
-        const aggro = DIFFICULTY[state.difficulty] ? DIFFICULTY[state.difficulty].aiAggro : 1;
-        const p = (0.06 + state.wt / 300) * aggro;
-        const graceOk = (state.monthsElapsed || 0) >= 10;   // 开局 10 个月保护期
-        if (graceOk && !isAllied(a,state.player) && (typeof History === "undefined" || History.canAiDeclare(state,a,state.player)) && Math.random() < p && relation(a, state.player) < 30 && !state.justifies[jKey(a, state.player)]){
-          const turns = state.wt >= 25 ? 4 : 8;
-          state.justifies[jKey(a, state.player)] = turns;
-          log(country(a).name + " 开始对 " + country(state.player).name + " 的正当化战争（约" + turns + "回合后宣战）。", "war");
-          if (window.UI) UI.toast(country(a).name + " 正在正当化对你的战争，约 " + turns + " 回合后宣战！", "war");
+  // Integration: replace the old aiDiplomacy body with this delegator. Call
+  // aiWorldPolitics() at the start of aiOrders(). Do not call old aiExpand().
+  // These weights are game policy preferences, not historical factual events.
+  function aiDiplomacy(){ aiWorldPolitics(); }
+  function aiPoliticalCandidates(id){
+    const c=country(id),result=[];
+    const wish={ger:['aut','cze','pol'],ita:['eth','yug','egy'],jpn:['chn','usa','nld'],
+      sov:['fin','rom','est','lva','pol'],man:['chn'],ccp:['chn'],
+      tur:['irq','irn'],rom:['bul'],hun:['yug'],bul:['grc'],chn:['man','ccp']}[id]||[];
+    const fronts=who=>new Set(state.wars.filter(w=>w.a===who||w.b===who).map(w=>w.a===who?w.b:w.a).filter(e=>country(e)?.alive)).size;
+    const projectedFronts=target=>{
+      const enemies=new Set(state.wars.filter(w=>w.a===id||w.b===id).map(w=>w.a===id?w.b:w.a).filter(e=>country(e)?.alive));
+      enemies.add(target);
+      for(const ally of Object.keys(state.countries))if(ally!==id&&country(ally).alive&&!isAllied(id,ally)&&
+        (isAllied(ally,target)||state.guarantees[relKey(ally,target)])){
+          if(!isAtWar(id,ally)&&fronts(ally)>=2)return Infinity;
+          enemies.add(ally);
         }
-        // AI 之间互相正当化 (世界生动起来): 10% 概率 (原 3% 太低)
-        if (Math.random() < 0.10){
-          const others = COUNTRIES.filter(o =>
-            o.id !== a && o.id !== state.player
-            && country(o.id).alive
-            && (typeof History === "undefined" || History.canAiDeclare(state,a,o.id))
-            && !isAtWar(a, o.id)
-            && !isAllied(a, o.id)
-            && relation(a, o.id) < 30
-            && !state.justifies[jKey(a, o.id)]
-          ).map(o => o.id);
-          if (others.length){
-            // 优先选关系最差或最弱的
-            others.sort((x, y) => relation(a, x) - relation(a, y));
-            const target = others[0];
-            const turns = state.wt >= 25 ? 4 : 8;
-            state.justifies[jKey(a, target)] = turns;
-            log(country(a).name + " 开始对 " + country(target).name + " 的正当化战争。", "war");
-          }
-        }
+      return enemies.size;
+    };
+    const defensiveTarget=target=>Object.keys(state.countries).some(ally=>isAllied(id,ally)&&isAtWar(ally,target));
+    const proactive=['fas','com'].includes(c.ideo)||c.ideo==='aut'||(c.ideo==='neu'&&wish.length);
+    for(let from=0;from<state.provinces.length;from++){
+      const p=province(from);if(p.owner!==id||p.garrison.some(d=>d.kind==='land'&&d.combatId))continue;
+      const pool=availableLand(p);if(pool.length<2)continue;
+      const send=defaultSend(pool.length),sent=pool.slice(0,send);
+      if(sent.some(d=>d.org<(d.maxOrg||60)*.55))continue;
+      const fleet=p.garrison.some(d=>d.kind==='naval'&&d.hp>0&&!d.combatId);
+      const targets=landTargets(from,id).map(to=>({to,kind:'land'}));
+      if(fleet&&coastalOf(from))for(const to of seaAdj(from))if(coastalOf(to)&&!targets.some(t=>t.to===to))targets.push({to,kind:'amphib'});
+      for(const {to,kind}of targets){
+        const q=province(to),other=country(q.owner);
+        if(!other?.alive||other.id===id||isAllied(id,other.id)||isAtWar(id,other.id)||fronts(other.id)>=2||
+          projectedFronts(other.id)>2||relation(id,other.id)>=50||state.activeCombats.some(b=>b.to===to))continue;
+        if(other.id===state.player&&(state.monthsElapsed||0)<10)continue;
+        const defendAlly=defensiveTarget(other.id);
+        if(!proactive&&!defendAlly&&relation(id,other.id)>-60)continue;
+        const naval=kind==='amphib'?Math.max(.01,c.eff.navBonus+navalFormation(from)+navalSupport(from,to)):0;
+        const strength=assaultStrength(id,from,to,sent,naval),ratio=strength.aStr/Math.max(1,strength.dStr);
+        const threshold=defendAlly ? .65 : ['fas','com','aut'].includes(c.ideo) ? .8 : 1.05;
+        if(ratio<threshold)continue;
+        const preferred=wish.indexOf(other.id),route=kind==='land'?landRoute(from,to,id):null;
+        const km=route?.routeKm??distanceKm(p,q);
+        const score=(preferred<0?0:4/(preferred+1))+Math.min(3,ratio)-km/1800-relation(id,other.id)/150+(defendAlly?3:0);
+        result.push({from,to,target:other.id,kind,send,ratio,score});
       }
-    });
+    }
+    return result.sort((a,b)=>b.score-a.score||a.from-b.from||a.to-b.to);
   }
+  function aiWorldPolitics(){
+    const day=state.daysElapsed||0;
+    // At most one autonomous initiation every three days. Ally defensive
+    // participation can still follow a declaration on the same day.
+    if(day<3||day-(state.aiDiplomacyDay??-3)<3)return;
+    for(const id of Object.keys(state.countries)){
+      const c=country(id);if(id===state.player||!c.alive)continue;
+      const hash=[...id].reduce((n,ch)=>n+ch.charCodeAt(0),0);
+      if((day+hash)%7!==0||day-(c.aiWarDay??-30)<30)continue;
+      const enemies=new Set(state.wars.filter(w=>w.a===id||w.b===id).map(w=>w.a===id?w.b:w.a).filter(e=>country(e)?.alive));
+      if(enemies.size>=2||state.activeCombats.filter(b=>b.attacker===id).length>=2||c.pp<10||c.equipment<12||c.res<15||c.manpower<1||c.stability<30)continue;
+      const next=aiPoliticalCandidates(id)[0];if(!next)continue;
+      // Reuse the full accepted-order path: real troops, stay-behind force,
+      // alliance-aware land route or a coastal sea route with a living fleet.
+      const ok=next.kind==='amphib'?amphibious(next.from,next.to,next.send,id,true):doAssault(id,next.from,next.to,0,next.send,true);
+      if(!ok)continue;
+      c.pp-=10;c.aiWarDay=day;state.aiDiplomacyDay=day;
+      const battle=state.activeCombats[state.activeCombats.length-1];
+      battle.autoOffensiveDay=day;if(next.ratio<1.15)battle.tactics='careful';
+      return;
+    }
+  }
+
   function aiHasCoastal(id){
     return state.provinces.some((p,i)=> p.owner===id && state.coastal[i]);
   }
@@ -1698,6 +1808,7 @@ const Game = (function(){
     });
   }
   function aiOrders(){
+    aiWorldPolitics();
     Object.keys(state.countries).forEach(cid=>{
       if(cid===state.player||!country(cid).alive)return;
       if(state.wars.some(w=>(w.a===cid&&country(w.b)?.alive)||(w.b===cid&&country(w.a)?.alive)))aiAttackEnemies(cid);
@@ -1953,10 +2064,17 @@ const Game = (function(){
           (item.kind === "div" && !UNIT_TYPES[item.unitType]) ||
           ((item.kind === "div" || item.kind === "build") && (!Number.isInteger(item.provinceIdx) || item.provinceIdx < 0 || item.provinceIdx >= s.provinces.length)))) return false;
     const countryNumbers = ["pp","res","oil","rare","equipment","stability","warSupport","civ","mil","manpower","manpowerCap"];
+    const validPoliticsDay=day=>day===undefined||Number.isSafeInteger(day)&&day>=0&&day<=(s.daysElapsed||0);
+    if(!validPoliticsDay(s.aiDiplomacyDay)||Object.values(s.countries).some(c=>!validPoliticsDay(c.aiWarDay)))return false;
     const incomeEffects = ["resOut","factoryOut","equip","researchOut"];
     if (Object.values(s.countries).some(c => !obj(c) || !obj(c.eff) || !obj(c.researched) ||
         countryNumbers.some(k => !Number.isFinite(c[k])) || incomeEffects.some(k => !Number.isFinite(c.eff[k])) || Object.values(c.eff).some(v=>!Number.isFinite(v)) ||
         !Number.isInteger(c.capitalIdx) || c.capitalIdx < -1 || c.capitalIdx >= s.provinces.length)) return false;
+    if(Object.values(s.countries).some(c=>c.mobilization!==undefined&&(!obj(c.mobilization)||
+      ['capacity','reserve','consumed'].some(k=>!Number.isFinite(c.mobilization[k])||c.mobilization[k]<0)||
+      c.mobilization.reserve>c.mobilization.capacity||c.mobilization.consumed>c.mobilization.capacity||
+      Math.abs(c.mobilization.reserve+c.mobilization.consumed-c.mobilization.capacity)>1e-7||
+      ['taxDay','mobilizeDay'].some(k=>c.mobilization[k]!==null&&(!Number.isSafeInteger(c.mobilization[k])||c.mobilization[k]<0||c.mobilization[k]>(s.daysElapsed||0))))))return false;
     if (!Number.isInteger(s.selectedIdx) || s.selectedIdx < -1 || s.selectedIdx >= s.provinces.length) return false;
     return true;
   }
@@ -1983,6 +2101,7 @@ const Game = (function(){
       candidate.unitSerial=Number.isInteger(candidate.unitSerial)&&candidate.unitSerial>=0?candidate.unitSerial:0;
       candidate.combatSerial=Number.isInteger(candidate.combatSerial)&&candidate.combatSerial>=0?candidate.combatSerial:0;
       candidate.daysElapsed=Number.isInteger(candidate.daysElapsed)&&candidate.daysElapsed>=0?candidate.daysElapsed:0;
+      Object.values(candidate.countries).forEach(initializeMobilization);
       const allUnits=candidate.provinces.flatMap(p=>p.garrison).concat(candidate.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)));
       allUnits.forEach(d=>{const match=/^u(\d+)$/.exec(d.id||'');if(match)candidate.unitSerial=Math.max(candidate.unitSerial,Number(match[1]));});
       const restore=d=>{
@@ -2106,7 +2225,7 @@ const Game = (function(){
     assignResearch, cancelResearch, doFocus, doAssault,
     diploAction, diplomacyAvailability, callAlly, setAutoLogistics, autoLogisticsStatus, setAutoRecruitment, autoRecruitmentStatus, setAutoOffensive, autoOffensiveStatus, moveUnits, resolveAttack, amphibious, proposePeace, resolveEvent, checkScriptedEvents, battlePreview,
     neighbors, landRoute, landTargets, coastalOf, seaAdj, province, provinceById, country, relation, isAtWar,
-    intelLevel, canSee, computeWarscore, navalFormation, airFormation, isAllied, incomePreview, acceptPeace, rejectPeace,
+    intelLevel, canSee, computeWarscore, navalFormation, airFormation, isAllied, incomePreview, nationalMobilizationStatus, nationalMobilizationAction, acceptPeace, rejectPeace,
     save, load, autosave, hasSave, getCampaign, claimCampaignReward, chooseStrategy,
   };
 })();

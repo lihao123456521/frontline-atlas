@@ -22,8 +22,19 @@ function setup(){
   const update=()=>ctx.news.update(state,i=>selected.push(i));
   const close=()=>box.children.find(e=>e.attrs['aria-label']==='关闭重点事件').listeners.click();
   const tick=()=>{const [id,fn]=timers.entries().next().value;timers.delete(id);fn();};
-  return {news:ctx.news,state,box,modal,body,timers,focused,selected,event,update,close,tick};
+  return {news:ctx.news,state,box,modal,body,timers,focused,selected,event,update,close,tick,ctx};
 }
+
+test('acknowledging the final defense alert resumes play once, while inspecting a battlefield keeps planning paused',()=>{
+  const f=setup();let resumes=0,saves=0;f.ctx.UI={resumeSpeed:()=>resumes++,focusCombat:()=>true};f.ctx.Game={autosave:()=>saves++};
+  const a=f.event('invasion'),b=f.event('invasion');a.acknowledged=b.acknowledged=false;f.update();
+  const acknowledge=()=>f.box.children.find(e=>e.className==='news-close').listeners.click();
+  acknowledge();assert.equal(a.acknowledged,true);assert.equal(resumes,0,'other alerts still block time');
+  acknowledge();assert.equal(b.acknowledged,true);assert.equal(resumes,1);assert.equal(saves,2);
+  f.update();assert.equal(resumes,1,'refresh cannot start another clock');
+  const c=f.event('invasion');c.acknowledged=false;f.update();f.box.children.find(e=>e.className==='news-locate').listeners.click();
+  assert.equal(c.acknowledged,true);assert.equal(resumes,1,'view battlefield is a planning action');
+});
 
 test('world news deduplicates refresh, prioritizes player outcomes and advances one card at a time',()=>{
   const f=setup();f.event('war',['fra','ita'],3);const player=f.event('capture');f.update();

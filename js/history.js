@@ -323,8 +323,11 @@ const History = (() => {
   function canAiDeclare(s,a,b){
     if(s.wars.some(w=>(w.a===a&&w.b===b)||(w.a===b&&w.b===a)))return true;
     const c=s.countries[a];
-    // 和平民主国家不会无缘无故吞并邻国；侵略性政权在紧张局势中自由推演。
-    return c&&['fas','com'].includes(c.ideo)&&s.date.year>=1939&&s.wt>=25;
+    const proactive=c&&(['fas','com','aut'].includes(c.ideo)||c.ideo==='neu'&&['chn','man','ccp','tur','rom','hun','bul'].includes(a));
+    const defensive=b&&Object.keys(s.countries).some(ally=>s.alliances[[a,ally].sort().join('|')]&&s.wars.some(w=>w.a===ally&&w.b===b||w.a===b&&w.b===ally));
+    // Default free play allows border crises before the historical war date.
+    // Democratic states join threatened allies rather than acquiring random land.
+    return !!(proactive||defensive);
   }
   return {apply,allowsBorder,allowsProvinceLink,buildLandGraph,expandProvinces,administrativeSeaLinks,canAiDeclare,borders};
 })();

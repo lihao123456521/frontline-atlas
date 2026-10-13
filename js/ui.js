@@ -475,6 +475,7 @@ const UI = (function(){
   /* ---------- 右侧面板 ---------- */
   function releasePanelInteraction(){
     if(panelReleaseTimer!==null)clearTimeout(panelReleaseTimer);
+    if(panelInteraction?.kind==='keyboard'&&panelInteraction.slider)panelInteraction.target.step='any';
     panelReleaseTimer=null;panelInteraction=null;
     if(panelRenderPending){panelRenderPending=false;renderRightPanel();}
   }
@@ -487,23 +488,29 @@ const UI = (function(){
     const control=event=>event.target?.closest?.('button,summary,input,select,textarea,a,[role="button"]');
     // Keep the native click target alive from press to release, including touch's synthesized click.
     rp.addEventListener('pointerdown',event=>{
-      if(event.button!==undefined&&event.button!==0||!control(event))return;
+      const target=control(event);if(event.button!==undefined&&event.button!==0||!target)return;
       if(panelReleaseTimer!==null)clearTimeout(panelReleaseTimer);
-      panelReleaseTimer=null;panelInteraction={kind:'pointer',id:event.pointerId};setSpeed(0);
+      if(panelInteraction?.kind==='keyboard'&&panelInteraction.slider)panelInteraction.target.step='any';
+      const slider=target.tagName?.toLowerCase()==='input'&&target.type==='range';
+      panelReleaseTimer=null;panelInteraction={kind:'pointer',id:event.pointerId,slider};setSpeed(0);
+      if(slider)try{target.setPointerCapture?.(event.pointerId);}catch{}
     },true);
     rp.addEventListener('keydown',event=>{
-      if(!['Enter',' '].includes(event.key)||!control(event))return;
-      panelInteraction={kind:'keyboard'};setSpeed(0);
+      const target=control(event),slider=target?.type==='range';
+      if(!(slider?['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','PageUp','PageDown','Enter',' ']:['Enter',' ']).includes(event.key)||!target)return;
+      if(panelReleaseTimer!==null)clearTimeout(panelReleaseTimer);panelReleaseTimer=null;
+      if(slider){target.step='1';target.value=String(Math.round(+target.value));}
+      panelInteraction={kind:'keyboard',slider,target};setSpeed(0);
     },true);
     rp.addEventListener('keyup',event=>{
-      if(panelInteraction?.kind==='keyboard'&&['Enter',' '].includes(event.key))schedulePanelRelease(400);
+      if(panelInteraction?.kind==='keyboard'&&(panelInteraction.slider||['Enter',' '].includes(event.key)))schedulePanelRelease(400);
     });
     rp.addEventListener('click',()=>{if(panelInteraction)schedulePanelRelease(0);});
     document.addEventListener('pointerup',event=>{
       if(panelInteraction?.kind==='pointer'&&panelInteraction.id===event.pointerId)schedulePanelRelease(400);
     });
     document.addEventListener('lostpointercapture',event=>{
-      if(panelInteraction?.kind==='pointer'&&panelInteraction.id===event.pointerId)schedulePanelRelease(400);
+      if(panelInteraction?.kind==='pointer'&&!panelInteraction.slider&&panelInteraction.id===event.pointerId)schedulePanelRelease(400);
     });
     document.addEventListener('pointercancel',event=>{
       if(panelInteraction?.kind==='pointer'&&panelInteraction.id===event.pointerId)releasePanelInteraction();
@@ -655,8 +662,8 @@ const UI = (function(){
     }
     if(totalSend>=2){
       const label=el('label',null,'出击兵力（按整师调遣，默认保留约两成）'),range=el('input');
-      range.type='range';range.min=1;range.max=totalSend;range.value=sending;range.setAttribute('aria-label','出击兵力数量');
-      range.addEventListener('input',()=>{sendCount=+range.value;sending=sendCount;battleAdjustmentsOpen=true;updateEstimate();});
+      range.type='range';range.min=1;range.max=totalSend;range.step='any';range.value=sending;range.setAttribute('aria-label','出击兵力数量');
+      range.addEventListener('input',()=>{sendCount=Math.round(+range.value);sending=sendCount;battleAdjustmentsOpen=true;updateEstimate();});
       label.appendChild(range);advanced.appendChild(label);
     }
     const allies=origins.filter(o=>o.idx!==from&&o.kind==='attack');
@@ -701,9 +708,9 @@ const UI = (function(){
     const label=el("div","task-status");
     function updateLabel(){ const n=moveCount||defaultSend; label.textContent=`派出 ${n} 支 · 留守 ${total-n} 支`; }
     if(total>1){
-      const range=el("input"); range.type="range"; range.min=0; range.max=total; range.value=moveCount;
+      const range=el("input"); range.type="range"; range.min=1; range.max=total; range.step='any'; range.value=moveCount||defaultSend;
       range.setAttribute("aria-label","调动兵力数量");
-      range.addEventListener("input",()=>{ moveCount=+range.value; updateLabel(); });
+      range.addEventListener("input",()=>{ moveCount=Math.round(+range.value); updateLabel(); });
       box.appendChild(range);
     }
     updateLabel(); box.appendChild(label);
@@ -1033,6 +1040,21 @@ const UI = (function(){
     }
   }
 
+  function renderNationalReserves(rp){
+    const status=Game.nationalMobilizationStatus?.();if(!status)return;
+    const box=el('section','national-reserves');box.appendChild(el('h4',null,'战争储备'));
+    box.appendChild(el('p','task-status','预备 '+people(status.manpower*1000)+' · 每日补充 '+Math.round(status.dailyGain*1000)+' 人'));
+    const actions=el('div','national-reserve-actions'),details=el('details','reserve-costs');details.appendChild(el('summary',null,'收益与代价'));
+    for(const [id,name]of [['mobilize','紧急动员'],['tax','征收赋税']]){
+      const action=status.actions[id],cooling=action.cooldownDays&&action.reason.startsWith('还需'),b=el('button','rp-btn',name+(cooling?' · '+action.cooldownDays+'天':''));b.disabled=!action.available;b.title=action.reason;b.setAttribute('aria-label',name);
+      const gain=id==='tax'?'钢铁 +'+action.gains.res+' · 装备 +'+action.gains.equipment:'预备 +'+people(action.gains.manpower*1000);
+      b.addEventListener('click',()=>{setSpeed(0);if(Game.nationalMobilizationAction(id)){sfx('build');toast(name+'：'+gain,'good');}else{toast(Game.nationalMobilizationStatus().actions[id].reason||'暂时无法执行','war');refresh();}});actions.appendChild(b);
+      details.appendChild(el('p',null,name+'：'+gain+' · 政治 −'+action.costs.pp+' · 稳定 −'+action.costs.stability+(action.costs.warSupport?' · 战意 −'+action.costs.warSupport:'')));
+      if(!action.available&&!cooling)box.appendChild(el('p','action-reason',name+'：'+action.reason));
+    }
+    box.appendChild(actions);details.appendChild(el('p',null,'可动员后备 '+people(status.recruitableReserve*1000)+' · 每项行动间隔30天'));box.appendChild(details);rp.appendChild(box);
+  }
+
   function renderRecruitmentControls(rp){
     const status=Game.autoRecruitmentStatus();
     const box=el('section','rp-section recruitment-status');
@@ -1047,7 +1069,7 @@ const UI = (function(){
     const type=el('select','rp-select');type.setAttribute('aria-label','自动征兵兵种');
     Object.values(UNIT_TYPES).filter(t=>t.kind==='land').forEach(t=>{const o=el('option',null,t.name);o.value=t.key;o.disabled=!Game.unitAvailability(t.key).available;type.appendChild(o);});type.value=status.unitType;
     type.addEventListener('focus',()=>setSpeed(0));type.addEventListener('change',()=>{Game.setAutoRecruitment({unitType:type.value});refresh();});details.appendChild(type);
-    box.appendChild(details);rp.appendChild(box);
+    box.appendChild(details);renderNationalReserves(box);rp.appendChild(box);
   }
 
   function renderProductionView(rp){
@@ -1088,6 +1110,7 @@ const UI = (function(){
     const summary=el('p');summary.textContent=status.summary;box.appendChild(summary);
     status.reasons.forEach(text=>{const row=el('div','action-reason');row.textContent=text;box.appendChild(row);});
     box.appendChild(el('p','task-status',`库存：装备 ${Math.round(c.equipment)} · 钢铁 ${Math.round(c.res)} · 油 ${Math.round(c.oil)} · 稀有 ${Math.round(c.rare)} · 预备人力 ${people(c.manpower*1000)}`));
+    renderNationalReserves(box);
     [['research','手动研究'],['focus','国策与决策'],['overview','全国概览']].forEach(([view,title])=>{const b=el('button','rp-btn',title);b.addEventListener('click',()=>navigate(view));box.appendChild(b);});rp.appendChild(box);
     const fac = el("div","rp-section");
     fac.innerHTML = `<h4>工业建设</h4>`;
@@ -1361,9 +1384,9 @@ const UI = (function(){
       sources.forEach(source=>{const option=el('option',null,`${source.name} · 可调 ${people(orderPersonnel(source.from,source.count))}`);option.value=String(source.from);select.appendChild(option);});select.value=String(reinforcementFrom);
       select.addEventListener('change',()=>{reinforcementFrom=+select.value;reinforcementCount=0;reinforcementsOpen=true;refresh();});detail.appendChild(select);
       const source=sources.find(source=>source.from===reinforcementFrom);reinforcementCount=Math.min(source.count,reinforcementCount||defaultBattleSend(source.count));
-      const range=el('input');range.type='range';range.min=1;range.max=source.count;range.value=reinforcementCount;range.setAttribute('aria-label','增援师数');detail.appendChild(range);
+      const range=el('input');range.type='range';range.min=1;range.max=source.count;range.step='any';range.value=reinforcementCount;range.setAttribute('aria-label','增援师数');detail.appendChild(range);
       const count=el('p','reinforcement-count');function updateCount(){count.textContent=`增援 ${people(orderPersonnel(reinforcementFrom,reinforcementCount))}（${reinforcementCount} 师） · 留守 ${people(orderPersonnel(reinforcementFrom,source.count)-orderPersonnel(reinforcementFrom,reinforcementCount))}`;}
-      range.addEventListener('input',()=>{reinforcementCount=+range.value;updateCount();});updateCount();detail.appendChild(count);
+      range.addEventListener('input',()=>{reinforcementCount=Math.round(+range.value);updateCount();});updateCount();detail.appendChild(count);
       const commit=el('button','rp-btn primary','确认增援');commit.addEventListener('click',()=>{if(!Game.reinforceCombat(b.id,reinforcementFrom,reinforcementCount)){toast('增援失败：部队或战场条件已变化。','war');refresh();return;}reinforcementsOpen=false;resumeSpeed();});detail.appendChild(commit);
     }else detail.appendChild(el('p','action-reason','没有可调增援：需要未投入战斗且组织度足够、能够到达战场的己方陆军。'));
     (b.allies||[]).forEach(ally=>{
