@@ -59,6 +59,13 @@ test('British home fit ignores India and region views can reach Asia, America an
   c.map.focusRegion('americas');assert.ok(c.map.isProvinceInView(14));
   c.map.focusRegion('pacific');assert.ok(c.map.isProvinceInView(16));
 });
+test('routine small detachments stay quiet on the regional map and appear when selected or closely zoomed',()=>{
+  const c=setup(1400,840);for(const p of c.Game.state.provinces)if(p.owner==='ger')p.garrison.forEach(d=>d.formationPermille=40);
+  c.map.focusRegion('europe');assert.equal(c.map.getUnits().filter(u=>c.Game.state.provinces[u.idx].owner==='ger').length,0);
+  c.Game.state.selectedIdx=1;c.map.renderUnits();assert.ok(c.map.getUnits().some(u=>u.idx===1));
+  c.Game.state.selectedIdx=-1;for(let i=0;i<14;i++)c.map.zoomIn();c.map.focusProvince(0,false);c.map.renderUnits();
+  assert.ok(c.map.getUnits().some(u=>c.Game.state.provinces[u.idx].owner==='ger'));
+});
 test('zoom is bounded at 1–14 and selected city remains visible at global scale',()=>{
   const c=setup();c.Game.state.selectedIdx=0;c.map.resetView();
   assert.ok(labels(c,'density-city-label').some(t=>t.textContent==='berlin'));

@@ -209,6 +209,11 @@ const UNIT_TYPES = {
   marines: {key:"marines",name:"海军陆战师",kind:"land",role:"降低登陆惩罚，沿海突击",atk:14,def:12,hp:50,org:65,equip:18,res:10,oil:0,rare:2,man:10,time:2,year:1936,tech:"nav1"},
   antiTank: {key:"antiTank",name:"反坦克炮团",kind:"land",role:"克制敌方装甲，需步兵掩护",atk:8,def:12,hp:32,org:45,equip:16,res:10,oil:0,rare:3,man:5,time:2,year:1936,tech:"at1"},
   antiAir: {key:"antiAir",name:"防空炮团",kind:"land",role:"削弱敌机支援与轰炸",atk:5,def:10,hp:32,org:45,equip:15,res:9,oil:0,rare:3,man:5,time:2,year:1936,tech:"aa1"},
+  lightArmor: {key:"lightArmor",name:"轻装甲师",kind:"land",role:"快速平原突击，崎岖地形受限",atk:18,def:12,hp:60,org:55,equip:22,res:13,oil:6,rare:0,man:10,time:2,year:1936,tech:"mob1",armored:true,terrainRole:{plain:1.2,mountain:.7,urban:.75,forest:.8}},
+  heavyArmor: {key:"heavyArmor",name:"重装甲战斗群",kind:"land",role:"重型突破，山地与城市行动受限",atk:30,def:24,hp:100,org:40,equip:45,res:32,oil:16,rare:4,man:14,time:3,year:1941,tech:"mech1",armored:true,terrainRole:{plain:1.3,mountain:.4,urban:.5,forest:.5}},
+  engineer: {key:"engineer",name:"工兵团",kind:"land",role:"步兵掩护下削弱敌方要塞",atk:8,def:10,hp:30,org:55,equip:12,res:6,oil:0,rare:1,man:4,time:1,year:1936,tech:"art1",fortReduction:.2},
+  tankDestroyer: {key:"tankDestroyer",name:"坦克歼击营群",kind:"land",role:"防御反装甲，需步兵掩护",atk:10,def:17,hp:55,org:50,equip:26,res:16,oil:6,rare:3,man:6,time:2,year:1940,tech:"at1",antiArmorAtk:1.5,antiArmorDef:3.5},
+  garrison: {key:"garrison",name:"守备师",kind:"land",role:"城市防守与驻地守备",atk:6,def:10,hp:45,org:50,equip:6,res:3,oil:0,rare:0,man:8,time:1,year:1936,urbanDefense:1.5},
   navy: {key:"navy",name:"主力舰编队",kind:"naval",role:"制海与岸轰；易受潜艇威胁",atk:22,def:22,hp:110,org:50,equip:38,res:28,oil:15,rare:2,man:10,time:4,year:1936},
   destroyer: {key:"destroyer",name:"驱逐舰队",kind:"naval",role:"反潜护航，保护登陆运输",atk:12,def:14,hp:60,org:65,equip:22,res:14,oil:7,rare:0,man:6,time:2,year:1936},
   submarine: {key:"submarine",name:"潜艇群",kind:"naval",role:"袭扰登陆运输，克制主力舰",atk:17,def:8,hp:45,org:60,equip:20,res:12,oil:6,rare:2,man:4,time:2,year:1936,tech:"nav1"},
@@ -493,6 +498,11 @@ Object.assign(UNIT_GLYPH,{
   marines:"M12 3v17 M7 7h10 M3 13c0 9 18 9 18 0 M8 3h8",
   antiTank:"M3 17h16 M6 17v3 M17 17v3 M9 17l2-6 11-5 M9 11h6",
   antiAir:"M3 19h18 M6 19v3 M18 19v3 M10 19V9l6-6 M7 9h6",
+  lightArmor:"M4 15h14v4H4z M7 15v-4h7l3 4 M14 12h7 M7 19v2 M16 19v2",
+  heavyArmor:"M2 14h20v6H2z M6 14V8h11v6 M15 10h8 M5 20v2 M18 20v2",
+  engineer:"M5 4l15 15 M20 4L5 19 M3 17l4 4 M18 2l4 4 M4 3h5v5H4z",
+  tankDestroyer:"M3 15h18v5H3z M7 15l3-5h7 M15 11l8-5 M6 20v2 M18 20v2",
+  garrison:"M4 5h16v9c0 4-8 8-8 8s-8-4-8-8z M8 10h8 M12 7v10",
   destroyer:"M3 15h18l-4 5H7z M9 15V9h6v6 M12 9V4",
   submarine:"M3 14h17c4 0 4 6 0 6H3z M10 14V9h6v5 M14 9V5h4",
   carrier:"M2 16h20l-4 5H5z M4 13h17 M17 13V8h3v5 M10 4v7 M7 8h6",
@@ -501,6 +511,7 @@ Object.assign(UNIT_GLYPH,{
   strategicBomber:"M12 2v20 M1 14l11-7 11 7 M6 21l6-4 6 4 M4 14v5 M20 14v5",
 });
 Object.assign(UNIT_SHORT,{motorized:"摩",mountain:"山",marines:"陆",antiTank:"反",antiAir:"防",destroyer:"驱",submarine:"潜",carrier:"航",cas:"援",tacticalBomber:"战",strategicBomber:"轰"});
+Object.assign(UNIT_SHORT,{lightArmor:"轻",heavyArmor:"重",engineer:"工",tankDestroyer:"歼",garrison:"守"});
 Object.keys(UNIT_TYPES).forEach(key=>{if(!UNIT_GLYPH_COLOR[key]) UNIT_GLYPH_COLOR[key]=UNIT_TYPES[key].kind==='land'?'#dfcc96':UNIT_TYPES[key].kind==='naval'?'#7ec8f5':'#c4e8ff';});
 const TERRAIN_GLYPH = {
   plain:    "M4 16h16M4 19h16",

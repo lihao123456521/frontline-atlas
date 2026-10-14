@@ -198,11 +198,58 @@ const OrderOfBattle = (() => {
     }
     return scored;
   }
+  function fillOpeningCoverage(s,makeDivision,report){
+    report.coverage={};
+    const index=new Map(s.provinces.map((p,i)=>[p,i]));
+    for(const id of Object.keys(report.countries)){
+      const owned=s.provinces.filter(p=>p.owner===id);if(!owned.length)continue;
+      const land=p=>p.garrison.filter(d=>isLand(d)&&d.hp>0);
+      const borderTo=(p,enemy)=>(s.adj[index.get(p)]||[]).some(i=>s.provinces[i]?.owner===enemy);
+      // Retain the documented strategic totals while distributing the rear-area
+      // forces across the more detailed map. Detachments never cross these groups.
+      let group=()=> 'national';
+      if(id==='ger'&&s.scenario==='poland39')group=p=>borderTo(p,'pol')?'east':borderTo(p,'fra')?'west':'rear';
+      if(id==='ger'&&s.scenario==='barbarossa41')group=p=>borderTo(p,'sov')?'east':p.id==='nor_trondheim'?'north':'rear';
+      if(id==='sov'&&s.scenario==='barbarossa41'){
+        const front=owned.filter(p=>borderTo(p,'ger')),distance=new Map(front.map(p=>[index.get(p),0])),queue=[...distance.keys()];
+        for(let n=0;n<queue.length;n++)for(const i of s.adj[queue[n]]||[])if(s.provinces[i]?.owner===id&&!distance.has(i)){distance.set(i,distance.get(queue[n])+1);queue.push(i);}
+        group=p=>front.includes(p)?'front':distance.has(index.get(p))&&p.lon<=40?'western':'interior';
+      }
+      const protectedUnits=new Set(),capital=owned.find(p=>p.id===s.countries[id]?.capital)||owned.find(p=>p.isCapital);
+      for(const p of owned)if(p===capital||p.garrison.some(d=>(d.kind||UNIT_TYPES[d.type]?.kind)==='naval'&&d.hp>0)){
+        const core=land(p).sort((a,b)=>b.maxHp-a.maxHp)[0];if(core)protectedUnits.add(core);
+      }
+      const donors=owned.flatMap(p=>land(p).filter(d=>d.type==='infantry').map(d=>({p,d,
+        fullHp:d.hp,fullMaxHp:d.maxHp,fullNominal:d.nominalPersonnel||UNIT_TYPES[d.type].man*1000,
+        remaining:d.formationPermille||1000,removedNominal:0,
+        border:(s.adj[index.get(p)]||[]).some(i=>s.provinces[i]?.owner&&s.provinces[i].owner!==id&&!allied(s,id,s.provinces[i].owner))
+      })));
+      const empty=owned.filter(p=>!land(p).length),before=owned.length-empty.length;
+      let detachments=0;
+      for(const target of empty){
+        const available=donors.filter(a=>!protectedUnits.has(a.d)&&a.remaining>=540&&group(a.p)===group(target));
+        if(!available.length)continue;
+        available.sort((a,b)=>Number(a.border)-Number(b.border)||b.remaining-a.remaining||land(b.p).length-land(a.p).length||a.p.id.localeCompare(b.p.id)||String(a.d.id).localeCompare(String(b.d.id)));
+        const source=available[0],d=makeDivision('infantry',40),nominal=Math.floor(source.fullNominal*40/1000);
+        if(!nominal)continue;
+        source.remaining-=40;source.removedNominal+=nominal;
+        source.d.formationPermille=source.remaining;source.d.name='缩编'+UNIT_TYPES[source.d.type].name;source.d.maxHp=source.fullMaxHp*source.remaining/1000;
+        source.d.hp=source.fullHp*source.remaining/1000;source.d.nominalPersonnel=source.fullNominal-source.removedNominal;
+        d.maxHp=source.fullMaxHp*40/1000;d.hp=source.fullHp*40/1000;d.nominalPersonnel=nominal;
+        d.org=source.d.org;d.maxOrg=source.d.maxOrg;
+        target.garrison.push(d);detachments++;
+      }
+      const covered=owned.filter(p=>land(p).length).length;
+      report.coverage[id]={provinces:owned.length,before,covered,uncovered:owned.length-covered,detachments,
+        detachmentPermille:40,sourceMinimumPermille:500};
+      report.countries[id].landCount=owned.reduce((n,p)=>n+land(p).length,0);
+    }
+  }
   function apply(s,makeDivision){
     if(s.orderOfBattleVersion===1)return s.orderOfBattle;
     const table=tables[s.scenario];if(!table)return null;
     const report={version:1,scenario:s.scenario,year:s.date.year,month:s.date.month,approximate:true,
-      unitScale:'陆军按师级编制近似；海军按舰队编队，空军按联队，不能相加当作师数。',countries:{}};
+      unitScale:'陆军按师级等效编制近似，驻防分队从既有步兵师拆出；海军按舰队编队，空军按联队，不能相加当作师数。',countries:{}};
     // 未列历史估算的小国保持原有师数和类型，只采用相同的地理部署规则。
     const fallback=Object.fromEntries(Object.keys(s.countries).filter(id=>!table[id]).map(id=>{
       const units=s.provinces.filter(p=>p.owner===id).flatMap(p=>p.garrison).filter(isLand);
@@ -245,6 +292,7 @@ const OrderOfBattle = (() => {
         if(chosen.groupRoles)chosen.groupRoles.placed[type]=(chosen.groupRoles.placed[type]||0)+1;
       }
     }
+    fillOpeningCoverage(s,makeDivision,report);
     s.orderOfBattleVersion=1;s.orderOfBattle=report;return report;
   }
   return {apply,tables,sources};

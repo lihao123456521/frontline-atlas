@@ -9,6 +9,8 @@ function setup(){
   ctx.Math.random=()=>.5;
   for(const file of ['data.js','data_world.js','data_provinces.js','campaign.js','game.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',file),'utf8'),ctx);
   const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard','sandbox36');
+  // Explicitly exercise the legacy daily strategy component; real campaigns start in manual deployment.
+  Game.setAutoOffensive(true);
   const types=vm.runInContext('UNIT_TYPES',ctx),unit=type=>{const t=types[type];return {type,kind:t.kind,atk:t.atk,def:t.def,hp:t.hp,maxHp:t.hp,org:t.org,maxOrg:t.org};};
   const [front,rear,first,second,third,neutral,ally]=[0,1,2,3,4,5,6];
   Game.state.provinces.forEach(p=>{p.garrison=[];});
@@ -79,9 +81,10 @@ test('rear can march through a friendly city, conserves troops, and cannot cross
   assert.equal(Game.state.activeCombats.length,0,'a sea-only link cannot replace the severed land route');
 });
 
-test('old saves enable automation; invalid toggle is rejected without replacing state',()=>{
-  const {Game}=setup(),old=JSON.parse(Game.save());delete old.autoOffensive;
-  assert.equal(Game.load(JSON.stringify(old)),true);assert.equal(Game.state.autoOffensive,true);
+test('legacy saves disable automation, current saves preserve explicit preference, and invalid toggle is rejected',()=>{
+  const {Game}=setup(),old=JSON.parse(Game.save());delete old.autoOffensive;delete old.turn;
+  assert.equal(Game.load(JSON.stringify(old)),true);assert.equal(Game.state.autoOffensive,false);
+  Game.setAutoOffensive(true);assert.equal(Game.load(Game.save()),true);assert.equal(Game.state.autoOffensive,true);
   Game.setAutoOffensive(false);assert.equal(Game.load(Game.save()),true);assert.equal(Game.state.autoOffensive,false);
   const current=Game.state,bad=JSON.parse(Game.save());bad.autoOffensive='false';
   assert.equal(Game.load(JSON.stringify(bad)),false);assert.equal(Game.state,current);
@@ -175,9 +178,9 @@ test('manual trade, research and training still refresh immediately',()=>{
   const {Game,ctx}=setup();let refreshes=0;
   ctx.UI=ctx.window.UI={refresh:()=>{refreshes++;}};
   const c=Game.country('ger');c.res=500;c.equipment=500;c.manpower=1000;
-  Game.trade();assert.equal(refreshes,1);
-  assert.equal(Game.assignResearch('inf1',0),true);assert.equal(refreshes,2);
-  assert.equal(Game.buildUnit('infantry'),true);assert.equal(refreshes,3);
+  Game.trade();assert.ok(refreshes>0);let prior=refreshes;
+  assert.equal(Game.assignResearch('inf1',0),true);assert.ok(refreshes>prior);prior=refreshes;
+  assert.equal(Game.buildUnit('infantry'),true);assert.ok(refreshes>prior);assert.equal(Game.turnStatus().used,3);
 });
 
 test('a failed automatic assault reports and honors remaining regroup days',()=>{
@@ -231,6 +234,7 @@ test('unmodified 1939 world opens a second declared-war offensive within 60 auto
   for(const file of ['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','history.js','world.js','campaign.js','order_of_battle.js','game.js'])
     vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',file),'utf8').replace('init, onMapClick, endTurn,','assaultStrength, init, onMapClick, endTurn,'),ctx,{filename:file});
   const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard','poland39');
+  Game.setAutoOffensive(true);
   const initialArmy=Game.armyTotals('ger').land,seen=new Set(),orders=[];
   assert.equal(initialArmy,103);
   for(let day=0;day<60&&!Game.state.over;day++){

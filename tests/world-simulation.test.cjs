@@ -126,6 +126,7 @@ test('peace is announced only after a real war ends',()=>{
 test('event queue retains the latest 40 real outcomes and a monotonic serial',()=>{
   const {Game}=setup(),s=Game.state;
   for(let i=0;i<25;i++){
+    s.turn.used=0; // Each independent war/peace pair exercises event retention, not the action budget.
     assert.equal(Game.diploAction('declare','fra'),true);
     Game.proposePeace('fra');
   }
@@ -141,6 +142,7 @@ test('untouched 1939 world lets Poland and France start legal offensives on the 
   for(const file of ['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','history.js','world.js','campaign.js','order_of_battle.js','game.js'])
     vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',file),'utf8'),ctx,{filename:file});
   const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard','poland39');
+  Game.setAutoOffensive(true); // This legacy daily-strategy audit explicitly includes player automatic orders.
   const units=()=>Game.state.provinces.flatMap(p=>p.garrison).concat(Game.state.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)));
   const openingIds=units().map(d=>d.id).sort();
   const polishOrigins=new Map(Game.state.provinces.flatMap((p,i)=>p.owner==='pol'?p.garrison.filter(d=>d.kind==='land').map(d=>[d.id,i]):[]));

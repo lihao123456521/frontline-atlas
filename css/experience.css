@@ -1,0 +1,89 @@
+/* v47: one visual language for setup, map commands and army training. */
+:root{--command-gold:#e4c18a;--command-gold-hover:#f2d6a5;--command-ink:#172d35;--command-surface:#294651;--command-muted:#bdcdd0}
+button,select,input,summary{ -webkit-tap-highlight-color:transparent }
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid #edce95;outline-offset:3px}
+button{transition:background .12s,border-color .12s,box-shadow .12s}
+#startScreen{background:radial-gradient(ellipse at 27% 44%,#24404a 0,#10232d 53%,#08171e 100%)}
+#startScreen .panel.start-setup{padding:26px 30px;border-radius:20px;border-color:#758d8355;background:linear-gradient(145deg,#213942f7,#132831f7);box-shadow:0 22px 75px #0005}
+.start-layout{width:min(1160px,100%);grid-template-columns:minmax(0,1fr) minmax(430px,480px);gap:clamp(30px,5vw,76px)}
+.start-lead{font-size:20px;line-height:1.6;color:#c7d8d8;letter-spacing:1px}
+.start-eyebrow,.start-dateline{font-size:13px;letter-spacing:1.4px;color:#c9ba9a}
+.setup-kicker{font-size:13px;letter-spacing:1px;color:#d7c39b}
+.start-setup h2{font-size:28px;margin:18px 0 15px}
+#startScreen .country-choice{font-size:14px;min-height:48px;border-radius:9px;background:#162c35;border-color:#6c8a8a45}
+#startScreen .country-choice[aria-pressed="true"]{background:#ddc08724;border-color:#dcc28e;color:#f7e5c5;box-shadow:inset 0 0 0 1px #dcc28e44}
+#startScreen label{font-size:14px;color:#c5d3d2;line-height:1.5}
+#startScreen select{height:48px;font-size:16px;background:#102630;border-radius:10px}
+.cp-name{font-size:22px}.cp-desc{font-size:14px;line-height:1.45;margin-top:4px;color:#bbcfcf}
+.cp-stats{font-size:14px;gap:24px;margin-top:14px}.cp-stats b{font-size:19px}
+#startScreen .diff-desc{font-size:13px;min-height:23px;color:#b8cbcb;line-height:1.6}
+.start-mode{display:grid;grid-template-columns:1fr 1fr;gap:9px;border:0;padding:0;margin:16px 0 0;min-width:0}
+.start-mode legend{font-size:14px;color:#c5d3d2;padding:0;margin-bottom:8px}
+#startScreen .start-mode-choice{display:flex;gap:9px;align-items:center;cursor:pointer;border:1px solid #738d8855;border-radius:11px;min-height:70px;padding:10px;background:#122b34;touch-action:manipulation}
+.start-mode-choice:has(input:checked){border-color:#dfc38e!important;background:#c9af7430!important}
+.start-mode-choice input{width:18px;height:18px;flex:none;accent-color:#e4c18a;cursor:pointer}
+.start-mode-choice strong{display:block;color:#f2e7d5;font-size:16px;font-weight:600}
+.start-mode-choice small{display:block;font-size:12px;color:#bccdcc;margin-top:4px;white-space:normal}
+#startScreen #btnStart{min-height:54px;font-size:18px;border-radius:11px;margin-top:16px;background:#e4c18a;color:#172d35;box-shadow:0 5px 14px #0002}
+#startScreen #btnStart:hover{background:#f0d3a2}
+#startScreen #btnContinue{height:48px;min-height:48px;font-size:15px;border-radius:11px;background:#223e4b!important}
+.setup-footnote{font-size:11px;letter-spacing:0;color:#a8bfbe}
+#topbar{background:#142b35;border-bottom-color:#58757d}
+#topBarCountry .name{font-size:17px;color:#f2e8d5}
+.resource-chip{border-color:#53737a44}.resource-chip span{font-size:14px;color:#bbcfce}.resource-chip strong{font-size:21px;color:#e9dec3}
+#btnPause{border-radius:10px;font-size:16px;background:#e4c18a!important;color:#172d35!important;border-color:#edcf9b!important;min-height:46px}
+.turn-action-chip{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #6c898450;border-radius:10px;color:#c7d5ce;white-space:nowrap;font-size:14px}
+.turn-action-chip strong{font-size:20px;color:#f2dfb9;font-variant-numeric:tabular-nums}
+#btnPause:disabled{opacity:.6;cursor:not-allowed}
+#eventModal .panel{border-radius:16px;padding:24px;background:#193540;border-color:#738e7f75;max-width:620px}
+#eventText{font-size:17px;line-height:1.7}
+#eventChoices button{min-height:48px;border-radius:10px;font-size:16px;padding:11px 16px}
+.event-background{font-size:15px;color:#bed0ce;margin-top:14px}.event-background summary{padding:8px 0;min-height:44px;cursor:pointer}.event-background p{margin:8px 0;line-height:1.6}
+@media(max-width:760px){.turn-action-chip{padding:6px 8px;font-size:12px}.turn-action-chip strong{font-size:17px}.clock-controls{gap:7px}#topBarDate{font-size:13px}}
+.time-settings>summary{font-size:14px;border-radius:9px;min-height:44px;padding:10px 12px}
+#commandNav>button,#commandNav .nav-management>summary{border-radius:11px;min-height:48px;font-size:15px}
+#commandNav>button.on{color:#f3ddb2;border-color:#d3b77d77;background:#d3b77d18}
+#commandNav .management-options{border-radius:13px;background:#18343f;border-color:#69828870;box-shadow:0 10px 35px #05121d55}
+#commandNav .management-options button{font-size:15px;min-height:46px;padding:10px 14px;text-align:left;justify-content:flex-start}
+#rightPanel{border:1px solid #718a8755;background:#152f3b;box-shadow:0 15px 40px #05172255}
+.context-head{font-size:15px;color:#c6d5d1;border-color:#70898440}
+#rpContent{color:#edf0e8;padding:19px 20px 24px}
+#rpContent .rp-section{background:#1b3743;border-color:#6f8a8640;border-radius:12px;padding:16px}
+#rpContent h4{font-size:17px;letter-spacing:0;color:#dfd9c4}
+#rpContent .rp-select{min-height:48px;font-size:16px;color:#eff1e7;border-radius:9px;background:#112b36;border:1px solid #63808870;padding:8px 11px;width:100%}
+#rpContent .task-status,#rpContent .action-reason,#rpContent .city-owner,#rpContent .army-totals,#rpContent .army-explanation{font-size:15px;line-height:1.6}
+#rpContent .city-eyebrow{font-size:14px;letter-spacing:.8px;color:#b7c9c9}
+#rpContent .city-force{background:#203c46;border-radius:11px;border:1px solid #65828244;padding:15px;margin:15px 0}
+#rpContent .city-force strong{font-size:34px;color:#f4e1be;font-weight:650;font-variant-numeric:tabular-nums;line-height:1.25}
+#rpContent .city-force span{font-size:15px;color:#c5d4ce;line-height:1.5}
+#rpContent .city-more,#rpContent .battle-adjustments,#rpContent .army-explanation{border-color:#6a858544;border-radius:10px}
+#rpContent summary{min-height:44px;line-height:1.5;display:list-item;padding:10px 0;font-size:15px;color:#c5d5d4;cursor:pointer;touch-action:manipulation}
+#rpContent .city-list-item{padding:14px;border:1px solid #66818444;background:#1d3944;border-radius:10px;margin-bottom:8px;min-height:66px}
+#rpContent .city-list-item strong{font-size:17px;color:#f0e3c8}
+#rpContent .city-list-item span{font-size:15px;color:#baccce}
+#rpContent .rp-btn,#rpContent .combat-command,#rpContent .combat-tactic-choice{border:1px solid #74918c55;border-radius:10px;box-shadow:inset 0 1px 0 #ffffff07;min-height:48px;font-size:16px}
+#rpContent .rp-btn:hover,#rpContent .combat-command:hover{background:#365763;border-color:#c8b58a}
+#rpContent .rp-btn.primary,#rpContent .combat-command.primary{background:#e4c18a;border-color:#efd4a6;color:#172d35;box-shadow:0 4px 12px #0002}
+#rpContent .rp-btn.primary:hover,#rpContent .combat-command.primary:hover{background:#f1d6a4}
+#rpContent .rp-btn:disabled{opacity:.48;cursor:not-allowed;box-shadow:none}
+#rpContent .combat-personnel,#rpContent .army-personnel{font-size:32px!important;font-weight:650;color:#f2dfb9}
+#rpContent .combat-tactic-choice[aria-pressed="true"]{border-color:#e1c18c;background:#d5b47725;color:#f0dbb5}
+.training-branches{display:flex;gap:7px;margin:0 0 12px;padding:5px;border-radius:12px;background:#102630}
+.training-branch{flex:1;min-height:46px;border:1px solid transparent;border-radius:8px;font-size:16px;color:#c6d8d7;background:transparent;cursor:pointer;touch-action:manipulation}
+.training-branch.on{background:#34525b;border-color:#8faaa470;color:#f2dfb7}
+.unit-training{border-top:1px solid #6a858540;margin-top:18px;padding-top:16px}
+#rpContent .training-unit-name{font-size:21px;margin:15px 0 6px;padding:0;border:0;color:#f3e4c9}
+.training-role{font-size:16px;line-height:1.6;color:#c5d5d6;margin:0 0 10px}
+.training-duration{font-size:17px;color:#e0ccaa;margin:0 0 14px}
+.training-costs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.training-cost{flex:1;min-width:54px;display:flex;flex-direction:column;gap:3px;padding:10px 8px;background:#223e48;border:1px solid #6a858537;border-radius:9px}
+.training-cost strong{font-size:20px;color:#f0e0bd;font-variant-numeric:tabular-nums}.training-cost span{font-size:14px;color:#b7cacc}
+#rpContent .army-explanation{margin-top:12px}.army-explanation p{font-size:15px;line-height:1.6}
+#rpContent .national-reserve-actions .rp-btn{padding:11px 7px;font-size:16px}
+#worldNews .news-title{font-size:24px;line-height:1.4}.news-detail{font-size:16px;line-height:1.7}.news-close,.news-locate{min-height:46px;font-size:16px;border-radius:9px}
+.context-hint{font-size:15px;padding:9px 14px;border-radius:10px;background:#193540ed;border-color:#65848170;color:#cfddda;line-height:1.5}
+.map-tools>summary{font-size:14px;min-height:44px;border-radius:10px;padding:10px 12px}
+@media(max-width:1000px){.start-layout{grid-template-columns:minmax(0,1fr) minmax(390px,440px);gap:24px}.start-map-preview{height:230px}.start-lead{font-size:18px}#startScreen h1{font-size:54px;letter-spacing:2px}.start-dateline{font-size:12px}}
+@media(max-width:760px){.start-layout{grid-template-columns:1fr;max-width:510px;gap:18px}#startScreen{padding:24px 20px 80px}#startScreen .panel.start-setup{padding:23px}#startScreen h1{font-size:43px;margin:10px 0}.start-lead{font-size:16px}.start-eyebrow{font-size:12px}.start-map-preview,.start-dateline{display:none}.start-setup h2{font-size:25px}.resource-chip span{font-size:12px}.resource-chip strong{font-size:17px}#topBarCountry .name{font-size:15px}#btnPause{font-size:15px;min-height:44px}#rpContent{padding:17px 18px 24px}#commandNav>button,#commandNav .nav-management>summary{font-size:15px;min-height:46px}}
+@media(max-height:780px) and (min-width:761px){#startScreen{padding:24px 30px;align-items:flex-start}.start-map-preview{height:210px}.start-mode-choice small{display:none}#startScreen .start-mode-choice{min-height:52px}.start-layout{margin:auto}#startScreen .panel.start-setup{padding:22px 25px}.start-setup h2{margin-top:14px}.start-mode{margin-top:12px}.cp-stats{margin-top:8px}}
+@media(prefers-reduced-motion:reduce){button{transition:none}}

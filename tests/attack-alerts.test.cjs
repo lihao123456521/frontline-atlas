@@ -76,7 +76,8 @@ test('incoming defense alerts preempt ordinary news and persist until the player
   const invasion=f.event('invasion');f.update();assert.equal(f.box.dataset.event,invasion.id);
   assert.equal(f.timers.size,0);assert.equal(f.box.attrs.role,'alert');assert.equal(f.box.attrs['aria-live'],'assertive');
   f.update();assert.equal(f.box.dataset.event,invasion.id);assert.equal(f.timers.size,0);
-  f.close();assert.equal(invasion.acknowledged,true);assert.equal(f.saves,1);assert.equal(f.box.dataset.event,ordinary.id);assert.equal(f.timers.size,1);
+  f.close();assert.equal(invasion.acknowledged,true);assert.equal(f.saves,1);assert.ok(f.state.worldEvents.includes(ordinary),'preempted ordinary news remains available in world history');assert.equal(f.box.classList.contains('hidden'),true);assert.equal(f.box.children.length,0);assert.equal(f.timers.size,0);
+  f.update();assert.equal(f.box.classList.contains('hidden'),true,'a read ordinary summary is not replayed after the alert');
 });
 
 test('all new defense alerts survive ordinary queue limits and an intervening required choice',()=>{
@@ -103,14 +104,14 @@ test('an old invasion whose combat ended still locates its city',()=>{
 test('ordinary history pruning cannot remove an unconfirmed defense alert',()=>{
   const {Game,enemy,own}=engine();Game.resolveAttack('fra',enemy,own,5);const id=Game.state.worldEvents.find(e=>e.kind==='invasion')?.id;
   Game.acceptPeace('fra');
-  for(let i=0;i<25;i++){assert.equal(Game.diploAction('declare','fra'),true);Game.acceptPeace('fra');}
+  for(let i=0;i<25;i++){Game.state.turn.used=0;assert.equal(Game.diploAction('declare','fra'),true);assert.equal(Game.acceptPeace('fra'),true);}
   assert.ok(id);assert.ok(Game.state.worldEvents.some(e=>e.id===id),'unconfirmed alert must survive the ordinary history limit');
   assert.equal(Game.load(Game.save()),true);
 });
 
 test('more than 40 unconfirmed real attacks are retained and remain loadable',()=>{
   const {Game,enemy,own}=engine();
-  for(let i=0;i<45;i++){assert.equal(Game.resolveAttack('fra',enemy,own,5),true);Game.acceptPeace('fra');}
+  for(let i=0;i<45;i++){Game.state.turn.used=0;assert.equal(Game.resolveAttack('fra',enemy,own,5),true);assert.equal(Game.acceptPeace('fra'),true);}
   assert.equal(Game.state.worldEvents.filter(e=>e.kind==='invasion'&&!e.acknowledged).length,45);
   assert.equal(Game.load(Game.save()),true);
 });

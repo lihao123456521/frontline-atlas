@@ -74,7 +74,7 @@ test('documented theatre strengths replace generic weighted deployment without i
   assert.equal(units.length,148);assert.equal(units.filter(d=>d.type==='armor').length,19);assert.equal(units.filter(d=>d.type==='motorized').length,15);
   assert.equal(count(Game.province(Game.provinceById('nor_trondheim'))),4);assert.equal(Game.armyTotals('ger').land,208);
   const nominals={infantry:15000,armor:17000,motorized:14000};
-  for(const p of Game.state.provinces)for(const d of p.garrison)if(d.owner==='ger'&&d.kind==='land')assert.equal(d.nominalPersonnel,nominals[d.type]);
+  for(const p of Game.state.provinces)for(const d of p.garrison)if(d.owner==='ger'&&d.kind==='land')assert.equal(d.nominalPersonnel,nominals[d.type]===undefined?undefined:nominals[d.type]*(d.formationPermille??1000)/1000);
   assert.ok(Game.state.orderOfBattle.countries.ger.sources.some(s=>s.scope.includes('15000')));
   const sovForward=Game.state.provinces.filter((p,i)=>p.owner==='sov'&&Game.neighbors(i).some(n=>Game.province(n).owner==='ger'));
   assert.equal(sovForward.reduce((n,p)=>n+count(p),0),56);assert.equal(Game.armyTotals('sov').land,303);

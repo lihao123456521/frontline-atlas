@@ -315,7 +315,7 @@ const History = (() => {
     }
     if(s.date.year===1936){
       const g={ger_berlin:['infantry','infantry','armor'],ger_hamburg:['infantry','navy','air'],ger_bavaria:['infantry','mountain'],uk_london:['infantry','navy','destroyer','air'],fra_paris:['infantry','infantry','artillery','air'],ita_rome:['infantry','navy','air'],sov_moscow:['infantry','infantry','armor','air']};
-      for(const [pid,types]of Object.entries(g)){const p=s.provinces.find(p=>p.id===pid);if(p)p.garrison=types.map(make);}
+      for(const [pid,types]of Object.entries(g)){const p=s.provinces.find(p=>p.id===pid);if(p)p.garrison=types.map(type=>make(type));}
     }
     const alsace=s.provinces.find(p=>p.id==='fra_alsace');if(alsace&&alsace.owner==='fra')alsace.fort=3;
     for(const p of s.provinces)p.isCapital=!!(p.owner&&s.countries[p.owner]?.capital===p.id);

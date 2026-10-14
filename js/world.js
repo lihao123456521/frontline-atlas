@@ -42,6 +42,86 @@ const World = (() => {
   PROVINCES_DEF.push({id:'ccp_shaanxi',name:'陕北根据地',lon:109.3,lat:36.8,owner:'ccp',shapeOwner:'chn',cap:true,terrain:'hill'});
   MINOR_COUNTRIES.push({id:'ccp',name:names.ccp,capital:'ccp_shaanxi',color:'#ae4d43',ideo:'com',startCiv:3,startMil:2,startRes:18,startPP:12,stability:60,warSupport:55});
   for(const c of COUNTRIES.concat(MINOR_COUNTRIES))if(names[c.id]&&c.id!=='chn')c.name=names[c.id];
+  // More useful campaign scale outside Europe. These anchors produce clipped
+  // strategic Voronoi cells, not claimed historical administrative boundaries.
+  // Rounded WGS84 city locations; reference: https://www.geonames.org/ (CC BY 4.0).
+  function installStrategicAnchors(){
+  if(PROVINCES_DEF.some(p=>p.strategicSourceId))return;
+  const worldAnchors=[
+    ['usa_boston','波士顿',-71.06,42.36,'usa',true],['usa_philadelphia','费城',-75.16,39.95,'usa',true],
+    ['usa_detroit','底特律',-83.05,42.33,'usa',false],['usa_atlanta','亚特兰大',-84.39,33.75,'usa',false],
+    ['usa_neworleans','新奥尔良',-90.07,29.95,'usa',true],['usa_stlouis','圣路易斯',-90.2,38.63,'usa',false],
+    ['usa_denver','丹佛',-104.99,39.74,'usa',false],['usa_saltlake','盐湖城',-111.89,40.76,'usa',false],
+    ['usa_phoenix','菲尼克斯',-112.07,33.45,'usa',false],['usa_sanfrancisco','旧金山',-122.42,37.77,'usa',true],
+    ['usa_losangelesport','洛杉矶港',-118.26,33.74,'usa',true],
+    ['chn_tianjin','天津',117.2,39.13,'chn',true],['chn_qingdao','青岛',120.38,36.07,'chn',true],
+    ['chn_jinan','济南',117.12,36.65,'chn',false],['chn_taiyuan','太原',112.55,37.87,'chn',false],
+    ['chn_zhengzhou','郑州',113.63,34.75,'chn',false],['chn_changsha','长沙',112.94,28.23,'chn',false],
+    ['chn_nanchang','南昌',115.86,28.68,'chn',false],['chn_fuzhou','福州',119.3,26.08,'chn',true],
+    ['chn_xiamen','厦门',118.09,24.48,'chn',true],['chn_kunming','昆明',102.83,24.88,'chn',false],
+    ['chn_urumqi','乌鲁木齐',87.62,43.83,'chn',false],['chn_haikou','海口',110.35,20.02,'chn',true],
+    ['sov_smolensk','斯摩棱斯克',32.05,54.78,'sov',false],['sov_odessa','敖德萨',30.72,46.48,'sov',true],
+    ['sov_kharkov','哈尔科夫',36.23,49.99,'sov',false],['sov_voronezh','沃罗涅日',39.2,51.67,'sov',false],
+    ['sov_gorky','高尔基',44,56.33,'sov',false],['sov_kazan','喀山',49.12,55.79,'sov',false],
+    ['sov_murmansk','摩尔曼斯克',33.09,68.97,'sov',true],['sov_baku','巴库',49.87,40.38,'sov',false],
+    ['sov_tashkent','塔什干',69.24,41.3,'sov',false],['sov_omsk','鄂木斯克',73.37,54.99,'sov',false],
+    ['sov_novosibirsk','新西伯利亚',82.92,55.03,'sov',false],['sov_irkutsk','伊尔库茨克',104.3,52.3,'sov',false],
+    ['sov_khabarovsk','伯力',135.07,48.48,'sov',false],['sov_vladivostok','海参崴',131.89,43.12,'sov',true],
+    ['jpn_sendai','仙台',140.87,38.27,'jpn',true],['jpn_niigata','新潟',139.04,37.92,'jpn',true],
+    ['jpn_nagoya','名古屋',136.91,35.18,'jpn',true],['jpn_hiroshima','广岛',132.46,34.39,'jpn',true],
+    ['jpn_aomori','青森',140.74,40.82,'jpn',true],['jpn_nagasaki','长崎',129.88,32.75,'jpn',true],
+    ['jpn_kagoshima','鹿儿岛',130.56,31.6,'jpn',true],['jpn_takamatsu','高松',134.05,34.34,'jpn',true],
+    ['can_montreal','蒙特利尔',-73.57,45.5,'can',false],['can_quebec','魁北克',-71.21,46.81,'can',false],
+    ['can_toronto','多伦多',-79.38,43.65,'can',false],['can_winnipeg','温尼伯',-97.14,49.9,'can',false],
+    ['can_regina','里贾纳',-104.62,50.45,'can',false],['can_saskatoon','萨斯卡通',-106.67,52.13,'can',false],
+    ['can_calgary','卡尔加里',-114.07,51.05,'can',false],['can_edmonton','埃德蒙顿',-113.49,53.55,'can',false],
+    ['can_vancouver','温哥华',-123.12,49.28,'can',true],['can_victoria','维多利亚',-123.37,48.43,'can',true],
+    ['can_halifax','哈利法克斯',-63.58,44.65,'can',true],['can_saintjohn','圣约翰',-66.06,45.27,'can',true],
+    ['can_thunderbay','桑德贝',-89.25,48.38,'can',false],['can_sudbury','萨德伯里',-81,46.49,'can',false],
+    ['aus_sydney','悉尼',151.21,-33.87,'aus',true],['aus_melbourne','墨尔本',144.96,-37.81,'aus',true],
+    ['aus_brisbane','布里斯班',153.03,-27.47,'aus',true],['aus_adelaide','阿德莱德',138.6,-34.93,'aus',true],
+    ['aus_perth','珀斯',115.86,-31.95,'aus',true],['aus_darwin','达尔文',130.85,-12.46,'aus',true],
+    ['aus_hobart','霍巴特',147.33,-42.88,'aus',true],['aus_townsville','汤斯维尔',146.82,-19.26,'aus',true],
+    ['aus_cairns','凯恩斯',145.77,-16.92,'aus',true],['aus_alicesprings','爱丽斯泉',133.88,-23.7,'aus',false],
+    ['aus_kalgoorlie','卡尔古利',121.47,-30.75,'aus',false],['aus_rockhampton','罗克汉普顿',150.51,-23.38,'aus',false],
+    ['bra_saopaulo','圣保罗',-46.63,-23.55,'bra',false],['bra_santos','桑托斯',-46.33,-23.96,'bra',true],
+    ['bra_belohorizonte','贝洛奥里藏特',-43.94,-19.92,'bra',false],['bra_salvador','萨尔瓦多',-38.5,-12.97,'bra',true],
+    ['bra_recife','累西腓',-34.88,-8.05,'bra',true],['bra_fortaleza','福塔莱萨',-38.54,-3.72,'bra',true],
+    ['bra_belem','贝伦',-48.5,-1.46,'bra',true],['bra_manaus','马瑙斯',-60.02,-3.1,'bra',false],
+    ['bra_portoalegre','阿雷格里港',-51.23,-30.03,'bra',true],['bra_curitiba','库里蒂巴',-49.27,-25.43,'bra',false],
+    ['bra_cuiaba','库亚巴',-56.1,-15.6,'bra',false],['bra_goias','戈亚斯',-50.14,-15.93,'bra',false],
+    ['bra_campogrande','大坎普',-54.65,-20.44,'bra',false],
+    ['india_calcutta','加尔各答',88.36,22.57,'uk',true],['india_madras','马德拉斯',80.27,13.08,'uk',true],
+    ['india_karachi','卡拉奇',67.01,24.86,'uk',true],['india_lahore','拉合尔',74.36,31.55,'uk',false],
+    ['india_peshawar','白沙瓦',71.58,34.01,'uk',false],['india_lucknow','勒克瑙',80.95,26.85,'uk',false],
+    ['india_patna','巴特那',85.14,25.59,'uk',false],['india_nagpur','那格浦尔',79.08,21.15,'uk',false],
+    ['india_hyderabad','海得拉巴',78.49,17.39,'uk',false],['india_bangalore','班加罗尔',77.59,12.97,'uk',false],
+    ['india_ahmedabad','艾哈迈达巴德',72.57,23.02,'uk',false],['india_dacca','达卡',90.41,23.81,'uk',false],
+    ['india_rangoon','仰光',96.2,16.8,'uk',true]
+  ];
+  const originalDefinitions=PROVINCES_DEF.slice();
+  for(const [id,name,lon,lat,owner,coastal]of worldAnchors){
+    const p={id,name,lon,lat,owner,shapeOwner:owner,coastal,terrain:'urban',x:(lon+180)/360*1000,y:(90-lat)/180*500};
+    const candidates=originalDefinitions.filter(q=>q.owner===owner&&History.allowsProvinceLink(p,{...q,x:(q.lon+180)/360*1000,y:(90-q.lat)/180*500}));
+    const fallback=originalDefinitions.filter(q=>q.owner===owner);
+    const source=(candidates.length?candidates:fallback).sort((a,b)=>Math.hypot((a.lon-lon)*Math.cos(lat*Math.PI/180),a.lat-lat)-Math.hypot((b.lon-lon)*Math.cos(lat*Math.PI/180),b.lat-lat))[0];
+    p.strategicSourceId=source.id;PROVINCES_DEF.push(p);
+  }
+  // Ottawa and Canberra are inland. Brazil's capital was Rio through 1960
+  // (UNESCO historical reference: https://whc.unesco.org/document/103340);
+  // the old central-plateau anchor remains a strategic region, not Brasilia city.
+  for(const id of ['neu_canada','neu_australia','neu_brazil','chn_beijing'])PROVINCES_DEF.find(p=>p.id===id).coastal=false;
+  PROVINCES_DEF.find(p=>p.id==='neu_brazil').name='巴西中央高原';
+  const brazil=byId.get('bra');brazil.capital='world_brazil';
+  PROVINCES_DEF.find(p=>p.id==='neu_brazil').cap=false;
+  Object.assign(PROVINCES_DEF.find(p=>p.id==='world_brazil'),{name:'里约热内卢',cap:true});
+  const ports=PROVINCES_DEF.filter(p=>p.coastal),coastalIds=new Set(ports.map(p=>p.id));
+  SEA_LINKS.splice(0,SEA_LINKS.length,...SEA_LINKS.filter(([a,b])=>coastalIds.has(a)&&coastalIds.has(b)));
+  for(const p of ports)for(const same of [true,false]){
+    const near=ports.filter(q=>q.id!==p.id&&(q.owner===p.owner)===same).sort((a,b)=>seaDistance(p,a)-seaDistance(p,b)).slice(0,2);
+    for(const q of near)addSea(p.id,q.id);
+  }
+  }
   const capitalIds=new Set(COUNTRIES.concat(MINOR_COUNTRIES).map(c=>c.capital));
   for(const p of PROVINCES_DEF)if(capitalIds.has(p.id))p.cap=true;
   // 海军基地只取原有港口或物理岸线判定，国界不能当海岸线。
@@ -68,14 +148,15 @@ const World = (() => {
   pacific.wars=[['jpn','usa'],['jpn','uk'],['jpn','nld'],['jpn','chn']];
   function apply(s,make){
     s.worldVersion=1;
+    if(typeof StrategicRegions!=='undefined')StrategicRegions.apply(s);
     const ally=(a,b)=>{if(s.countries[a]&&s.countries[b])s.alliances[relKey(a,b)]=true;};
     for(const id of ['can','aus','nzl','saf'])ally('uk',id);ally('jpn','man');
     if(s.date.year>=1942)ally('usa','uk');
     const grant=(c,id)=>{if(c.researched[id])return;c.researched[id]=true;for(const[k,v]of Object.entries(TECHS.find(t=>t.id===id)?.eff||{}))c.eff[k]=(c.eff[k]||0)+v;};
     for(const id of ['usa','jpn','chn']){const c=s.countries[id];c.alive=true;c.equipment=Math.max(c.equipment,100);c.oil=Math.max(c.oil,30);c.rare=Math.max(c.rare,15);for(const t of ['air1','nav1'])grant(c,t);}
-    if(s.date.year===1936){const troops={usa_california:['infantry','navy','destroyer','air'],jpn_tokyo:['infantry','navy','destroyer','air'],chn_nanjing:['infantry','infantry','air'],ccp_shaanxi:['infantry','infantry']};for(const[pid,types]of Object.entries(troops)){const p=s.provinces.find(p=>p.id===pid);if(p)p.garrison=types.map(make);}}
+    if(s.date.year===1936){const troops={usa_california:['infantry','navy','destroyer','air'],jpn_tokyo:['infantry','navy','destroyer','air'],chn_nanjing:['infantry','infantry','air'],ccp_shaanxi:['infantry','infantry']};for(const[pid,types]of Object.entries(troops)){const p=s.provinces.find(p=>p.id===pid);if(p)p.garrison=types.map(type=>make(type));}}
     for(const c of Object.values(s.countries)){c.alive=s.provinces.some(p=>p.owner===c.id);c.capitalIdx=s.provinces.findIndex(p=>p.id===c.capital);}
     for(const p of s.provinces)p.isCapital=!!(p.owner&&s.countries[p.owner]?.capital===p.id);
   }
-  return {apply};
+  return {apply,installStrategicAnchors};
 })();

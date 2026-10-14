@@ -16,8 +16,8 @@ function setup(){
   const c=Game.country('ger'); for(const key of ['equipment','res','oil','rare','manpower'])c[key]=10000;
   return {Game,types,unit,own,enemy};
 }
-test('18 roles and shared availability enforce research/year gates without spending resources',()=>{
-  const {Game,types}=setup(); assert.equal(Object.keys(types).length,18);
+test('23 roles and shared availability enforce research/year gates without spending resources',()=>{
+  const {Game,types}=setup(); assert.equal(Object.keys(types).length,23);
   assert.equal(Game.unitAvailability('infantry').available,true);
   const before=Game.country('ger').equipment;
   assert.equal(Game.buildUnit('mechanized'),false); assert.equal(Game.country('ger').equipment,before);

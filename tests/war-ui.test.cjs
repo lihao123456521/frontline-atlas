@@ -16,7 +16,11 @@ function setup(){
     insertAdjacentElement(_,e){this.parent.appendChild(e);}
     addEventListener(k,fn){this.listeners[k]=fn;}
     setAttribute(k,v){this.attributes[k]=v;}
-    querySelectorAll(){return [];}
+    querySelectorAll(selector){
+      if(selector!=='[data-action-cost="1"]')return [];
+      const descendants=node=>node.children.flatMap(child=>[child,...descendants(child)]);
+      return descendants(this).filter(child=>child.attributes['data-action-cost']==='1');
+    }
     click(){if(!this.disabled&&this.listeners.click)this.listeners.click();}
   }
   const elements={};const get=id=>elements[id]||(elements[id]=new Element());
@@ -74,7 +78,7 @@ test('enemy city recommends a reachable source and canceling its attack changes 
   const from=Game.state.provinces.findIndex((p,i)=>p.owner==='ger'&&Game.landCount(i)>1&&Game.neighbors(i).some(n=>Game.province(n).owner!=='ger'));
   const to=Game.neighbors(from).find(n=>Game.province(n).owner!=='ger');
   UI.mapHandlers().provinceClick(to);assert.ok(buttons('进攻这座城市').length);
-  const before=JSON.parse(Game.save());buttons('进攻这座城市')[0].click();assert.match(panel.textContent,/确认后自动推进/);
+  const before=JSON.parse(Game.save());buttons('进攻这座城市')[0].click();assert.match(panel.textContent,/确认消耗 1 次行动/);
   buttons('取消命令')[0].click();const after=JSON.parse(Game.save());after.selectedIdx=before.selectedIdx;
   assert.deepEqual(after,before);
 });
@@ -102,12 +106,13 @@ test('declaring war previews real consequences and requires confirmation without
   assert.equal(Game.isAtWar(Game.state.player,cid),true);assert.equal(Game.state.wt,wt+8);assert.equal(c.stability,stability);
 });
 
-test('army training uses one persistent 18-type selector and selected unit costs; factory construction lives in logistics',()=>{
+test('army training uses a persistent grouped selector and selected unit costs; factory construction lives in logistics',()=>{
   const {Game,UI,panel,descendants,buttons,types,get}=setup();UI.navigate('production');
   assert.match(panel.textContent,/军队训练/);assert.doesNotMatch(panel.textContent,/工业建设/);
-  assert.match(panel.textContent,/人力 1\.0 万人/);assert.match(get('tbMan').textContent,/万人/);
-  let select=descendants(panel).find(e=>e.attributes['aria-label']==='选择训练兵种');assert.equal(select.children.length,18);
-  select.listeners.focus();assert.match(get('speedLabel').textContent,/已暂停/);
+  assert.match(panel.textContent,/1\.0 万人 · 1 个月训练/);assert.match(get('tbMan').textContent,/万人/);
+  let select=descendants(panel).find(e=>e.attributes['aria-label']==='选择训练兵种');
+  assert.equal(descendants(select).filter(e=>e.tagName==='option').length,Object.values(types).filter(t=>t.kind==='land').length);
+  select.listeners.focus();assert.match(get('speedLabel').textContent,/部署阶段/);
   select.value='armor';select.listeners.change();select=descendants(panel).find(e=>e.attributes['aria-label']==='选择训练兵种');assert.equal(select.value,'armor');
   assert.match(panel.textContent,/装甲/);assert.ok(buttons('训练').some(b=>b.textContent.includes('装甲')));
   Game.country('ger').equipment=0;UI.refresh();const disabled=buttons('训练').find(b=>b.disabled);assert.ok(disabled);assert.match(disabled.title,/装备缺/);
@@ -209,7 +214,7 @@ test('adjusting troop count updates actual strength and confirm count without re
   const to=Game.state.provinces.findIndex(p=>p.name===descendants(panel).find(e=>e.className==='battle-route').textContent.split(' → ')[1]);
   assert.ok(to>=0);assert.match(descendants(advanced).find(e=>e.className==='battle-strength').textContent,new RegExp('进攻 '+Math.round(Game.battlePreview(from,to,3,false).aStr)));
   assert.equal(Game.state.battles,0);targetName.click();assert.equal(Game.getCombats().length,1);assert.equal(Game.getCombats()[0].attackers,3);assert.equal(Game.state.battles,0);
-  assert.ok(descendants(panel).some(e=>(e.className||'').includes('ongoing-battle-card')));assert.match(panel.textContent,/作战推进中/);assert.doesNotMatch(panel.textContent,/省份行动/);assert.equal(buttons('进攻目标').length,0);
+  assert.ok(descendants(panel).some(e=>(e.className||'').includes('ongoing-battle-card')));assert.match(panel.textContent,/结束回合执行/);assert.doesNotMatch(panel.textContent,/省份行动/);assert.equal(buttons('进攻目标').length,0);
 });
 
 test('province movement uses one persistent unit selector and passes the selected kind into movement planning',()=>{
@@ -220,7 +225,7 @@ test('province movement uses one persistent unit selector and passes the selecte
   UI.navigate('province-details');
   let select=descendants(panel).find(e=>e.attributes['aria-label']==='选择调动军种');assert.ok(select);assert.equal(select.children.length,3);assert.equal(select.value,'land');
   assert.equal(buttons('调动陆军').length,0);assert.equal(buttons('转场飞机').length,0);assert.equal(buttons('调动舰队').length,0);
-  const move=buttons('调动部队')[0];assert.ok(move);select.listeners.focus();assert.match(get('speedLabel').textContent,/已暂停/);
+  const move=buttons('调动部队')[0];assert.ok(move);select.listeners.focus();assert.match(get('speedLabel').textContent,/部署阶段/);
   select.value='air';select.listeners.change();select=descendants(panel).find(e=>e.attributes['aria-label']==='选择调动军种');assert.equal(select.value,'air');
   buttons('调动部队')[0].click();UI.mapHandlers().provinceClick(to);assert.match(panel.textContent,/飞机转场/);
   buttons('取消命令')[0].click();select=descendants(panel).find(e=>e.attributes['aria-label']==='选择调动军种');select.value='naval';select.listeners.change();
@@ -230,7 +235,10 @@ test('province movement uses one persistent unit selector and passes the selecte
 test('province construction and bombing are advanced, and army training uses one selector',()=>{
   const {Game,UI,panel,buttons,descendants}=setup();Game.state.selectedIdx=Game.state.provinces.findIndex(p=>p.owner==='ger');UI.navigate('province-details');
   const construction=descendants(panel).find(e=>e.className==='province-development');assert.ok(construction);assert.match(construction.textContent,/修筑要塞/);assert.ok(!construction.open);
-  UI.navigate('production');assert.equal(buttons('连续训练').length,0);assert.equal(descendants(panel).find(e=>e.attributes['aria-label']==='选择训练兵种').children.length,18);
+  UI.navigate('production');assert.equal(buttons('连续训练').length,0);
+  const select=descendants(panel).find(e=>e.attributes['aria-label']==='选择训练兵种');
+  assert.ok(select.children.every(e=>e.tagName==='optgroup'));assert.ok(descendants(select).filter(e=>e.tagName==='option').length>10);
+  assert.deepEqual(['陆军','海军','空军'].map(name=>buttons(name).filter(b=>b.className.includes('training-branch')).length),[1,1,1]);
 });
 
 test('capturing the final enemy capital still shows latest battle results when the war is over',()=>{
@@ -285,12 +293,14 @@ test('returning to frontlines restores the selected battlefield after browsing e
   assert.ok(focuses.includes(combat.to));
 });
 
-test('daily manual, timer and shortcut advance share the engine daily clock and leave monthly economics to month boundaries',()=>{
-  const fixture=setup(),{Game,UI,get,documentListeners,ticks}=fixture;
+test('turn button and Space use seven-day settlement while obsolete speed shortcuts remain inert',()=>{
+  const {Game,UI,get,documentListeners,ticks}=setup();
   get('selDifficulty').value='standard';get('selCountry').value='ger';get('selScenario').value='sandbox36';get('startScreen').classList.add('hidden');get('eventModal').classList.add('hidden');
-  UI.init();const before={...Game.state.date};get('btnAdvance').click();assert.equal(Game.state.date.day,before.day+1);
-  documentListeners.keydown({key:'5',preventDefault:()=>{}});assert.equal(Game.state.date.day,before.day+2);
-  Game.setAutoOffensive(false);UI.setSpeed(1);assert.equal(ticks.at(-1).ms,2000);ticks.at(-1).fn();assert.equal(Game.state.date.day,before.day+3);assert.equal(Game.state.date.month,before.month);
+  Game.state.wars=[];Object.values(Game.state.countries).forEach(c=>{if(c.id!==Game.state.player)c.pp=0;});UI.init();const before=Game.state.daysElapsed;
+  get('btnPause').click();assert.equal(Game.state.daysElapsed,before+7);assert.equal(Game.turnStatus().number,2);assert.equal(Game.state.monthsElapsed,0);
+  documentListeners.keydown({key:'5',code:'Digit5',preventDefault(){}});assert.equal(Game.state.daysElapsed,before+7);
+  documentListeners.keydown({key:' ',code:'Space',preventDefault(){}});assert.equal(Game.state.daysElapsed,before+14);assert.equal(Game.turnStatus().number,3);
+  UI.setSpeed(1);UI.resumeSpeed();assert.equal(Game.state.daysElapsed,before+14);assert.equal(UI.getSpeed(),0);assert.equal(ticks.filter(t=>[500,1000,2000].includes(t.ms)).length,0);
 });
 
 test('ongoing card exposes real stance, persists focused combat and keeps reinforcements expanded across daily refresh',()=>{
@@ -301,7 +311,7 @@ test('ongoing card exposes real stance, persists focused combat and keeps reinfo
   assert.match(stages.textContent,/尚未占领/);
   const stance=descendants(panel).find(e=>e.attributes['aria-label']==='我方战术');stance.value='careful';stance.listeners.change();assert.equal(Game.getCombat(combat.id).tactics,'careful');
   buttons('增援').find(b=>b.textContent==='增援').click();let detail=descendants(panel).find(e=>e.className==='combat-reinforcements');assert.equal(detail.open,true);
-  const before=Game.getCombat(combat.id).days;UI.advanceClock();assert.ok(Game.getCombat(combat.id).days>before);assert.equal(UI.activeCombatId,combat.id);
+  const before=Game.getCombat(combat.id).days;Game.advanceDay({automatic:false});UI.refresh();assert.ok(Game.getCombat(combat.id).days>before);assert.equal(UI.activeCombatId,combat.id);
   detail=descendants(panel).find(e=>e.className==='combat-reinforcements');assert.equal(detail.open,true);assert.equal(descendants(panel).find(e=>e.attributes['aria-label']==='我方战术').value,'careful');
   assert.equal(descendants(panel).filter(e=>e.className==='rp-section frontline-list').length,0);
 });
@@ -354,7 +364,9 @@ test('the ally support control requests real eligible reinforcements after expli
   const fixture=setup(),{Game,UI,buttons,unit}=fixture,combat=startUiCombat(fixture);
   const from=Game.neighbors(combat.to).find(n=>Game.neighbors(n).includes(combat.to)&&Game.province(n).owner==='ger'&&Game.landCount(n)>0);assert.ok(from!==undefined);
   Game.province(from).owner='ita';Game.province(from).garrison=Array.from({length:6},()=>unit('infantry'));Game.country('ger').pp=100;Game.state.relations['ger|ita']=60;
-  assert.equal(Game.diploAction('ally','ita'),true);assert.equal(Game.callAlly('ita','pol'),true);UI.refresh();buttons('增援').find(b=>b.textContent==='增援').click();
+  assert.equal(Game.diploAction('ally','ita'),true);assert.equal(Game.callAlly('ita','pol'),true);assert.equal(Game.turnStatus().remaining,0);
+  // The diplomacy setup consumed a deployment budget; this control fixture starts with budget reserved for support.
+  Game.state.turn.used=2;UI.refresh();buttons('增援').find(b=>b.textContent==='增援').click();
   const support=buttons('请求 意大利 支援')[0];assert.ok(support);assert.equal(support.disabled,false);const before=Game.getCombat(combat.id).attackers;support.click();assert.ok(Game.getCombat(combat.id).attackers>before);
 });
 
@@ -392,12 +404,43 @@ test('active battle only shows core commands and new planning is an explicit sep
   buttons('撤退').find(b=>b.textContent==='撤退').click();assert.ok(buttons('确认撤退').length);assert.ok(Game.getCombat(combat.id));buttons('继续战斗')[0].click();assert.ok(Game.getCombat(combat.id));
 });
 
-test('automatic attack control changes only the preference and manual day never creates new orders',()=>{
+test('automatic attack control is opt-in and manual settlement never creates player orders when disabled',()=>{
   const fixture=setup(),{Game,UI,panel,descendants}=fixture;crowdedWar(fixture);UI.renderRightPanel();
-  const before=Game.armyTotals('ger').land,control=descendants(panel).find(e=>e.attributes['aria-label']==='自动出征');assert.ok(control.checked);
+  const before=Game.armyTotals('ger').land,control=descendants(panel).find(e=>e.attributes['aria-label']==='自动出征');assert.equal(control.checked,false);
   let parent=control.parent,details=null;while(parent){if(parent.tagName==='details'){details=parent;break;}parent=parent.parent;}
   assert.ok(details,'continuous attacks remain available as a collapsed advanced option');assert.equal(details.className,'auto-offensive-status');
   assert.match(control.parent.textContent,/连续攻势/,'the checkbox keeps a visible, player-facing label');
+  control.checked=true;control.listeners.change();assert.equal(Game.state.autoOffensive,true);assert.equal(Game.getCombats().length,0);assert.equal(Game.armyTotals('ger').land,before);
   control.checked=false;control.listeners.change();assert.equal(Game.state.autoOffensive,false);assert.equal(Game.getCombats().length,0);assert.equal(Game.armyTotals('ger').land,before);
   UI.advanceClock();assert.equal(Game.getCombats().length,0);
+});
+
+test('exhausted action budget disables paid attack and recruitment confirmations while tactics and cancel remain usable',()=>{
+  const fixture=setup(),{Game,UI,panel,buttons,descendants,get}=fixture;crowdedWar(fixture);UI.renderRightPanel();buttons('进攻目标')[0].click();
+  Game.state.turn.used=3;UI.refresh();const confirm=buttons('确认进攻')[0];assert.equal(confirm.disabled,true);assert.match(confirm.title,/行动已用尽.*结束回合/);
+  const before=Game.save();confirm.click();assert.equal(Game.save(),before);assert.equal(Game.getCombats().length,0);
+  const tactic=descendants(panel).find(e=>e.attributes['aria-label']==='选择谨慎战术');assert.ok(tactic);assert.equal(tactic.disabled,false);tactic.click();
+  const cancel=buttons('取消命令')[0];assert.equal(cancel.disabled,false);cancel.click();assert.equal(Game.turnStatus().used,3);
+  const own=Game.state.provinces.findIndex(p=>p.owner==='ger');get('startScreen').classList.add('hidden');UI.mapHandlers().provinceClick(own);buttons('征兵').find(b=>b.textContent==='征兵').click();
+  const recruit=buttons('确认征兵')[0];assert.ok(recruit);assert.equal(recruit.disabled,true);assert.match(recruit.title,/行动已用尽.*结束回合/);const queued=Game.state.buildQueue.length;recruit.click();assert.equal(Game.state.buildQueue.length,queued);
+  const live=setup(),combat=startUiCombat(live);live.Game.state.turn.used=3;live.UI.refresh();
+  const stance=live.descendants(live.panel).find(e=>e.attributes['aria-label']==='谨慎战术');assert.ok(stance);assert.equal(stance.disabled,false);stance.click();
+  assert.equal(live.Game.getCombat(combat.id).tactics,'careful');assert.equal(live.Game.turnStatus().used,3);assert.equal(live.Game.state.daysElapsed,0);
+});
+
+test('coordinated assault limits real source orders to available actions and never advertises all 44 origins for one action',()=>{
+  function crowdedOrigins(used){
+    const f=setup(),s=f.Game.state,to=1,sources=Array.from({length:45},(_,i)=>i).filter(i=>i!==to);
+    // This UI fixture builds a 44-origin hub independently of the small legacy map's province count.
+    while(s.provinces.length<45){const i=s.provinces.length;s.provinces.push({...s.provinces[0],id:'coord_'+i,name:'协同出发地 '+i});}
+    s.provinces.forEach(p=>{p.owner='ger';p.garrison=[];p.isCapital=false;});s.provinces[to].owner='pol';s.adj=s.provinces.map(()=>[]);s.seaAdj=s.provinces.map(()=>[]);s.coastal=s.provinces.map(()=>false);
+    sources.forEach(i=>{s.provinces[i].garrison=Array.from({length:3},()=>f.unit('infantry'));s.adj[i]=[to];s.adj[to].push(i);});s.wars=[{a:'ger',b:'pol',since:'1936-1'}];s.turn.used=used;
+    f.UI.renderRightPanel();f.buttons('进攻目标')[0].click();return {...f,to,sources};
+  }
+  const f=crowdedOrigins(0),before=f.Game.armyTotals('ger').land,coordinate=f.buttons('协同进攻')[0];assert.ok(coordinate);assert.equal(coordinate.textContent,'协同进攻 · 3 个出发地');assert.match(coordinate.title,/共耗 3 次行动/);assert.equal(coordinate.disabled,false);coordinate.click();
+  const combat=f.Game.state.activeCombats[0];assert.ok(combat);const actualSources=new Set(combat.attackers.map(e=>e.from));assert.equal(actualSources.size,3);assert.equal(combat.attackers.length,6);assert.equal(f.Game.turnStatus().used,3);assert.equal(f.Game.state.daysElapsed,0);assert.equal(f.Game.armyTotals('ger').land,before);
+  for(const i of f.sources)assert.equal(f.Game.province(i).garrison.length,actualSources.has(i)?1:3,'only advertised sources send actual units and preserve a reserve');
+  const last=crowdedOrigins(2),single=last.buttons('协同进攻')[0];assert.ok(single);assert.equal(single.disabled,true);assert.equal(single.textContent,'协同进攻 · 1 个出发地');assert.doesNotMatch(single.textContent,/44/);
+  single.click();assert.equal(last.Game.getCombats().length,0);assert.equal(last.Game.turnStatus().remaining,1);
+  const manual=last.buttons('确认进攻')[0];assert.equal(manual.disabled,false);manual.click();assert.equal(last.Game.turnStatus().remaining,0);assert.equal(new Set(last.Game.state.activeCombats[0].attackers.map(e=>e.from)).size,1);assert.equal(last.Game.state.daysElapsed,0);
 });

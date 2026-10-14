@@ -41,140 +41,94 @@ function setup(){
   get('startScreen').classList.add('hidden');get('eventModal').classList.add('hidden');
   UI.init();
   const activeTimers=()=>timers.filter(t=>!t.cleared&&[500,1000,2000].includes(t.ms));
-  const fire=()=>{const t=activeTimers().find(x=>[500,1000,2000].includes(x.ms));assert.ok(t,'expected an active auto-clock timeout');t.cleared=true;t.fn();return t;};
-  return {Game,UI,get,timers,activeTimers,fire,documentListeners,mapRefreshCount:()=>mapRefreshes,from,to,ctx};
+    return {Game,UI,get,timers,activeTimers,documentListeners,mapRefreshCount:()=>mapRefreshes,from,to,ctx};
 }
 
-test('the real acknowledged defense news restores the clock and advances the day without pressing continue',()=>{
-  const {Game,UI,get,activeTimers,fire,from,to,ctx}=setup();
+function descendants(node){return [node,...node.children.flatMap(descendants)];}
+const command=f=>descendants(f.get('rpContent')).find(e=>e.tagName==='button'&&e.textContent.includes('结束回合'));
+
+test('acknowledging real defense news unblocks the turn and never advances time automatically',()=>{
+  const f=setup(),{Game,UI,get,activeTimers,from,to,ctx}=f;
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/world-news.js'),'utf8'),ctx);ctx.document.body.classList.add('playing');
   UI.setSpeed(3);assert.equal(Game.resolveAttack('fra',to,from,1),true);assert.equal(UI.getSpeed(),0);
   const alert=get('worldNews').children.find(e=>e.attributes['aria-label']==='确认防御警报');assert.ok(alert);
-  const day=Game.state.date.day;alert.click();assert.equal(UI.getSpeed(),3);assert.equal(activeTimers().length,1);
-  fire();assert.equal(Game.state.date.day,day+1);
+  const before=Game.state.daysElapsed;assert.equal(Game.turnStatus().blocked,true);get('btnPause').click();assert.equal(Game.state.daysElapsed,before);
+  alert.click();assert.equal(Game.turnStatus().blocked,false);assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);assert.equal(Game.state.daysElapsed,before);
+  assert.equal(get('worldNews').children.length,0);assert.ok(get('worldNews').classList.contains('hidden'));
+  assert.equal(get('btnPause').disabled,false,'acknowledgment immediately unlocks the rendered turn control');get('btnPause').click();assert.equal(Game.state.daysElapsed,before+7,'explicit end turn executes the defending battle');assert.equal(Game.turnStatus().number,2);
 });
 
-test('selected speed advances a live combat and redraws once per day',()=>{
-  const {Game,UI,fire,mapRefreshCount,from,to}=setup();
-  assert.equal(Game.resolveAttack('ger',from,to,8),true);UI.refresh();
-  const before=Game.getCombats()[0],renders=mapRefreshCount();
-  UI.setSpeed(2);assert.equal(fire().ms,1000);
-  const after=Game.getCombats()[0];
-  assert.equal(Game.state.date.day,2);assert.equal(after.days,before.days+1);assert.ok(after.aOrg<before.aOrg);
-  assert.equal(mapRefreshCount(),renders+1);
+test('legacy speed and resume interfaces leave deployment stationary with no clock timers',()=>{
+  const {Game,UI,activeTimers,get}=setup(),before=Game.state.daysElapsed;
+  for(const tier of [0,1,2,3,4]){UI.setSpeed(tier);UI.resumeSpeed();assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);assert.equal(Game.state.daysElapsed,before);}
+  assert.match(get('speedLabel').textContent,/第 1 回合 · 部署阶段/);assert.equal(get('turnActions').textContent,'3 / 3');
 });
 
-test('pause and resume retain the selected two and three speed tiers without stale timers',()=>{
-  const {UI,activeTimers,fire,get}=setup();
-  for(const [tier,ms] of [[2,1000],[3,500]]){
-    UI.setSpeed(tier);assert.equal(activeTimers().length,1);assert.equal(activeTimers()[0].ms,ms);
-    const stale=activeTimers()[0];UI.setSpeed(0);assert.equal(activeTimers().length,0);
-    UI.resumeSpeed();assert.equal(UI.getSpeed(),tier);assert.equal(activeTimers().length,1);assert.equal(activeTimers()[0].ms,ms);
-    stale.fn();assert.equal(activeTimers().length,1);assert.equal(UI.getSpeed(),tier);
-    fire();UI.setSpeed(0);
-  }
-  UI.setSpeed(4);assert.equal(UI.getSpeed(),3);assert.equal(activeTimers()[0].ms,500);
-  get('btnPause').click();assert.equal(UI.getSpeed(),0);get('btnPause').click();assert.equal(UI.getSpeed(),3);
+test('end turn advances seven days and resets the action budget with a refreshed map',()=>{
+  const {Game,get,activeTimers,mapRefreshCount}=setup();Game.state.wars=[];Game.country('fra').pp=0;
+  Game.state.turn.used=2;const before=Game.state.daysElapsed,renders=mapRefreshCount();get('btnPause').click();
+  assert.equal(Game.state.daysElapsed,before+7);assert.equal(Game.state.date.day,8);assert.equal(Game.turnStatus().number,2);assert.equal(Game.turnStatus().remaining,3);
+  assert.ok(mapRefreshCount()>renders);assert.equal(get('turnActions').textContent,'3 / 3');assert.equal(activeTimers().length,0);
 });
 
-test('scripted event pauses automatic time and resumes the prior tier after a choice',()=>{
-  const {Game,UI,get,activeTimers}=setup();Game.state.date.month=3;UI.setSpeed(3);
-  Game.checkScriptedEvents();assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);
-  const choices=get('eventChoices').children;assert.ok(choices.length);choices[0].click();
-  assert.equal(get('eventModal').classList.contains('hidden'),true);assert.equal(UI.getSpeed(),3);
-  assert.equal(activeTimers().length,1);assert.equal(activeTimers()[0].ms,500);
+test('a required event interrupts month-boundary settlement and its choice leaves remaining days for manual continuation',()=>{
+  const {Game,get,activeTimers}=setup();assert.equal(Game.autoLogisticsStatus().enabled,true);
+  Game.state.wars=[];Game.country('fra').pp=0;Game.state.date={year:1936,month:2,day:29};Game.state.turn.used=1;
+  get('btnPause').click();assert.deepEqual({...Game.state.date},{year:1936,month:3,day:1});assert.equal(Game.state.monthsElapsed,1);
+  assert.equal(Game.turnStatus().pendingDays,6);assert.equal(Game.turnStatus().number,1);assert.equal(Game.turnStatus().used,1);assert.ok(Game.state.pendingEvent);assert.equal(activeTimers().length,0);
+  const choices=get('eventChoices').children;assert.ok(choices.length);const before=Game.state.daysElapsed;choices[0].click();
+  assert.ok(get('eventModal').classList.contains('hidden'));assert.equal(get('eventChoices').children.length,0);assert.equal(get('eventText').innerHTML,'');assert.equal(Game.state.daysElapsed,before);assert.equal(Game.turnStatus().pendingDays,6);
+  assert.match(get('btnPause').textContent,/继续结算本回合/);get('btnPause').click();
+  assert.equal(Game.state.daysElapsed,before+6);assert.equal(Game.state.date.day,7);assert.equal(Game.state.monthsElapsed,1,'month income is not repeated after an interrupted turn');assert.equal(Game.turnStatus().number,2);assert.equal(Game.turnStatus().used,0);assert.equal(Game.turnStatus().pendingDays,0);assert.equal(activeTimers().length,0);
 });
 
-test('automatic month boundary with default logistics refreshes once and event choice restores speed',()=>{
-  const {Game,UI,get,activeTimers,fire,mapRefreshCount}=setup();
-  assert.equal(Game.autoLogisticsStatus().enabled,true);
-  Game.state.date={year:1936,month:2,day:29};
-  const before=mapRefreshCount();
-  UI.setSpeed(3);fire();
-  assert.equal(Game.state.date.month,3);assert.equal(Game.state.date.day,1);
-  assert.equal(mapRefreshCount(),before+1);
-  assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);
-  const choices=get('eventChoices').children;assert.ok(choices.length);choices[0].click();
-  assert.equal(UI.getSpeed(),3);assert.equal(activeTimers().length,1);
+test('confirming an attack costs one action, starts real preparation and leaves the date unchanged; rejection is free',()=>{
+  const f=setup(),{Game,UI,get,activeTimers,from,to}=f;Game.state.selectedIdx=from;UI.setSpeed(2);
+  const before=Game.state.daysElapsed;UI.beginBattle('attack',to);assert.equal(Game.turnStatus().used,0);
+  let confirm=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.textContent.includes('确认进攻'));assert.ok(confirm);confirm.click();
+  assert.equal(Game.state.daysElapsed,before);assert.equal(Game.getCombats().length,1);assert.equal(Game.getCombats()[0].phase,'preparation');assert.equal(Game.getCombats()[0].days,0);assert.equal(Game.turnStatus().used,1);assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);assert.equal(get('turnActions').textContent,'2 / 3');
+  const rejected=setup();rejected.Game.state.selectedIdx=rejected.from;rejected.UI.beginBattle('attack',rejected.to);rejected.Game.resolveAttack=()=>false;
+  confirm=descendants(rejected.get('rpContent')).find(e=>e.tagName==='button'&&e.textContent.includes('确认进攻'));assert.ok(confirm);confirm.click();
+  assert.equal(rejected.Game.turnStatus().used,0);assert.equal(rejected.Game.state.daysElapsed,0);assert.equal(rejected.UI.getSpeed(),0);assert.equal(rejected.activeTimers().length,0);
 });
 
-test('single step advances exactly one day and leaves the selected auto speed paused',()=>{
-  const {Game,UI,get,activeTimers}=setup();UI.setSpeed(2);UI.setSpeed(0);
-  const before=Game.state.date.day;get('btnAdvance').click();
-  assert.equal(Game.state.date.day,before+1);assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);
+test('main control consistently describes seven-day settlement before and after combat orders',()=>{
+  const {Game,UI,get,from,to}=setup();assert.equal(get('btnPause').textContent,'结束回合 · 7天');UI.setSpeed(3);assert.equal(get('btnPause').textContent,'结束回合 · 7天');
+  Game.state.selectedIdx=from;UI.beginBattle('attack',to);assert.equal(get('btnPause').textContent,'结束回合 · 7天');
+  descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.textContent.includes('确认进攻')).click();assert.equal(get('btnPause').textContent,'结束回合 · 7天');
 });
 
-function descendants(node){return [node,...node.children.flatMap(descendants)];}
-
-test('battle confirmation resumes the selected speed without advancing a day; rejected orders remain paused',()=>{
-  const {Game,UI,get,activeTimers,from,to}=setup(),panel=get('rpContent');
-  Game.state.selectedIdx=from;UI.setSpeed(2);
-  const before=Game.state.date.day;
-  UI.beginBattle('attack',to);
-  assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);
-  let confirm=descendants(panel).find(e=>e.tagName==='button'&&e.textContent.includes('确认进攻'));
-  assert.ok(confirm,'attack preview must expose its confirmation action');confirm.click();
-  assert.equal(Game.state.date.day,before,'accepting an order does not implicitly advance the calendar');
-  assert.equal(Game.getCombats().length,1);assert.equal(UI.getSpeed(),2);assert.equal(activeTimers().length,1);
-
-  const rejected=setup(),{Game:failedGame,UI:failedUI,get:failedGet,activeTimers:failedTimers,from:failedFrom,to:failedTo}=rejected;
-  failedGame.state.selectedIdx=failedFrom;failedUI.setSpeed(2);failedUI.beginBattle('attack',failedTo);
-  failedGame.resolveAttack=()=>false;
-  confirm=descendants(failedGet('rpContent')).find(e=>e.tagName==='button'&&e.textContent.includes('确认进攻'));
-  assert.ok(confirm);confirm.click();
-  assert.equal(failedUI.getSpeed(),0,'a rejected order must not resume the clock');assert.equal(failedTimers().length,0);
+test('tactical buttons and advanced selector are free deployment choices without time advance',()=>{
+  const {Game,UI,get,from,to,activeTimers}=setup();Game.resolveAttack('ger',from,to,6);UI.refresh();
+  const combat=Game.getCombats()[0],before={days:Game.state.daysElapsed,used:Game.turnStatus().used};
+  const assault=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.attributes['aria-label']==='强攻战术');assert.ok(assault);assault.click();assert.equal(Game.getCombat(combat.id).tactics,'assault');
+  const select=descendants(get('rpContent')).find(e=>e.tagName==='select'&&e.attributes['aria-label']==='我方战术');assert.ok(select);select.listeners.focus();select.value='careful';select.listeners.change();
+  assert.equal(Game.getCombat(combat.id).tactics,'careful');assert.equal(Game.state.daysElapsed,before.days);assert.equal(Game.turnStatus().used,before.used);assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);
+  Game.setCombatTactics=()=>false;descendants(get('rpContent')).find(e=>e.attributes['aria-label']==='强攻战术').click();assert.equal(Game.getCombat(combat.id).tactics,'careful');assert.equal(Game.state.daysElapsed,before.days);
 });
 
-test('the main clock control names its action in play, pause, and active combat states',()=>{
-  const {Game,UI,get,from,to}=setup(),button=get('btnPause');
-  UI.setSpeed(0);assert.match(button.textContent,/继续游戏/);
-  UI.setSpeed(2);assert.match(button.textContent,/暂停指挥/);
-  Game.state.selectedIdx=from;
-  UI.beginBattle('attack',to);assert.equal(UI.getSpeed(),0);
-  assert.match(button.textContent,/继续游戏/);
-  const confirm=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.textContent.includes('确认进攻'));assert.ok(confirm);confirm.click();
-  UI.setSpeed(0);
-  assert.match(button.textContent,/继续战斗/);
+test('battle card settlement executes the same turn engine as the top control',()=>{
+  const f=setup(),{Game,UI,from,to,activeTimers}=f;Game.resolveAttack('ger',from,to,6);Game.province(to).garrison.forEach(u=>u.org=0);UI.refresh();
+  const before=Game.state.daysElapsed,b=command(f);assert.ok(b);assert.equal(b.disabled,false);b.click();
+  assert.equal(Game.state.daysElapsed,before+7);assert.equal(Game.turnStatus().number,2);assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);
 });
 
-test('battle tactics are immediate commands and resume the remembered speed without a top-bar click',()=>{
-  const {Game,UI,get,from,to,activeTimers,fire}=setup();
-  Game.resolveAttack('ger',from,to,6);UI.setSpeed(3);UI.setSpeed(0);UI.refresh();
-  const combat=Game.getCombats()[0],before=Game.state.daysElapsed;
-  const assault=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.attributes['aria-label']==='强攻并推进');
-  assert.ok(assault,'a visible tactical command must exist outside the folded report');
-  assault.click();
-  assert.equal(Game.getCombat(combat.id).tactics,'assault');assert.equal(UI.getSpeed(),3);
-  assert.equal(activeTimers().length,1);assert.equal(Game.state.daysElapsed,before);
-  fire();assert.equal(Game.state.daysElapsed,before+1);assert.equal(Game.getCombat(combat.id).days,1);
+test('battle card cannot bypass incoming alerts, and acknowledging alone keeps the date fixed',()=>{
+  const f=setup(),{Game,UI,from,to,activeTimers}=f;Game.resolveAttack('ger',from,to,6);
+  Game.state.worldEvents.push({id:'e1',kind:'invasion',acknowledged:false});UI.refresh();const before=Game.state.daysElapsed;
+  const b=command(f);assert.ok(b);assert.equal(b.disabled,true);b.click();UI.resumeSpeed();assert.equal(Game.state.daysElapsed,before);assert.equal(activeTimers().length,0);
+  Game.state.worldEvents[0].acknowledged=true;UI.refresh();assert.equal(command(f).disabled,false);assert.equal(Game.state.daysElapsed,before);command(f).click();assert.ok(Game.state.daysElapsed>before);
 });
 
-test('the battle card owns a clear pause and execute command and rejected tactics stay paused',()=>{
-  const {Game,UI,get,from,to,activeTimers}=setup();
-  Game.resolveAttack('ger',from,to,6);UI.setSpeed(0);UI.refresh();
-  let command=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.textContent==='执行作战');
-  assert.ok(command);command.click();assert.equal(UI.getSpeed(),2);
-  command=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.textContent==='暂停布置');
-  assert.ok(command);command.click();assert.equal(UI.getSpeed(),0);
-  Game.setCombatTactics=()=>false;
-  const tactical=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.attributes['aria-label']==='谨慎并推进');
-  assert.ok(tactical);tactical.click();assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);
-});
-
-test('changing the advanced tactic selector also executes and resumes the battle',()=>{
-  const {Game,UI,get,from,to}=setup();Game.resolveAttack('ger',from,to,6);UI.setSpeed(2);UI.refresh();
-  const select=descendants(get('rpContent')).find(e=>e.tagName==='select'&&e.attributes['aria-label']==='我方战术');
-  assert.ok(select);select.listeners.focus();assert.equal(UI.getSpeed(),0);
-  select.value='careful';select.listeners.change();
-  assert.equal(Game.getCombats()[0].tactics,'careful');assert.equal(UI.getSpeed(),2);
-});
-
-test('battle execute cannot silently bypass an unacknowledged incoming attack',()=>{
-  const {Game,UI,get,from,to,activeTimers}=setup();Game.resolveAttack('ger',from,to,6);
-  Game.state.worldEvents.push({id:'e1',kind:'invasion',acknowledged:false});UI.setSpeed(0);UI.refresh();
-  const command=descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.textContent==='执行作战');
-  assert.ok(command);assert.equal(command.disabled,true);command.click();assert.equal(UI.getSpeed(),0);
-  UI.resumeSpeed();assert.equal(activeTimers().length,0);
-  Game.state.worldEvents[0].acknowledged=true;UI.refresh();
-  descendants(get('rpContent')).find(e=>e.tagName==='button'&&e.textContent==='执行作战').click();assert.equal(UI.getSpeed(),2);
+test('Space ends a turn only outside interactive controls and dialogs; obsolete speed keys never advance',()=>{
+  const {Game,get,documentListeners,ctx,activeTimers}=setup();Game.state.wars=[];Game.country('fra').pp=0;
+  const before=Game.state.daysElapsed,press=()=>documentListeners.keydown({key:' ',code:'Space',preventDefault(){}});
+  for(const tag of ['input','select','textarea','button','summary','a','role-button','editable']){ctx.document.activeElement={matches:()=>true,closest:()=>null};press();assert.equal(Game.state.daysElapsed,before,tag+' retains its native Space action');}
+  ctx.document.activeElement={matches:()=>false,closest:()=>({})};press();assert.equal(Game.state.daysElapsed,before,'dialog focus never ends a turn');
+  ctx.document.activeElement=null;documentListeners.keydown({key:'5',code:'Digit5',preventDefault(){}});assert.equal(Game.state.daysElapsed,before);
+  ctx.WorldOverview={isOpen:true,refresh(){}};ctx.document.body.matches=()=>false;ctx.document.body.closest=()=>null;ctx.document.activeElement=ctx.document.body;
+  press();assert.equal(Game.state.daysElapsed,before,'an open global overview blocks Space even after rendering drops focus onto body');
+  ctx.WorldOverview.isOpen=false;
+  press();assert.equal(Game.state.daysElapsed,before+7);assert.equal(Game.turnStatus().number,2);assert.equal(activeTimers().length,0);
+  get('eventModal').classList.remove('hidden');press();assert.equal(Game.state.daysElapsed,before+7,'required event prevents the shortcut');
 });

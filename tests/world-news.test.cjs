@@ -25,24 +25,41 @@ function setup(){
   return {news:ctx.news,state,box,modal,body,timers,focused,selected,event,update,close,tick,ctx};
 }
 
-test('acknowledging the final defense alert resumes play once, while inspecting a battlefield keeps planning paused',()=>{
-  const f=setup();let resumes=0,saves=0;f.ctx.UI={resumeSpeed:()=>resumes++,focusCombat:()=>true};f.ctx.Game={autosave:()=>saves++};
+test('acknowledging defense alerts clears the card without starting any simulation clock',()=>{
+  const f=setup();let resumes=0,saves=0,refreshes=0;f.ctx.UI={resumeSpeed:()=>resumes++,focusCombat:()=>true,refresh:()=>{refreshes++;assert.equal(f.box.classList.contains('hidden'),true,'refresh receives a cleared card');f.update();}};f.ctx.Game={autosave:()=>saves++};
   const a=f.event('invasion'),b=f.event('invasion');a.acknowledged=b.acknowledged=false;f.update();
   const acknowledge=()=>f.box.children.find(e=>e.className==='news-close').listeners.click();
   acknowledge();assert.equal(a.acknowledged,true);assert.equal(resumes,0,'other alerts still block time');
-  acknowledge();assert.equal(b.acknowledged,true);assert.equal(resumes,1);assert.equal(saves,2);
-  f.update();assert.equal(resumes,1,'refresh cannot start another clock');
+  acknowledge();assert.equal(b.acknowledged,true);assert.equal(resumes,0);assert.equal(saves,2);assert.equal(refreshes,2);
+  assert.equal(f.box.children.length,0);assert.equal(f.box.classList.contains('hidden'),true);assert.equal(f.timers.size,0);
+  f.update();assert.equal(resumes,0,'refresh cannot start another clock');
   const c=f.event('invasion');c.acknowledged=false;f.update();f.box.children.find(e=>e.className==='news-locate').listeners.click();
-  assert.equal(c.acknowledged,true);assert.equal(resumes,1,'view battlefield is a planning action');
+  assert.equal(c.acknowledged,true);assert.equal(resumes,0,'view battlefield is a planning action');
 });
 
-test('world news deduplicates refresh, prioritizes player outcomes and advances one card at a time',()=>{
+test('acknowledgment refresh respects another unread alert covered by a required event',()=>{
+  const f=setup(),a=f.event('invasion'),b=f.event('invasion');f.ctx.UI={refresh:()=>f.update()};f.update();
+  f.modal.classList.remove('hidden');f.box.children.find(e=>e.className==='news-close').listeners.click();
+  assert.equal(a.acknowledged,true);assert.notEqual(b.acknowledged,true);assert.equal(f.box.classList.contains('hidden'),true);assert.equal(f.box.children.length,0);assert.equal(f.timers.size,0);
+  f.modal.classList.add('hidden');f.update();assert.equal(f.box.dataset.event,b.id);assert.equal(f.timers.size,0);
+});
+
+test('world news groups a batch into a single brief digest and never replays it',()=>{
   const f=setup();f.event('war',['fra','ita'],3);const player=f.event('capture');f.update();
   assert.equal(f.box.dataset.event,player.id);assert.equal(f.timers.size,1);
   f.update();f.update();assert.equal(f.timers.size,1);
-  f.close();assert.equal(f.box.dataset.event,'e1');assert.equal(f.timers.size,1);
-  f.tick();assert.equal(f.box.classList.contains('hidden'),true);assert.equal(f.timers.size,0);
+  assert.match(f.box.children.find(e=>e.className==='news-title').textContent,/另 1 条/);
+  f.close();assert.equal(f.box.classList.contains('hidden'),true);assert.equal(f.timers.size,0);assert.equal(f.box.children.length,0);
   f.update();assert.equal(f.box.classList.contains('hidden'),true);
+});
+
+test('dozens of same-day events use one lifetime, while unread defense alerts remain persistent',()=>{
+  const f=setup();for(let i=0;i<35;i++)f.event('war',['fra','ita'],3);f.update();
+  assert.equal(f.timers.size,1);assert.match(f.box.children.find(e=>e.className==='news-detail').textContent,/35 条/);
+  f.event('capture');f.update();assert.equal(f.timers.size,1,'new messages do not extend the active timer');
+  f.tick();assert.equal(f.box.children.length,0);f.update();assert.equal(f.box.classList.contains('hidden'),true);
+  const alert=f.event('invasion');f.update();assert.equal(f.timers.size,0);f.update();assert.equal(f.box.dataset.event,alert.id);
+  f.news.reset(f.state);f.update();assert.equal(f.box.dataset.event,alert.id,'loaded unread alerts remain visible');
 });
 
 test('required choice pauses news lifetime, then resumes without dropping the covered event',()=>{

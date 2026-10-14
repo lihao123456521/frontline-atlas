@@ -33,6 +33,7 @@ const MapView = (() => {
   let mapMode = "political";
   let hoverIdx = -1, selIdx = -1;
   let hoverUnitKey = null;
+  let tutorialFocusIdx = -1;
   let movePrevPath = null;
   let battlePlan = null;
   let attackableFrom = -1;
@@ -70,7 +71,7 @@ const MapView = (() => {
     occupiedRects.push(r); return true;
   }
   function importantProvince(p,i){
-    return i===Game.state.selectedIdx || i===hoverIdx || battleEffects.some(b=>b.from===i || b.to===i)
+    return i===Game.state.selectedIdx || i===hoverIdx || i===tutorialFocusIdx || battleEffects.some(b=>b.from===i || b.to===i)
       || (Game.state.activeCombats||[]).some(b=>b.from===i || b.to===i);
   }
   function installWorldWrap(){
@@ -851,6 +852,9 @@ const MapView = (() => {
     }else{
       for(const row of provinces){
         const {p,i}=row;
+        // Routine rear-area detachments are real troops, but their small counters
+        // only become useful at close zoom or when the province is inspected.
+        if(!importantProvince(p,i)&&(k<18||scale<13.5)&&p.garrison.every(d=>(d.formationPermille??1000)<100))continue;
         if(!importantProvince(p,i) && p.owner!==state.player && !Game.isAtWar(state.player,p.owner) && (k<6 || !p.isCapital)) continue;
         candidates.push({...row,group:{type:"all",count:p.garrison.length,personnel:personnelOf(p.garrison)},priority:rank(row)});
       }
@@ -1519,7 +1523,7 @@ const MapView = (() => {
 
   function isAnimating(){ return battleEffects.length > 0 || floatTexts.length > 0; }
 
-  return { W,H,proj,owner,countryColor,render,bind, isAnimating,
+  return { W,H,proj,owner,countryColor,render,bind, isAnimating, setTutorialFocus:(idx)=>{tutorialFocusIdx=Number.isInteger(idx)?idx:-1;if(Game.state)render();},
     showMovePreview,clearMovePreview,showBattlePlan,clearBattlePlan,
     showAttackable,clearAttackable,
     setHover,setSelect,unitUnderPoint,provinceUnderPoint,

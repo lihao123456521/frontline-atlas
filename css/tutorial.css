@@ -1,0 +1,20 @@
+/* The guide is a persistent map card, separate from the refreshed command panel. */
+.war-tutorial{position:fixed;z-index:54;left:18px;bottom:86px;width:min(350px,calc(100vw - 404px));box-sizing:border-box;padding:10px 14px 12px;border:1px solid #9f956d;border-left:3px solid #d8bc7c;border-radius:8px;background:#173440f5;color:#f1e4c4;box-shadow:0 8px 24px #071d3455;font:16px/1.45 var(--font);pointer-events:auto}
+.war-tutorial[hidden],.war-tutorial button[hidden]{display:none!important}
+.war-tutorial-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.war-tutorial-progress{font-size:13px;color:#c4b480}
+.war-tutorial-message{margin:2px 0 7px;overflow-wrap:anywhere}
+.war-tutorial button{min-height:44px;padding:8px 12px;border:1px solid #6b8289;border-radius:5px;background:#214552;color:#f1e4c4;font:inherit;cursor:pointer;touch-action:manipulation}
+.war-tutorial button:focus-visible{outline:2px solid #eed19a;outline-offset:2px}
+.war-tutorial .war-tutorial-skip{background:transparent;border-color:transparent;color:#c8d4d2;font-size:14px;padding:8px}
+.war-tutorial-actions{display:flex;gap:8px}
+.war-tutorial-active .map-hint{visibility:hidden}
+.war-tutorial-active .context-hint{visibility:hidden}
+@media(min-width:701px) and (max-width:850px){.war-tutorial{font-size:16px;left:12px;width:calc(100vw - 392px)}}
+@media(max-width:700px){
+  .war-tutorial{left:12px;right:12px;width:auto;padding:7px 12px 10px}
+  .war-tutorial-head{min-height:44px}.war-tutorial-message{margin:2px 0 5px}
+  body.war-tutorial-active #rightPanel{bottom:var(--tutorial-bottom,254px);max-height:calc(100dvh - var(--tutorial-bottom,254px) - 130px)}
+  body.war-tutorial-active:has(>#nl-badge-frame) #rightPanel{bottom:var(--tutorial-bottom,310px);max-height:calc(100dvh - var(--tutorial-bottom,310px) - 130px)}
+}
+@media(max-height:540px) and (min-width:701px){.war-tutorial{font-size:16px;padding:6px 10px}.war-tutorial-message{margin:0 0 3px}.war-tutorial-head{height:36px}}

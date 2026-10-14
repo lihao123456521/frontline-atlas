@@ -4,11 +4,11 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-function setup() {
+function setup(withTutorial=false) {
   const descendants = node => [node, ...node.children.flatMap(descendants)];
   class Element {
     constructor(tag = 'div') {
-      this.tagName = tag; this.children = []; this.listeners = {}; this.style = {}; this.dataset = {}; this.attributes = {}; this.value = ''; this.open = false;
+      this.tagName = tag; this.children = []; this.listeners = {}; this.style = {setProperty(k,v){this[k]=String(v);},removeProperty(k){delete this[k];}}; this.dataset = {}; this.attributes = {}; this.value = ''; this.open = false;
       this.classes = new Set();
       this.classList = {add: (...names) => names.forEach(n => this.classes.add(n)), remove: (...names) => names.forEach(n => this.classes.delete(n)), contains: n => this.classes.has(n), toggle: (n, yes = !this.classes.has(n)) => {yes ? this.classes.add(n) : this.classes.delete(n); return yes;}};
     }
@@ -35,8 +35,10 @@ function setup() {
   for (const name of ['data.js', 'data_world.js', 'data_provinces.js', 'campaign.js', 'game.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../js', name), 'utf8'), ctx);
   const Game = vm.runInContext('Game', ctx); Game.init('ger', 'fas', null, 'standard', 'sandbox36');
   ctx.MapView = {setSelect: () => {}, isProvinceInView: () => true, focusProvince: () => {}, showBattlePlan: () => {}, showAttackable: () => {}, clearAttackable: () => {}};
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/ui.js'), 'utf8').replace('return { init, refresh,', 'return { navigate, selectCity, mapHandlers, renderRightPanel, advanceClock, init, refresh,'), ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/ui.js'), 'utf8').replace('return { init, refresh,', 'return { startGame, navigate, selectCity, mapHandlers, renderRightPanel, advanceClock, init, refresh,'), ctx);
   const UI = vm.runInContext('UI', ctx); window.UI = UI;
+  if(withTutorial)vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/tutorial.js'),'utf8'),ctx,{filename:'tutorial.js'});
+  const Tutorial=withTutorial?vm.runInContext('WarTutorial',ctx):null;
   get('startScreen').classList.add('hidden'); get('eventModal').classList.add('hidden');
   const panel = get('rpContent');
   const emit = (target, type, extra = {}) => {
@@ -49,7 +51,8 @@ function setup() {
   const click = node => {if (!node.disabled) emit(node, 'click');};
   const flush = () => {const due = [...timers].filter(([, t]) => t.ms <= 500); due.forEach(([id, t]) => {if (timers.delete(id)) t.fn();});};
   const button = text => descendants(panel).find(n => n.tagName === 'button' && n.textContent === text);
-  return {Game, UI, panel, descendants, get, button, click, emit, flush, window, document, timers};
+  return {Game, UI, Tutorial, panel, descendants, get, button, click, emit, flush, window, document, timers,
+    events:vm.runInContext('SCRIPTED_EVENTS',ctx)};
 }
 
 test('a range retains its node after lost capture during a held drag, and maps continuous movement to whole divisions',()=>{
@@ -60,6 +63,8 @@ test('a range retains its node after lost capture during a held drag, and maps c
   Game.state.adj[from]=[to];Game.state.adj[to]=[from];UI.selectCity(from);UI.beginBattle('attack',to);
   const range=descendants(panel).find(n=>n.attributes['aria-label']==='出击兵力数量');assert.ok(range);
   assert.equal(range.step,'any','native thumb is continuous, while orders use whole divisions');
+  const detail=descendants(panel).find(n=>n.className==='battle-adjustments'),summary=detail.children[0];
+  const opening=emit(summary,'click');assert.equal(opening.defaultPrevented,true);assert.equal(detail.open,true);emit(summary,'click');assert.equal(detail.open,false);
   emit(range,'pointerdown');range.value='2.4';emit(range,'input');
   UI.refresh();emit(range,'lostpointercapture');flush();
   assert.ok(descendants(panel).includes(range),'a capture change cannot detach the slider while the pointer is held');
@@ -94,6 +99,36 @@ test('range keyboard repeats cancel a previous release and retain whole-division
   emit(current,'keydown',{key:'ArrowRight'});assert.equal(current.step,'1');
   emit(current,'pointerdown');assert.equal(current.step,'any','switching directly from keyboard to pointer restores smooth dragging');
   emit(current,'pointerup');flush();
+});
+
+test('city recruitment selects a real land role while national training filters sea and air branches',()=>{
+  const {Game,UI,panel,button,click,descendants,emit}=setup(),c=Game.country('ger');c.res=c.equipment=c.oil=c.rare=c.manpower=1000;
+  UI.selectCity(Game.provinceById('ger_berlin'));click(button('征兵'));
+  let select=descendants(panel).find(n=>n.attributes['aria-label']==='选择训练兵种');assert.ok(select);
+  assert.ok(descendants(select).some(n=>n.tagName==='option'&&n.value==='garrison'));
+  select.value='garrison';emit(select,'change');assert.match(panel.textContent,/守备师/);click(button('确认征兵'));
+  assert.equal(Game.state.buildQueue[0].unitType,'garrison');assert.equal(c.manpower,992);
+  UI.navigate('production');click(button('海军'));select=descendants(panel).find(n=>n.attributes['aria-label']==='选择训练兵种');
+  assert.ok(descendants(select).filter(n=>n.tagName==='option').every(n=>['navy','destroyer','submarine','carrier'].includes(n.value)));
+  click(button('空军'));select=descendants(panel).find(n=>n.attributes['aria-label']==='选择训练兵种');
+  assert.ok(descendants(select).filter(n=>n.tagName==='option').every(n=>['air','cas','tacticalBomber','strategicBomber'].includes(n.value)));
+  click(button('陆军'));select=descendants(panel).find(n=>n.attributes['aria-label']==='选择训练兵种');select.value='heavyArmor';emit(select,'change');
+  assert.equal(button('训练 重装甲战斗群').disabled,true);assert.match(panel.textContent,/1941 年解锁/);
+});
+
+test('navigating away from a tutorial plan returns the guide to a real selectable command',()=>{
+  const {Game,UI,Tutorial,button,click}=setup(true),from=Game.provinceById('ger_berlin'),to=Game.provinceById('neu_poland');
+  Game.state.adj[from]=[to];Game.state.adj[to]=[from];Tutorial.start();UI.selectCity(from);click(button('出征'));UI.mapHandlers().provinceClick(to);click(button('谨慎'));
+  assert.equal(Tutorial.snapshot().step,'order');assert.ok(button('确认进攻（将宣战）'));
+  UI.navigate('production');assert.equal(Tutorial.snapshot().step,'select');UI.navigate('war');assert.equal(Tutorial.snapshot().step,'select');
+  UI.selectCity(from);click(button('出征'));UI.mapHandlers().provinceClick(to);assert.equal(Tutorial.snapshot().step,'tactic');
+});
+
+test('starting a campaign shows immediate busy feedback, rejects repeat clicks and recovers after an error',()=>{
+  const {Game,UI,get,flush}=setup();get('selScenario').value='sandbox36';get('selCountry').value='ger';get('selDifficulty').value='standard';
+  const start=get('btnStart');start.innerHTML='进入战区';let attempts=0;Game.init=()=>{attempts++;throw new Error('test startup failure');};
+  UI.startGame();UI.startGame();assert.equal(start.disabled,true);assert.match(start.textContent,/战役准备中/);assert.equal(attempts,0);
+  flush();assert.equal(attempts,1);assert.equal(start.disabled,false);assert.equal(start.innerHTML,'进入战区');
 });
 
 test('city card keeps only war actions visible and preserves advanced city options through refresh', () => {
@@ -149,14 +184,16 @@ test('lost pointer capture followed by its native click submits one order during
   click(confirm); flush(); assert.equal(Game.state.buildQueue.filter(q => q.kind === 'div').length, 1);
 });
 
-test('Space on a focused command remains a native button activation without toggling the game clock', () => {
+test('Space on a focused command remains a native button activation without advancing the turn', () => {
   const {Game, UI, panel, get, button, emit, click, flush, document} = setup();
   UI.init(); UI.selectCity(Game.state.provinces.findIndex(p => p.owner === 'ger'));
+  const date=JSON.stringify(Game.state.date),turn=Game.turnStatus().number;
   const recruit = button('征兵'); document.activeElement = recruit;
   const down = emit(recruit, 'keydown', {key: ' ', code: 'Space'}); UI.refresh();
   assert.equal(down.defaultPrevented, undefined, 'global Space shortcut must not suppress button activation');
   emit(recruit, 'keyup', {key: ' ', code: 'Space'}); click(recruit); flush();
-  assert.ok(button('确认征兵')); assert.equal(UI.getSpeed(), 0); assert.match(get('speedLabel').textContent, /已暂停/);
+  assert.ok(button('确认征兵')); assert.equal(UI.getSpeed(), 0); assert.match(get('speedLabel').textContent, /部署阶段/);
+  assert.equal(JSON.stringify(Game.state.date),date);assert.equal(Game.turnStatus().number,turn);
 });
 
 test('ongoing combat makes advanced war information opt-in and chooses an incoming attack first', () => {
@@ -172,26 +209,35 @@ test('ongoing combat makes advanced war information opt-in and chooses an incomi
   assert.doesNotMatch(visibleText(card), /已持续|当前归属|士气|补给|估算减员|占领目标/);
 });
 
-test('finishing a required event keeps the clock paused when an incoming attack still needs acknowledgement', () => {
-  const {Game, UI} = setup();
-  UI.setSpeed(2); UI.showEvent({id: 'choice', title: '必选事件', desc: '选择一项', choices: [{label: '确定'}]});
-  assert.equal(UI.getSpeed(), 0);
+test('resolving a real required event keeps the turn blocked by an unacknowledged incoming attack', () => {
+  const {Game, UI, events,get} = setup(),event=events[0];
+  Game.state.date={year:event.year,month:event.month,day:1};
+  const date=JSON.stringify(Game.state.date),turn=Game.turnStatus().number;
+  UI.setSpeed(2);Game.checkScriptedEvents();
+  assert.equal(Game.state.pendingEvent,event.id);assert.equal(get('eventModal').classList.contains('hidden'),false);
+  assert.equal(UI.getSpeed(),0);assert.equal(Game.turnStatus().blocked,true);
   Game.state.worldEvents.push({id: 'invasion:1', kind: 'invasion', acknowledged: false});
-  UI.closeEvent(); assert.equal(UI.getSpeed(), 0);
+  assert.equal(Game.resolveEvent(event.id,0),true);assert.equal(Game.state.pendingEvent,null);
+  assert.equal(get('eventModal').classList.contains('hidden'),true);assert.equal(Game.turnStatus().blocked,true);
+  UI.advanceClock();assert.equal(JSON.stringify(Game.state.date),date);assert.equal(Game.turnStatus().number,turn);
   Game.state.worldEvents[0].acknowledged = true;
-  UI.setSpeed(2); UI.showEvent({id: 'choice2', title: '必选事件', desc: '选择一项', choices: [{label: '确定'}]});
-  UI.closeEvent(); assert.equal(UI.getSpeed(), 2);
+  UI.setSpeed(2);UI.closeEvent();assert.equal(UI.getSpeed(),0);assert.equal(Game.turnStatus().blocked,false);
+  assert.equal(JSON.stringify(Game.state.date),date);assert.equal(Game.turnStatus().number,turn,'acknowledging only unlocks explicit turn advancement');
 });
 
-test('touching the in-battle pause button keeps it paused after the press handler pauses time',()=>{
-  const {Game,UI,button,click,emit,flush}=setup();
+test('holding the battle finish-turn button through refresh preserves the native target and advances exactly one turn',()=>{
+  const {Game,UI,panel,descendants,button,click,emit,flush}=setup();
   const combat={id:'c1',to:1,name:'前线',playerSide:'attack',attacker:'ger',defender:'pol',phase:'preparation',days:0,progress:0,supply:100,attackers:3,defenders:2,aOrg:90,dOrg:90,aPersonnel:30000,dPersonnel:20000,aPersonnelLoss:0,dPersonnelLoss:0,tactics:'balanced',canRetreat:true,allies:[]};
   Game.getCombats=()=>[combat];Game.getCombat=()=>combat;
   UI.navigate('war');UI.setSpeed(2);UI.refresh();
-  const pause=button('暂停布置');assert.ok(pause);
-  emit(pause,'pointerdown');assert.equal(UI.getSpeed(),0);emit(pause,'pointerup');click(pause);flush();
-  assert.equal(UI.getSpeed(),0,'pause intent must not be reversed by pointerdown auto-pause');
-  const execute=button('执行作战');assert.ok(execute);emit(execute,'pointerdown');emit(execute,'pointerup');click(execute);flush();assert.equal(UI.getSpeed(),2);
+  const execute=button('结束回合 · 执行作战');assert.ok(execute);
+  const before=Game.turnStatus().number,days=Game.state.daysElapsed,date=JSON.stringify(Game.state.date);
+  emit(execute,'pointerdown');UI.refresh();assert.equal(UI.getSpeed(),0);
+  assert.ok(descendants(panel).includes(execute),'a held native target survives deferred rendering');
+  assert.equal(JSON.stringify(Game.state.date),date,'pressing the command does not advance');
+  emit(execute,'pointerup');assert.ok(descendants(panel).includes(execute));
+  click(execute);flush();assert.equal(Game.turnStatus().number,before+1);assert.equal(Game.state.daysElapsed,days+7);
+  assert.equal(UI.getSpeed(),0);assert.ok(button('结束回合 · 执行作战'));
 });
 
 test('city and army recruitment controls change real automatic settings and preserve them across views', () => {
