@@ -604,36 +604,51 @@ const MapView = (() => {
 
   // ---------- 国界 (Voronoi 多边形已经画了, 这里画战时前线高亮) ----------
   const administrativeBorderGroups=[];
+  let administrativeBorderVersion='';
   function updateAdministrativeBorders(){
     if(!administrativeBorderGroups.length)return;
     const k=visibleAnchor().k;
     for(const group of administrativeBorderGroups){
-      group.setAttribute("opacity",k<6?0:k<10?.12:.19);
-      group.setAttribute("stroke-width",String(.6/scale));
+      group.setAttribute("opacity",k<8?0:k<14?.08:.14);
+      group.setAttribute("stroke-width",String(.45/scale));
     }
   }
   function renderBorders(){
+    const borderVersion=typeof HistoricalRegions!=="undefined"?HistoricalRegions.version:'';
+    if(borderVersion!==administrativeBorderVersion){historicalBordersReady=false;administrativeBorderGroups.length=0;administrativeBorderVersion=borderVersion;}
     if(historicalMap && historicalBordersReady){updateAdministrativeBorders();return;}
     L.borders.innerHTML = "";
     if(!historicalMap) return;
     if(typeof HistoricalRegions!=="undefined"){
       const byCountry=new globalThis.Map();
-      for(const region of HistoricalRegions.regions){
+      const segments=new globalThis.Map();
+      const nodes=HistoricalRegions.nodes?.length?HistoricalRegions.nodes:null;
+      const regions=nodes?nodes.flatMap(node=>HistoricalRegions.regionsFor(node.id).map(region=>({...region,playableProvinceId:node.id}))):HistoricalRegions.regions;
+      for(const region of regions){
         if(!historicalShapes.has(region.shapeOwner))continue;
-        if(!byCountry.has(region.shapeOwner))byCountry.set(region.shapeOwner,[]);
-        byCountry.get(region.shapeOwner).push(region);
+        for(const ring of region.rings)for(let index=0;index<ring.length;index++){
+          const from=ring[index],to=ring[(index+1)%ring.length];
+          const first=from.map(value=>value.toFixed(6)).join(','),second=to.map(value=>value.toFixed(6)).join(',');
+          const key=region.shapeOwner+':'+(first<second?first+'|'+second:second+'|'+first);
+          const previous=segments.get(key),provinceId=region.playableProvinceId||region.provinceId||region.id;
+          if(previous){if(previous.provinceId===provinceId)previous.internal=true;}
+          else segments.set(key,{country:region.shapeOwner,provinceId,from,to});
+        }
       }
-      for(const [cid,regions]of byCountry){
+      for(const segment of segments.values()){
+        if(segment.internal)continue;
+        if(!byCountry.has(segment.country))byCountry.set(segment.country,[]);
+        byCountry.get(segment.country).push(segment);
+      }
+      for(const [cid,segments]of byCountry){
         ensureClip(cid);
         const group=document.createElementNS(NS,"g");
         group.setAttribute("class","historical-administrative-borders");group.setAttribute("data-country",cid);
         group.setAttribute("clip-path",`url(#${clipIdFor(cid)})`);group.setAttribute("pointer-events","none");
         group.setAttribute("fill","none");group.setAttribute("stroke","#b9ccc2");
         group.setAttribute("stroke-linejoin","round");group.setAttribute("stroke-linecap","round");
-        for(const region of regions){
-          const path=document.createElementNS(NS,"path");path.setAttribute("d",region.rings.map(polygonPath).join(" "));
-          path.setAttribute("vector-effect","non-scaling-stroke");path.setAttribute("data-region",region.id);group.appendChild(path);
-        }
+        const path=document.createElementNS(NS,"path");path.setAttribute("d",segments.map(segment=>`M${segment.from[0]},${segment.from[1]}L${segment.to[0]},${segment.to[1]}`).join(' '));
+        path.setAttribute("vector-effect","non-scaling-stroke");path.setAttribute("data-segment-count",segments.length);group.appendChild(path);
         administrativeBorderGroups.push(group);L.borders.appendChild(group);
       }
     }
@@ -850,12 +865,22 @@ const MapView = (() => {
         candidates.push({...row,group:{type:"all",count:units.length,personnel:personnelOf(units),national:true},priority:rank(row)});
       }
     }else{
+      const localForces=provinces.filter(({p})=>p.owner===state.player).map(({p})=>personnelOf(p.garrison));
+      const mainForceThreshold=Math.max(20000,(localForces.reduce((total,value)=>total+value,0)/Math.max(1,localForces.length))*1.3);
       for(const row of provinces){
         const {p,i}=row;
         // Routine rear-area detachments are real troops, but their small counters
         // only become useful at close zoom or when the province is inspected.
         if(!importantProvince(p,i)&&(k<18||scale<13.5)&&p.garrison.every(d=>(d.formationPermille??1000)<100))continue;
-        if(!importantProvince(p,i) && p.owner!==state.player && !Game.isAtWar(state.player,p.owner) && (k<6 || !p.isCapital)) continue;
+        if(!importantProvince(p,i)){
+          if(p.owner===state.player){
+            const frontline=Game.neighbors(i).some(neighbor=>{const owner=state.provinces[neighbor]?.owner;return owner&&Game.isAtWar(state.player,owner);});
+            if(!frontline&&!p.isCapital&&personnelOf(p.garrison)<mainForceThreshold)continue;
+          }else{
+            const enemyFront=Game.isAtWar(state.player,p.owner)&&Game.neighbors(i).some(neighbor=>state.provinces[neighbor]?.owner===state.player);
+            if(!enemyFront||personnelOf(p.garrison)<20000)continue;
+          }
+        }
         candidates.push({...row,group:{type:"all",count:p.garrison.length,personnel:personnelOf(p.garrison)},priority:rank(row)});
       }
     }

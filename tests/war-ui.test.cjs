@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
 
-function setup(){
+function setup(historical=false){
   class Element{
     constructor(tag='div'){this.tagName=tag;this.children=[];this.listeners={};this.style={};this.dataset={};this.attributes={};this._html='';this._text='';this.value='';this.disabled=false;this.classes=new Set();this.classList={add:(...xs)=>xs.forEach(x=>this.classes.add(x)),remove:(...xs)=>xs.forEach(x=>this.classes.delete(x)),contains:x=>this.classes.has(x),toggle:(x,b)=>{if(b===undefined)b=!this.classes.has(x);b?this.classes.add(x):this.classes.delete(x);return b;}};}
     set innerHTML(v){this._html=v;this._text='';this.children=[];}
@@ -28,7 +28,8 @@ function setup(){
   const document={getElementById:get,createElement:tag=>new Element(tag),body:new Element('body'),querySelectorAll:()=>[],querySelector:()=>null,addEventListener:(name,fn)=>{documentListeners[name]=fn;}};
   const ctx=vm.createContext({window:{},console,document,Math:Object.create(Math),localStorage:{getItem:()=>null,setItem:()=>{}},setTimeout:(fn,ms)=>{ticks.push({fn,ms});return ticks.length;},clearTimeout:()=>{},setInterval:(fn,ms)=>{ticks.push({fn,ms});return ticks.length;},clearInterval:()=>{},confirm:()=>true});
   ctx.Math.random=()=>0.5;
-  for(const name of ['data.js','data_world.js','data_provinces.js','campaign.js','game.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',name),'utf8'),ctx);
+  const scripts=historical?['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','data_historical_regions.js','historical_regions.js','history.js','world.js','strategic_regions.js','campaign.js','order_of_battle.js','game.js']:['data.js','data_world.js','data_provinces.js','campaign.js','game.js'];
+  for(const name of scripts)vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',name),'utf8'),ctx);
   const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard','sandbox36');
   const focuses=[];
   ctx.MapView={setSelect:()=>{},isProvinceInView:()=>true,focusProvince:idx=>focuses.push(idx),showBattlePlan:()=>{},showAttackable:()=>{},clearAttackable:()=>{}};
@@ -42,6 +43,56 @@ function setup(){
   const unit=type=>{const t=types[type];return {type,kind:t.kind,atk:t.atk,def:t.def,hp:t.hp,maxHp:t.hp,org:t.org,maxOrg:t.org};};
   return {Game,UI,panel,buttons,descendants,unit,types,get,documentListeners,ticks,focuses};
 }
+
+test('military research shows prerequisites, assigns a real slot, supports cancellation and links unlocked artillery training',()=>{
+  const {Game,UI,panel,buttons}=setup();
+  UI.navigate('research');assert.match(panel.textContent,/军事科技/);
+  buttons('火炮').find(button=>button.textContent==='火炮').click();
+  assert.equal(buttons('研发 火炮研发')[0].disabled,true);assert.match(panel.textContent,/先研发 步兵战术 I/);
+  buttons('陆军').find(button=>button.textContent==='陆军').click();
+  buttons('研发 步兵战术 I')[0].click();assert.equal(Game.state.research.slots[0],'inf1');
+  assert.match(panel.textContent,/正在研发/);assert.match(panel.textContent,/预计.*个月/);
+  buttons('取消研发')[0].click();assert.equal(Game.state.research.slots[0],null);
+  const c=Game.country('ger');c.researched.inf1=c.researched.art1=true;UI.refresh();
+  buttons('火炮').find(button=>button.textContent==='火炮').click();assert.match(panel.textContent,/牵引炮兵团/);
+  buttons('训练已解锁兵种')[0].click();assert.match(panel.textContent,/训练 牵引炮兵团/);
+});
+
+test('future research remains visible and disabled, and locked training leads to the matching research branch',()=>{
+  const {UI,panel,buttons,descendants}=setup();UI.navigate('production');
+  const select=descendants(panel).find(element=>element.attributes['aria-label']==='选择训练兵种');
+  select.value='mechanized';select.listeners.change();buttons('研发 机械化理论')[0].click();
+  assert.match(panel.textContent,/军事科技/);assert.match(panel.textContent,/1940 年开放/);
+  assert.equal(buttons('研发 机械化理论')[0].disabled,true);
+  assert.ok(buttons('装甲').some(button=>button.attributes['aria-pressed']==='true'));
+});
+
+test('large province training batches remain folded behind one queue summary',()=>{
+  const {Game,UI,panel,descendants}=setup(),provinceIdx=Game.state.provinces.findIndex(province=>province.owner==='ger');
+  Game.state.buildQueue=Array.from({length:40},()=>({kind:'div',provinceIdx,unitType:'infantry',formationPermille:50,label:'省级分队',turnsLeft:1}));
+  UI.navigate('production');const queue=descendants(panel).find(element=>element.className==='production-queue');
+  assert.ok(queue);assert.equal(queue.tagName,'details');assert.ok(!queue.open);
+  assert.match(queue.children[0].textContent,/40 项/);assert.match(queue.textContent,/2\.0 万人/);
+});
+
+test('puppet diplomacy previews costs before confirming and exposes actual integration commands afterwards',()=>{
+  const {Game,UI,panel,descendants,buttons}=setup(true),c=Game.country('ger');c.pp=500;Game.state.relations['aut|ger']=80;
+  UI.navigate('diplo');const select=descendants(panel).find(element=>element.attributes['aria-label']==='选择外交国家');select.value='aut';select.listeners.change();
+  const before=Game.save();buttons('扶持傀儡政府…')[0].click();assert.match(panel.textContent,/月收入的10%/);assert.equal(Game.save(),before);
+  buttons('取消外交命令')[0].click();assert.equal(Game.country('aut').subjectOf,null);
+  buttons('扶持傀儡政府…')[0].click();assert.equal(buttons('确认扶持傀儡政府')[0].disabled,false);buttons('确认扶持傀儡政府')[0].click();
+  assert.equal(Game.country('aut').subjectOf,'ger');assert.match(panel.textContent,/宗主国：德国/);
+  buttons('整合吞并…')[0].click();assert.match(panel.textContent,/全部领土、军队和库存/);buttons('确认吞并')[0].click();
+  assert.equal(Game.country('aut').alive,false);assert.ok(!Game.state.provinces.some(province=>province.owner==='aut'));
+});
+
+test('a sovereignty confirmation keeps its planning pause until canceled without resuming a previously paused game',()=>{
+  const {UI,panel,descendants,buttons,get}=setup(true);get('startScreen').classList.add('hidden');UI.setSpeed(2);UI.navigate('diplo');
+  const select=descendants(panel).find(element=>element.attributes['aria-label']==='选择外交国家');select.value='aut';select.listeners.change();
+  buttons('提出吞并…')[0].click();assert.equal(UI.getSpeed(),0);UI.refresh();assert.equal(UI.getSpeed(),0);
+  buttons('取消外交命令')[0].click();assert.equal(UI.getSpeed(),2);
+  UI.togglePause();buttons('提出吞并…')[0].click();buttons('取消外交命令')[0].click();assert.equal(UI.getSpeed(),0);
+});
 
 test('browsing a city keeps the clock running and recruitment pauses only while choosing an actual order',()=>{
   const {Game,UI,panel,buttons,descendants,get,types}=setup();

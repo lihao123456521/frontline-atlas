@@ -156,7 +156,13 @@ test('default monthly logistics trades, researches and trains within one UI refr
   const actions=Game.autoLogisticsStatus().actions;
   assert.ok(actions.some(a=>a.startsWith('贸易：')));
   assert.ok(actions.some(a=>a.startsWith('研发 ')));
-  assert.ok(actions.some(a=>a.startsWith('训练步兵：')));
+  const recruitment=Game.autoRecruitmentStatus(),queue=Game.state.buildQueue.filter(item=>item.kind==='div');
+  assert.equal(recruitment.provincial,true);assert.ok(recruitment.actions.length>0);
+  assert.ok(recruitment.actions.every(action=>actions.includes(action)));
+  assert.ok(queue.every(item=>item.unitType==='infantry'&&Game.province(item.provinceIdx).owner==='ger'));
+  const formations=queue.reduce((sum,item)=>sum+(item.formationPermille||1000),0)/1000;
+  assert.ok(formations>0&&formations<=2);assert.equal(recruitment.queued,formations);
+  assert.equal(recruitment.queuedPersonnel,formations*10000);
   assert.equal(saves,1);assert.equal(refreshes,1);
   saves=0;refreshes=0;Game.endTurn();
   assert.equal(saves,1);assert.equal(refreshes,1);

@@ -79,6 +79,19 @@ test('a range retains its node after lost capture during a held drag, and maps c
   assert.equal(Game.getCombats()[0].attackers,6,'the actual command uses whole units even though the thumb is continuous');
 });
 
+test('the left slider endpoint means zero troops and cannot silently dispatch the default force after refresh',()=>{
+  const {Game,UI,panel,descendants,emit,flush,button}=setup();
+  const from=Game.provinceById('ger_berlin'),to=Game.provinceById('neu_poland');
+  Game.state.adj[from]=[to];Game.state.adj[to]=[from];UI.selectCity(from);UI.beginBattle('attack',to);
+  const range=descendants(panel).find(node=>node.attributes['aria-label']==='出击兵力数量');
+  emit(range,'pointerdown');range.value='0';emit(range,'input');UI.refresh();emit(range,'pointerup');flush();
+  assert.match(panel.textContent,/出击 0 人/);assert.equal(button('确认进攻（将宣战）').disabled,true);
+  const restored=descendants(panel).find(node=>node.attributes['aria-label']==='出击兵力数量');
+  assert.equal(+restored.min,0);assert.equal(+restored.value,0);assert.equal(restored.attributes.dir,'ltr');
+  assert.match(panel.textContent,/向右增加/);restored.value=restored.max;emit(restored,'input');
+  assert.equal(button('确认进攻（将宣战）').disabled,false);assert.match(panel.textContent,/留守 0 人/);
+});
+
 test('movement preserves a fractional thumb position after touch release and sends only the rounded number of real units',()=>{
   const {Game,UI,panel,descendants,emit,flush,button,click,get}=setup();
   const from=Game.provinceById('ger_berlin'),to=Game.provinceById('ger_rhine'),template=Game.province(from).garrison.find(d=>d.kind==='land');
@@ -113,7 +126,7 @@ test('a lost range capture with no held button releases deferred rendering even 
 test('recruitment can immediately mobilize depleted manpower and logistics can actively collect paid taxes',()=>{
   const f=setup(),{Game,UI,button,click,panel}=f,c=Game.country('ger');c.manpower=0;
   UI.selectCity(Game.provinceById('ger_berlin'));click(button('征兵'));assert.equal(button('确认征兵').disabled,true);
-  click(button('紧急动员'));assert.ok(c.manpower>=10);assert.equal(button('确认征兵').disabled,false);
+  click(button('强制征兵'));assert.ok(c.manpower>=10);assert.equal(button('确认征兵').disabled,false);
   click(button('确认征兵'));assert.equal(Game.state.buildQueue.filter(q=>q.kind==='div').length,1);
   UI.navigate('logistics');const before=c.res,equipment=c.equipment;assert.ok(button('征收赋税'));
   click(button('征收赋税'));assert.ok(c.res>before);assert.ok(c.equipment>equipment);

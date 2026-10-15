@@ -88,9 +88,25 @@ const OrderOfBattle = (() => {
     for(let n=total-allocated.reduce((sum,e)=>sum+e.count,0),i=0;i<n;i++)ranked[i].count++;
     return allocated;
   }
-  function reinforcementComposition(composition){
+  function reinforcementTarget(scenario,id){
+    if(id==='ger')return ({sandbox36:5500000,poland39:6000000,barbarossa41:7000000,pacific42:7000000})[scenario]||5500000;
+    if(id==='sov')return 8000000;
+    if(id==='chn')return 6000000;
+    if(id==='fra'&&['barbarossa41','pacific42'].includes(scenario))return 0;
+    return ['uk','fra','usa','jpn','ita'].includes(id)?4000000:0;
+  }
+  function reinforcementPlan(scenario,id,composition,readiness){
     const entries=Object.entries(composition).filter(([,count])=>count>0).sort(([a],[b])=>a.localeCompare(b)).map(([type,weight])=>({type,weight}));
-    return Object.fromEntries(weightedAllocation(entries,Math.round(entries.reduce((n,e)=>n+e.weight,0)*.5)).map(e=>[e.type,e.count]));
+    const personnel=type=>nominalFor(scenario,id,type)*Math.max(1,Math.round(UNIT_TYPES[type].hp*readiness))/UNIT_TYPES[type].hp;
+    const divisions=entries.reduce((total,entry)=>total+entry.weight,0),historicalPersonnel=entries.reduce((total,entry)=>total+entry.weight*personnel(entry.type),0);
+    const targetPersonnel=divisions?Math.max(historicalPersonnel*2,reinforcementTarget(scenario,id)):0;
+    const targetMultiplier=historicalPersonnel?targetPersonnel/historicalPersonnel:1;
+    let count=divisions?Math.max(divisions,Math.ceil((targetPersonnel-historicalPersonnel)/(historicalPersonnel/divisions)-1e-7)):0,extra;
+    do{
+      extra=weightedAllocation(entries,count++);
+    }while(historicalPersonnel+extra.reduce((total,entry)=>total+entry.count*personnel(entry.type),0)<targetPersonnel-1e-7);
+    return {extra:Object.fromEntries(extra.map(entry=>[entry.type,entry.count])),targetPersonnel,targetMultiplier,
+      reinforcementLabel:(reinforcementTarget(scenario,id)?'百万兵力 · ':'')+'游戏兵力配置'};
   }
   function nominalFor(scenario,id,type){
     return id==='ger'&&scenario==='barbarossa41'?({infantry:15000,armor:17000,motorized:14000}[type]||UNIT_TYPES[type].man*1000):UNIT_TYPES[type].man*1000;
@@ -98,14 +114,16 @@ const OrderOfBattle = (() => {
   function preview(scenario,id,options={}){
     const config=tables[scenario]?.[id];if(!config)return null;
     const composition={...config.composition},reinforced=options.reinforcedArmy===true;
-    if(reinforced)for(const [type,count]of Object.entries(reinforcementComposition(composition)))composition[type]+=count;
+    const plan=reinforced?reinforcementPlan(scenario,id,composition,config.readiness):{targetMultiplier:1,targetPersonnel:0,reinforcementLabel:'历史规模近似'};
+    if(reinforced)for(const [type,count]of Object.entries(plan.extra))composition[type]+=count;
     const summarize=counts=>Object.entries(counts).reduce((result,[type,count])=>{
       const t=UNIT_TYPES[type],nominal=nominalFor(scenario,id,type)*count;
       result.divisions+=count;result.nominalPersonnel+=nominal;result.personnel+=nominal*Math.max(1,Math.round(t.hp*config.readiness))/t.hp;return result;
     },{divisions:0,nominalPersonnel:0,personnel:0});
     const historical=summarize(config.composition),opening=summarize(composition);
     return {...opening,historicalDivisions:historical.divisions,historicalPersonnel:historical.personnel,
-      historicalNominalPersonnel:historical.nominalPersonnel,composition,reinforced,approximate:true};
+      historicalNominalPersonnel:historical.nominalPersonnel,composition,reinforced,targetMultiplier:plan.targetMultiplier,
+      targetPersonnel:reinforced?plan.targetPersonnel:historical.personnel,reinforcementLabel:plan.reinforcementLabel,approximate:true};
   }
   function landSummary(units){
     const result={objects:units.length,divisions:0,nominalPersonnel:0,personnel:0,composition:{}};
@@ -117,10 +135,11 @@ const OrderOfBattle = (() => {
     return result;
   }
   function reinforceOpeningArmy(s,makeDivision,report){
-    report.reinforcedArmy={enabled:true,targetMultiplier:1.5,label:'增强开局 · 游戏配置',countries:{}};
+    report.reinforcedArmy={enabled:true,targetMultiplier:2,label:'百万兵力 · 游戏配置',countries:{}};
     for(const id of Object.keys(report.countries)){
       const owned=s.provinces.filter(p=>p.owner===id),original=owned.flatMap(p=>p.garrison.filter(d=>isLand(d)&&d.hp>0));
-      const before=landSummary(original),extra=reinforcementComposition(before.composition),added=[];
+      const before=landSummary(original),plan=reinforcementPlan(s.scenario,id,before.composition,report.countries[id].readiness),added=[];
+      const {extra,targetMultiplier,targetPersonnel,reinforcementLabel}=plan;
       for(const [type,count]of Object.entries(extra)){
         const locations=owned.map(p=>({p,units:p.garrison.filter(d=>isLand(d)&&d.type===type&&d.hp>0)})).filter(e=>e.units.length)
           .sort((a,b)=>a.p.id.localeCompare(b.p.id)).map(e=>({...e,weight:e.units.length}));
@@ -132,11 +151,11 @@ const OrderOfBattle = (() => {
         }
       }
       const after=landSummary(original.concat(added)),summary=report.countries[id];
-      report.reinforcedArmy.countries[id]={before,added:landSummary(added),after,
+      report.reinforcedArmy.countries[id]={before,added:landSummary(added),after,targetMultiplier,targetPersonnel,reinforcementLabel,
         personnelMultiplier:before.personnel?after.personnel/before.personnel:1,
         nominalMultiplier:before.nominalPersonnel?after.nominalPersonnel/before.nominalPersonnel:1};
       summary.historicalLand=summary.land;summary.land=after.divisions;summary.total=summary.land+summary.naval+summary.air;
-      summary.composition={...after.composition};summary.note+=' 增强开局额外配置约50%陆军兵员，属于游戏平衡配置，不是历史统计。';
+      summary.composition={...after.composition};summary.note+=' 增强开局陆军目标 '+Math.round(targetPersonnel/10000)+' 万人，属于游戏平衡配置，不是历史统计。';
     }
   }
   function allocations(s,owned,total){
@@ -345,7 +364,7 @@ const OrderOfBattle = (() => {
       unitScale:'陆军按师级等效编制近似；战斗群与驻防分队从既有陆军拆出，可独立调遣但不增加全国人数或历史师数。海军按舰队编队，空军按联队，不能相加当作师数。',countries:{}};
     report.configuration=options.reinforcedArmy===true?'reinforced':'historical';
     report.reinforcedArmy={enabled:false};
-    if(options.reinforcedArmy===true)report.unitScale='增强开局额外配置约50%陆军兵员，属于游戏配置，不冒称历史人数。'+report.unitScale;
+    if(options.reinforcedArmy===true)report.unitScale='增强开局主要国家陆军按400万至800万现员目标配置，其余陆军通常 ×2；属于游戏配置，不冒称历史人数。'+report.unitScale;
     // 未列历史估算的小国保持原有师数和类型，只采用相同的地理部署规则。
     const fallback=Object.fromEntries(Object.keys(s.countries).filter(id=>!table[id]).map(id=>{
       const units=s.provinces.filter(p=>p.owner===id).flatMap(p=>p.garrison).filter(isLand);

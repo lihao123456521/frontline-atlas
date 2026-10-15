@@ -99,7 +99,12 @@ test('automatic logistics uses real trade, military research and bounded infantr
   Game.endTurn();const status=Game.autoLogisticsStatus();
   assert.ok(status.actions.some(a=>a.includes('贸易')));assert.ok(status.actions.some(a=>a.includes('步兵')));
   assert.ok(status.actions.some(a=>a.includes('研发')));assert.ok(c.res>=40);assert.ok(c.equipment>=24);assert.ok(c.manpower>=5);
-  assert.ok(Game.state.buildQueue.filter(x=>x.kind==='div').length<=2);assert.equal(Game.state.wars.some(w=>w.a==='ger'||w.b==='ger'),false);
+  const recruitment=Game.autoRecruitmentStatus(),queue=Game.state.buildQueue.filter(item=>item.kind==='div');
+  const formations=queue.reduce((sum,item)=>sum+(item.formationPermille||1000),0)/1000;
+  assert.equal(recruitment.provincial,true);assert.ok(formations>0&&formations<=2);
+  assert.equal(recruitment.queued,formations);assert.equal(recruitment.queuedPersonnel,formations*10000);
+  assert.ok(queue.every(item=>item.unitType==='infantry'&&Game.province(item.provinceIdx).owner==='ger'));
+  assert.equal(Game.state.wars.some(w=>w.a==='ger'||w.b==='ger'),false);
   assert.ok(Game.state.research.slots.filter(Boolean).length);assert.ok(status.summary.length);
 });
 

@@ -66,6 +66,30 @@ test('routine small detachments stay quiet on the regional map and appear when s
   c.Game.state.selectedIdx=-1;for(let i=0;i<14;i++)c.map.zoomIn();c.map.focusProvince(0,false);c.map.renderUnits();
   assert.ok(c.map.getUnits().some(u=>c.Game.state.provinces[u.idx].owner==='ger'));
 });
+test('country view prioritizes the player main force while foreign and ordinary rear counters stay quiet',()=>{
+  for(const [width,height]of [[1400,840],[834,1112]]){
+    const c=setup(width,height);
+    c.Game.personnelOf=units=>units.reduce((total,unit)=>total+(unit.personnel||10000),0);
+    c.Game.state.provinces[1].garrison[0].personnel=100000;
+    c.map.focusCountry('ger');
+    let visible=c.map.getUnits();
+    assert.ok(visible.some(unit=>unit.idx===1),'main army remains visible');
+    assert.ok(!visible.some(unit=>unit.idx===2),'ordinary rear army stays quiet');
+    assert.ok(visible.every(unit=>c.Game.state.provinces[unit.idx].owner==='ger'),'foreign garrisons do not fill the map');
+    const paris=5;c.Game.state.selectedIdx=paris;c.map.focusProvince(paris,false);c.map.renderUnits();
+    assert.ok(c.map.getUnits().some(unit=>unit.idx===paris),'inspecting a foreign province reveals its force');
+    c.Game.state.selectedIdx=-1;c.Game.neighbors=index=>index===2?[5]:index===5?[2]:[];
+    c.Game.isAtWar=(first,second)=>first==='ger'&&second==='fra';c.map.focusCountry('ger');
+    assert.ok(c.map.getUnits().some(unit=>unit.idx===2),'a real wartime frontline reveals the player garrison');
+    assert.ok(c.map.getUnits().some(unit=>unit.idx===paris),'an adjacent enemy main force is visible before fighting starts');
+    c.Game.state.provinces[paris].garrison.forEach(unit=>unit.personnel=300);
+    c.map.renderUnits();assert.ok(!c.map.getUnits().some(unit=>unit.idx===paris),'a tiny enemy frontier detachment stays quiet');
+    for(const index of [0,1,2,5]){
+      const anchor=c.map.getProvinceAnchor(index);
+      assert.equal(c.map.provinceUnderPoint(anchor.x,anchor.y),index,'counter visibility does not change province selection');
+    }
+  }
+});
 test('zoom is bounded at 1–14 and selected city remains visible at global scale',()=>{
   const c=setup();c.Game.state.selectedIdx=0;c.map.resetView();
   assert.ok(labels(c,'density-city-label').some(t=>t.textContent==='berlin'));

@@ -169,6 +169,10 @@ const TECHS = [
     desc:"陆军防御 +10%，装备产出 +10%", eff:{landDef:0.10, equip:0.10} },
   { id:"mob1", name:"机动战理论",  cat:"陆军", cost:75, pre:["art1"],
     desc:"解锁摩托化步兵；陆军攻击 +10%", eff:{landAtk:0.10} },
+  { id:"arm1", name:"装甲协同 I", cat:"陆军", cost:60, pre:["art1"],
+    desc:"坦克与机械化部队攻击 +15%、防御 +10%", eff:{armorAtk:0.15,armorDef:0.10} },
+  { id:"arm2", name:"装甲协同 II", cat:"陆军", cost:100, pre:["arm1","mob1"], year:1939,
+    desc:"坦克与机械化部队攻击再 +20%、防御再 +15%", eff:{armorAtk:0.20,armorDef:0.15} },
   { id:"mech1",name:"机械化理论",  cat:"陆军", cost:80, pre:["art1"],
     year:1940, desc:"解锁机械化步兵；陆军攻击 +10%", eff:{landAtk:0.10} },
   { id:"at1",name:"反坦克武器",cat:"陆军",cost:45,pre:["art1"],desc:"解锁反坦克炮团，克制装甲突击",eff:{} },
@@ -291,10 +295,10 @@ const SCRIPTED_EVENTS = [
       { label:"全国动员（人力 +10）", apply:(c,s)=>{ c.manpower+=10; } },
       { label:"外交斡旋（稳定 +3）", apply:(c,s)=>{ c.stability=Math.min(100,c.stability+3); } },
     ]},
-  { id:"anschluss", year:1938, month:3, title:"德奥合并",
-    text:"奥地利并入德国，中欧力量对比生变。",
+  { id:"anschluss", year:1938, month:3, title:"德奥统一争议",
+    text:"德奥统一诉求引发中欧争议。实际合并取决于战局；德国可在外交页选择奥地利，核对条件与成本后执行合并。",
     choices:[
-      { label:"顺势扩张（资源 +10）", apply:(c,s)=>{ c.res+=10; } },
+      { label:"转入外交评估（不改变领土）", apply:()=>{} },
       { label:"强烈反对（世界紧张 +2）", apply:(c,s)=>{ s.wt=Math.min(100,s.wt+2); } },
     ]},
   { id:"munich", year:1938, month:9, title:"慕尼黑协定",
@@ -452,7 +456,7 @@ const WORLD_PATHS = [" M 334.5 472.3 L 333.7 473.7 L 332.9 475.0 L 327.1 474.6 L
 function emptyEff(){
   return { landAtk:0, landDef:0, factoryOut:0, resOut:0, researchOut:0,
            equip:0, moveBonus:0, airBonus:0, navBonus:0, bombBonus:0,
-           navyAtk:0, navyDef:0, airDef:0 };
+           navyAtk:0, navyDef:0, airDef:0, armorAtk:0, armorDef:0 };
 }
 function hash2(x, y, z){
   let h = (x * 374761393 + y * 668265263 + (z||0) * 2147483647) | 0;

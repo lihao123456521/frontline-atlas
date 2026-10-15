@@ -111,3 +111,19 @@ test('AI uses shared amphibious penalties and actual naval damage',()=>{
   assert.ok(Game.province(from).garrison.find(d=>d.type==='destroyer').hp<before);
   assert.equal(Game.province(from).garrison.some(d=>d.kind==='naval'),true);
 });
+test('completed armored doctrine improves armored attack and defense and persists without affecting infantry',()=>{
+  const {Game,unit,own,enemy}=setup(),c=Game.country('ger'),a=Game.province(own),d=Game.province(enemy);
+  Game.setAutoLogistics(false);Game.setAutoRecruitment({enabled:false});
+  a.garrison=[unit('armor')];d.garrison=[unit('infantry')];d.terrain=a.terrain='plain';
+  const defense=()=>{Game.state.player='fra';try{return Game.battlePreview(enemy,own,1).dStr;}finally{Game.state.player='ger';}};
+  const attackBefore=Game.battlePreview(own,enemy,1).aStr,defenseBefore=defense();
+  a.garrison=[unit('infantry')];const infantryBefore=Game.battlePreview(own,enemy,1).aStr;a.garrison=[unit('armor')];
+  c.researched.inf1=c.researched.art1=true;
+  assert.equal(Game.assignResearch('arm1',0),true);Game.state.research.progress.arm1=60;Game.endTurn();
+  assert.equal(c.researched.arm1,true);assert.equal(c.eff.armorAtk,.15);assert.equal(c.eff.armorDef,.1);
+  assert.ok(Math.abs(Game.battlePreview(own,enemy,1).aStr/attackBefore-1.15)<1e-7);
+  assert.ok(Math.abs(defense()/defenseBefore-1.1)<1e-7);
+  a.garrison=[unit('infantry')];assert.equal(Game.battlePreview(own,enemy,1).aStr,infantryBefore);
+  assert.equal(Game.load(Game.save()),true);assert.equal(Game.country('ger').eff.armorAtk,.15);
+  assert.equal(Game.assignResearch('arm1',0),false);
+});

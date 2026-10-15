@@ -6,7 +6,7 @@ function setup(scenario='sandbox36',administrative=true){
   if(administrative)files.push('data_historical_regions.js','historical_regions.js');
   files.push('history.js','world.js','campaign.js','order_of_battle.js','game.js');
   for(const file of files)vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',file),'utf8'),ctx,{filename:file});
-  const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard',scenario);
+  const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard',scenario,{provincialRecruitment:false});
   return {Game,ctx};
 }
 const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-7,`${a} != ${b}`);

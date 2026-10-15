@@ -4,50 +4,57 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>钢铁雄心 · 浏览器版</title>
-<meta name="hoi-version" content="48">
-<link rel="stylesheet" href="css/style.css?v=48">
-<link rel="stylesheet" href="css/command-center.css?v=48">
-<link rel="stylesheet" href="css/historical-map.css?v=48">
-<link rel="stylesheet" href="css/war-command.css?v=48">
-<link rel="stylesheet" href="css/map-fronts.css?v=48">
-<link rel="stylesheet" href="css/map-command.css?v=48">
-<link rel="stylesheet" href="css/start-screen.css?v=48">
-<link rel="stylesheet" href="css/war-focus.css?v=48">
-<link rel="stylesheet" href="css/experience.css?v=48">
-<link rel="stylesheet" href="css/tutorial.css?v=48">
-<link rel="stylesheet" href="css/global-overview.css?v=48">
+<meta name="hoi-version" content="49">
+<link rel="stylesheet" href="css/style.css?v=49">
+<link rel="stylesheet" href="css/command-center.css?v=49">
+<link rel="stylesheet" href="css/historical-map.css?v=49">
+<link rel="stylesheet" href="css/war-command.css?v=49">
+<link rel="stylesheet" href="css/map-fronts.css?v=49">
+<link rel="stylesheet" href="css/map-command.css?v=49">
+<link rel="stylesheet" href="css/start-screen.css?v=49">
+<link rel="stylesheet" href="css/war-focus.css?v=49">
+<link rel="stylesheet" href="css/experience.css?v=49">
+<link rel="stylesheet" href="css/tutorial.css?v=49">
+<link rel="stylesheet" href="css/global-overview.css?v=49">
+<link rel="stylesheet" href="css/military-development.css?v=49">
 </head>
 <body>
-<script src="js/runtime.js?v=48"></script>
+<script src="js/runtime.js?v=49"></script>
 
 <!-- 开始界面 -->
-<div id="startScreen">
+<div id="startScreen" class="start-screen">
   <div class="start-layout">
     <section class="start-briefing" aria-label="战役简报">
-      <div class="start-eyebrow">1936 — 1945 · 全球战区</div>
-      <h1>钢铁雄心</h1>
-      <p class="start-lead">你的命令，决定战线。</p>
       <div id="startMapPreview" class="start-map-preview" aria-hidden="true"></div>
-      <div class="start-dateline"><span id="startTheater">欧洲战区</span><span>自动征兵 · 专注战争</span></div>
+      <div class="start-map-grid" aria-hidden="true"></div>
+      <div class="start-title-group">
+        <div class="start-eyebrow"><span class="start-insignia" aria-hidden="true">✦</span>全球战略 · 1936 — 1945</div>
+        <h1>钢铁雄心</h1>
+        <p class="start-lead">从一条战线，到整个世界。</p>
+      </div>
+      <div class="start-intelligence">
+        <div class="start-dateline"><span id="startTheater">欧洲战区</span><span>战役兵力</span></div>
+        <div id="countryPreview" class="country-preview" aria-live="polite"></div>
+      </div>
     </section>
     <section class="panel start-setup" aria-label="战役设置">
       <div class="setup-kicker">作战指挥部 <span>新战役</span></div>
-      <h2>选择国家</h2>
+      <h2><span class="setup-step" aria-hidden="true">01</span>选择国家</h2>
       <div id="countryChoices" class="country-choices" aria-label="常用国家"></div>
       <div class="setup-field country-select-field"><label for="selCountry">全部国家</label><select id="selCountry"></select></div>
-      <div id="countryPreview" class="country-preview"></div>
+      <h2 class="start-conditions"><span class="setup-step" aria-hidden="true">02</span>战役条件</h2>
       <div class="setup-two-col">
         <div class="setup-field"><label for="selScenario">战役剧本</label><select id="selScenario"></select><div class="diff-desc" id="scenDesc"></div></div>
         <div class="setup-field"><label for="selDifficulty">作战难度</label><select id="selDifficulty"><option value="casual">新兵</option><option value="standard" selected>正规</option><option value="hard">老兵</option></select><div class="diff-desc" id="diffDesc"></div></div>
       </div>
       <fieldset class="start-mode" aria-label="开局方式">
-        <legend>如何开始</legend>
+        <legend>开始方式</legend>
         <label class="start-mode-choice"><input type="radio" name="startMode" value="direct" checked><span><strong>直接指挥</strong><small>进入所选战役</small></span></label>
         <label class="start-mode-choice"><input type="radio" name="startMode" value="tutorial"><span><strong>新手教程</strong><small>跟着完成首次出征</small></span></label>
       </fieldset>
       <button id="btnStart">进入战区 <span aria-hidden="true">→</span></button>
       <button id="btnContinue" class="btn-continue" style="display:none">继续上次战役</button>
-      <p class="setup-footnote">本地存档 <span id="releaseVersion">版本 v48</span></p>
+      <p class="setup-footnote">本地存档 <span id="releaseVersion">版本 v49</span></p>
     </section>
   </div>
 </div>
@@ -76,7 +83,7 @@
   <button data-view="diplo" class="nav-primary"><span class="nav-glyph" aria-hidden="true">◇</span><span>外交</span></button>
   <button id="btnWorldOverview" class="nav-primary"><span class="nav-glyph" aria-hidden="true">◎</span><span>全球总览</span></button>
   <details class="nav-management"><summary>更多 ···</summary><div class="management-options">
-    <button data-view="production">军队与训练</button><button data-view="logistics">后勤与发展</button><button data-view="news">世界大事</button>
+    <button data-view="production">军队与训练</button><button data-view="research">军事科技</button><button data-view="logistics">后勤与发展</button><button data-view="news">世界大事</button>
     <button data-view="campaign">战役任务</button><button data-view="overview">国家详情</button><button data-view="history-sources">历史资料</button><button id="btnOpenLog">战况记录</button>
     <button id="btnFocus">国策</button><button id="btnTech">科研</button><button id="btnDiplo">外交详情</button>
     <button id="btnSave">保存战役</button><button id="btnHome">返回主界面</button><button id="hotkeyHelp">操作帮助</button><button id="btnSurrender">投降</button>
@@ -206,24 +213,24 @@
 <!-- 提示框 -->
 <div id="tooltip"></div>
 
-<script src="js/data.js?v=48"></script>
-<script src="js/data_world.js?v=48"></script>
-<script src="js/data_provinces.js?v=48"></script>
-<script src="js/data_historical_map.js?v=48"></script>
-<script src="js/data_world_historical.js?v=48"></script>
-<script src="js/data_historical_regions.js?v=48"></script>
-<script src="js/historical_regions.js?v=48"></script>
-<script src="js/history.js?v=48"></script>
-<script src="js/world.js?v=48"></script>
-<script src="js/strategic_regions.js?v=48"></script>
-<script src="js/campaign.js?v=48"></script>
-<script src="js/order_of_battle.js?v=48"></script>
-<script src="js/game.js?v=48"></script>
-<script src="js/map.js?v=48"></script>
-<script src="js/world-news.js?v=48"></script>
-<script src="js/global-overview.js?v=48"></script>
-<script src="js/ui.js?v=48"></script>
-<script src="js/tutorial.js?v=48"></script>
-<script src="js/main.js?v=48"></script>
+<script src="js/data.js?v=49"></script>
+<script src="js/data_world.js?v=49"></script>
+<script src="js/data_provinces.js?v=49"></script>
+<script src="js/data_historical_map.js?v=49"></script>
+<script src="js/data_world_historical.js?v=49"></script>
+<script src="js/data_historical_regions.js?v=49"></script>
+<script src="js/historical_regions.js?v=49"></script>
+<script src="js/history.js?v=49"></script>
+<script src="js/world.js?v=49"></script>
+<script src="js/strategic_regions.js?v=49"></script>
+<script src="js/campaign.js?v=49"></script>
+<script src="js/order_of_battle.js?v=49"></script>
+<script src="js/game.js?v=49"></script>
+<script src="js/map.js?v=49"></script>
+<script src="js/world-news.js?v=49"></script>
+<script src="js/global-overview.js?v=49"></script>
+<script src="js/ui.js?v=49"></script>
+<script src="js/tutorial.js?v=49"></script>
+<script src="js/main.js?v=49"></script>
 </body>
 </html>

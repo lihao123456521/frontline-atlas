@@ -1,0 +1,36 @@
+.research-output { color: #d8bf8d; font-size: 14px; font-variant-numeric: tabular-nums; }
+.research-branches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 18px 0; }
+.research-branch { min-height: 44px; border: 1px solid #42616b; border-radius: 7px; background: transparent; color: #bfd0d0; font: 500 14px var(--font); cursor: pointer; touch-action: manipulation; }
+.research-branch.on { background: #d7bb84; border-color: #d7bb84; color: #172e36; }
+.research-branch:focus-visible, .research-cancel:focus-visible { outline: 3px solid #f4d391; outline-offset: 2px; }
+.technology-list { display: grid; gap: 12px; }
+.technology-card, .research-project { padding: 16px; border: 1px solid #45616a; border-radius: 10px; background: #1a3844; }
+#rpContent .technology-card h4 { margin: 6px 0 10px; color: #f1e3c5; font-size: 18px; }
+.technology-state { margin: 0; color: #92b9c6; font-size: 12px; }
+.technology-effect { color: #d5dfda; font-size: 14px; line-height: 1.65; margin: 8px 0; }
+.technology-unlocks { color: #a9c2c5; font-size: 13px; line-height: 1.6; margin: 8px 0 14px; }
+.technology-card.complete { border-color: #4c7166; }
+.technology-card.complete .technology-state { color: #9ccbb6; }
+.research-running { margin-bottom: 18px; }
+.research-running > h4 { color: #b2c8cb; font-size: 13px; }
+.research-project { margin-top: 8px; padding: 12px 14px; }
+.research-project > strong { color: #eadbbd; font-size: 14px; }
+.research-project .mini-bar > div { background: #d7bb84; }
+.research-cancel { margin-top: 8px; min-height: 36px; padding: 4px 0; border: 0; background: transparent; color: #a9c0c3; text-decoration: underline; cursor: pointer; font: 12px var(--font); }
+.recruitment-coverage { color: #c5d8cf; font-size: 14px; line-height: 1.6; }
+.training-research { margin-top: 10px; }
+.sovereignty-actions > summary { color: #d8c197; }
+.sovereignty-actions > .rp-btn { margin-top: 12px; }
+.acceptance-label { color: #d4be91; font-size: 13px; line-height: 1.6; }
+.sovereignty-response { margin: 14px 0; padding: 14px; border: 1px solid #7a795c; border-radius: 8px; background: #203d43; color: #d8e0d5; }
+.sovereignty-response > h4 { margin: 0 0 8px; color: #e6d3a8; }
+.sovereignty-response > p { font-size: 14px; line-height: 1.6; }
+.cp-balance-note { margin: 12px 0 0; color: #a8bdc3; font-size: 12px; line-height: 1.5; }
+#commandNav .nav-management > summary { white-space: nowrap; }
+.force-range-bounds { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -3px 0 12px; color: #c2d0cd; font: 12px/1.4 var(--font); }
+.force-range-bounds span:nth-child(2) { color: #92abb2; }
+#rpContent input[type="range"] { direction: ltr; }
+#rpContent input[type="range"]::-webkit-slider-runnable-track { background: linear-gradient(to right, #d7bb84 0 var(--force-position, 0%), #425f69 var(--force-position, 0%) 100%); }
+#rpContent input[type="range"]::-moz-range-track { background: linear-gradient(to right, #d7bb84 0 var(--force-position, 0%), #425f69 var(--force-position, 0%) 100%); }
+@media (min-width: 701px) and (max-width: 950px) { .zoom-ctrl { bottom: 88px; } }
+@media (max-width: 700px) { .technology-card { padding: 13px; } }
