@@ -60,10 +60,11 @@ window.addEventListener("DOMContentLoaded", () => {
     div.innerHTML = `
       <h4>⌨ 键盘快捷键</h4>
       <div class="hotkey-row"><span class="hk">Enter</span><span class="desc">开始游戏 (开始界面)</span></div>
-      <div class="hotkey-row"><span class="hk">Space</span><span class="desc">结束回合 · 推进 7 天</span></div>
+      <div class="hotkey-row"><span class="hk">Space</span><span class="desc">暂停 / 继续</span></div>
+      <div class="hotkey-row"><span class="hk">1 / 2 / 3</span><span class="desc">从容6秒 / 标准4秒 / 加速2秒每天</span></div>
       <div class="hotkey-row"><span class="hk">Esc</span><span class="desc">取消命令，或收起面板</span></div>
       <div class="hotkey-row" style="margin-top:8px;border-top:1px solid rgba(255,255,255,.06);padding-top:6px"><span class="desc" style="color:var(--muted);font-size:11px">💡 地图：滚轮缩放，拖动浏览；左下角跳转各洲或本国。城市与部队随放大逐步显示。</span></div>
-      <div class="hotkey-row"><span class="desc">每回合 3 次行动。选择目标、预览和战术调整免费；确认出征、调兵、征兵等各耗 1 次。</span></div>
+      <div class="hotkey-row"><span class="desc">确认出征后自动行军与交战。拖动滑条或选择命令时暂停，取消或确认后接着推进。</span></div>
     `;
     document.body.appendChild(div);
   }

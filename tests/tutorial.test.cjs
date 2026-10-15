@@ -47,7 +47,7 @@ for(const scenario of ['sandbox36','poland39','barbarossa41','pacific42'])test(s
   const army=Game.province(pick.from).garrison.filter(d=>d.kind==='land'&&d.hp>0);
   assert.ok(Game.personnelOf(army)>=7000||army.reduce((n,d)=>n+(d.formationPermille??1000)/1000,0)>=.5,'recommend a field army rather than a tiny coverage detachment');
 });
-test('real clicks, paid accepted order and actual combat day complete the tutorial',()=>{
+test('real clicks, accepted order and an actual combat day complete the tutorial',()=>{
   const f=setup(),{Game,guide,body}=f,{c}=order(f),startDays=c.days;assert.equal(guide.snapshot().step,'advance');
   const card=body.children[0],button=card.children[2].children[0];
   guide.refresh();assert.equal(guide.snapshot().step,'advance','speed alone is not combat progress');assert.equal(body.children[0],card);assert.equal(card.children[2].children[0],button,'daily refresh keeps pressed targets');

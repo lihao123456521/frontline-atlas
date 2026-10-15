@@ -36,24 +36,26 @@ function setup(){
   const source=fs.readFileSync(path.join(__dirname,'../js/ui.js'),'utf8').replace('return { init, refresh,','return { initStartScreen, init, refresh,');
   vm.runInContext(source,context,{filename:'ui.js'});
   const UI=vm.runInContext('UI',context);
-  const data=vm.runInContext('({tables:OrderOfBattle.tables,countries:COUNTRIES.concat(MINOR_COUNTRIES),playable:PLAYABLE_COUNTRIES,scenarios:SCENARIOS})',context);
+  const data=vm.runInContext('({tables:OrderOfBattle.tables,opening:OrderOfBattle.preview,countries:COUNTRIES.concat(MINOR_COUNTRIES),playable:PLAYABLE_COUNTRIES,scenarios:SCENARIOS})',context);
   UI.initStartScreen();
   const countryButton=id=>get('countryChoices').children.find(n=>n.dataset.country===id);
   const previewArmy=()=>{
-    const match=get('countryPreview').textContent.match(/陆军\s*约\s*(\d+)\s*师/);
+    const match=get('countryPreview').textContent.match(/陆军\s*约\s*([\d.]+)\s*万人/);
     return match?Number(match[1]):null;
   };
-  return {get,countryButton,previewArmy,...data};
+  const expectedArmy=(scenario,id)=>Number((Math.round(data.opening(scenario,id,{reinforcedArmy:true}).personnel)/10000).toFixed(1));
+  return {get,countryButton,previewArmy,expectedArmy,...data};
 }
 
 test('country shortcuts update the real select, selected state, army preview and map theater',()=>{
-  const f=setup(),{get,countryButton,tables,previewArmy}=f;
+  const f=setup(),{get,countryButton,expectedArmy,previewArmy}=f;
   for(const id of ['usa','jpn','chn','ger']){
     countryButton(id).click();
     assert.equal(get('selCountry').value,id);
     assert.equal(countryButton(id).attributes['aria-pressed'],'true');
     assert.ok(get('countryChoices').children.filter(n=>n!==countryButton(id)).every(n=>n.attributes['aria-pressed']==='false'));
-    assert.equal(previewArmy(),tables.sandbox36[id].total);
+    assert.equal(previewArmy(),expectedArmy('sandbox36',id));
+    assert.match(get('countryPreview').textContent,/增强兵力/);
     assert.match(get('startMapPreview').innerHTML,/preview-selected/);
   }
   countryButton('jpn').click();assert.match(get('startTheater').textContent,/亚洲/);
@@ -61,25 +63,25 @@ test('country shortcuts update the real select, selected state, army preview and
 });
 
 test('scenario changes lock and unlock every country input and recalculate current scenario strength',()=>{
-  const {get,countryButton,previewArmy,tables}=setup();
+  const {get,countryButton,previewArmy,expectedArmy}=setup();
   countryButton('usa').click();
   for(const [scenario,country]of [['poland39','ger'],['barbarossa41','ger'],['pacific42','jpn']]){
     get('selScenario').change(scenario);
     assert.equal(get('selCountry').value,country);assert.equal(get('selCountry').disabled,true);
     assert.ok(get('countryChoices').children.every(n=>n.disabled));
-    assert.equal(previewArmy(),tables[scenario][country].total);
+    assert.equal(previewArmy(),expectedArmy(scenario,country));
     countryButton('usa').click();assert.equal(get('selCountry').value,country,'locked shortcut cannot override the scenario');
   }
   get('selScenario').change('sandbox36');
   assert.equal(get('selCountry').disabled,false);assert.ok(get('countryChoices').children.every(n=>!n.disabled));
-  assert.equal(previewArmy(),tables.sandbox36.jpn.total,'returning to 1936 must discard the 1942 preview');
-  countryButton('usa').click();assert.equal(get('selCountry').value,'usa');assert.equal(previewArmy(),tables.sandbox36.usa.total);
+  assert.equal(previewArmy(),expectedArmy('sandbox36','jpn'),'returning to 1936 must discard the 1942 preview');
+  countryButton('usa').click();assert.equal(get('selCountry').value,'usa');assert.equal(previewArmy(),expectedArmy('sandbox36','usa'));
 });
 
 test('native country selection retains every playable country and never reuses another country army preview',()=>{
-  const {get,countryButton,previewArmy,tables,countries,playable}=setup();
+  const {get,countryButton,previewArmy,expectedArmy,tables,countries,playable}=setup();
   assert.deepEqual(Array.from(get('selCountry').children,n=>n.value),Array.from(countries.filter(c=>playable.includes(c.id)),c=>c.id));
-  countryButton('ger').click();assert.equal(previewArmy(),tables.sandbox36.ger.total);
+  countryButton('ger').click();assert.equal(previewArmy(),expectedArmy('sandbox36','ger'));
   const minor=countries.find(c=>playable.includes(c.id)&&!get('countryChoices').children.some(b=>b.dataset.country===c.id)&&!tables.sandbox36[c.id]);
   assert.ok(minor,'use an actual playable country absent from the fixed major-power OOB table');
   get('selCountry').change(minor.id);assert.equal(get('selCountry').value,minor.id);

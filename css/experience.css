@@ -32,14 +32,12 @@ button{transition:background .12s,border-color .12s,box-shadow .12s}
 #topBarCountry .name{font-size:17px;color:#f2e8d5}
 .resource-chip{border-color:#53737a44}.resource-chip span{font-size:14px;color:#bbcfce}.resource-chip strong{font-size:21px;color:#e9dec3}
 #btnPause{border-radius:10px;font-size:16px;background:#e4c18a!important;color:#172d35!important;border-color:#edcf9b!important;min-height:46px}
-.turn-action-chip{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #6c898450;border-radius:10px;color:#c7d5ce;white-space:nowrap;font-size:14px}
-.turn-action-chip strong{font-size:20px;color:#f2dfb9;font-variant-numeric:tabular-nums}
 #btnPause:disabled{opacity:.6;cursor:not-allowed}
 #eventModal .panel{border-radius:16px;padding:24px;background:#193540;border-color:#738e7f75;max-width:620px}
 #eventText{font-size:17px;line-height:1.7}
 #eventChoices button{min-height:48px;border-radius:10px;font-size:16px;padding:11px 16px}
 .event-background{font-size:15px;color:#bed0ce;margin-top:14px}.event-background summary{padding:8px 0;min-height:44px;cursor:pointer}.event-background p{margin:8px 0;line-height:1.6}
-@media(max-width:760px){.turn-action-chip{padding:6px 8px;font-size:12px}.turn-action-chip strong{font-size:17px}.clock-controls{gap:7px}#topBarDate{font-size:13px}}
+@media(max-width:760px){.clock-controls{gap:7px}#topBarDate{font-size:13px}}
 .time-settings>summary{font-size:14px;border-radius:9px;min-height:44px;padding:10px 12px}
 #commandNav>button,#commandNav .nav-management>summary{border-radius:11px;min-height:48px;font-size:15px}
 #commandNav>button.on{color:#f3ddb2;border-color:#d3b77d77;background:#d3b77d18}
@@ -87,3 +85,11 @@ button{transition:background .12s,border-color .12s,box-shadow .12s}
 @media(max-width:760px){.start-layout{grid-template-columns:1fr;max-width:510px;gap:18px}#startScreen{padding:24px 20px 80px}#startScreen .panel.start-setup{padding:23px}#startScreen h1{font-size:43px;margin:10px 0}.start-lead{font-size:16px}.start-eyebrow{font-size:12px}.start-map-preview,.start-dateline{display:none}.start-setup h2{font-size:25px}.resource-chip span{font-size:12px}.resource-chip strong{font-size:17px}#topBarCountry .name{font-size:15px}#btnPause{font-size:15px;min-height:44px}#rpContent{padding:17px 18px 24px}#commandNav>button,#commandNav .nav-management>summary{font-size:15px;min-height:46px}}
 @media(max-height:780px) and (min-width:761px){#startScreen{padding:24px 30px;align-items:flex-start}.start-map-preview{height:210px}.start-mode-choice small{display:none}#startScreen .start-mode-choice{min-height:52px}.start-layout{margin:auto}#startScreen .panel.start-setup{padding:22px 25px}.start-setup h2{margin-top:14px}.start-mode{margin-top:12px}.cp-stats{margin-top:8px}}
 @media(prefers-reduced-motion:reduce){button{transition:none}}
+/* Native range input keeps browser drag semantics and an explicit tablet target. */
+#rpContent input[type="range"]{appearance:none;-webkit-appearance:none;background:transparent;outline-offset:2px;height:48px;min-height:48px;touch-action:none}
+#rpContent input[type="range"]::-webkit-slider-runnable-track{height:8px;border-radius:8px;background:#58737a;border:1px solid #859e9555}
+#rpContent input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:28px;height:28px;border-radius:50%;background:#f2d29a;border:3px solid #254551;box-shadow:0 2px 7px #0005;margin-top:-11px}
+#rpContent input[type="range"]::-moz-range-track{height:8px;border-radius:8px;background:#58737a;border:1px solid #859e9555}
+#rpContent input[type="range"]::-moz-range-thumb{width:23px;height:23px;border-radius:50%;background:#f2d29a;border:3px solid #254551;box-shadow:0 2px 7px #0005}
+#rpContent input[type="range"]:active::-webkit-slider-thumb{background:#fff0c9;border-color:#3d6570}
+#rpContent input[type="range"]:active::-moz-range-thumb{background:#fff0c9;border-color:#3d6570}

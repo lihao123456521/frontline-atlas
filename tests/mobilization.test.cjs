@@ -14,8 +14,7 @@ test('depleted reserves in all real scenarios recover every day without changing
   for(const scenario of ['sandbox36','poland39','barbarossa41']){
     const {Game}=setup(scenario),c=Game.country('ger');assert.equal(Game.state.provinces.length,470);
     Game.setAutoRecruitment({enabled:false});Game.setAutoLogistics(false);c.res=c.equipment=10000;
-    // Exhaust the manpower component rather than stopping at the unrelated per-turn command limit.
-    while(true){Game.state.turn.used=0;if(!Game.buildUnit('infantry',true))break;}
+    while(Game.buildUnit('infantry',true)){}
     const before=c.manpower,queue=Game.state.buildQueue.length,army=Game.armyTotals('ger').land;
     const info=Game.nationalMobilizationStatus();Game.advanceDay();
     assert.ok(c.manpower>before,scenario+' daily recovery');near(c.manpower-before,info.dailyGain);
@@ -85,9 +84,8 @@ test('470 province detail cannot inflate the national manpower budget or emergen
 test('repeated real orders and mobilizations preserve the next automatic recruit budget and cooldown recovery',()=>{
   const {Game}=setup(),c=Game.country('ger');c.res=c.equipment=10000;
   const initialArmy=Game.armyTotals('ger').land;
-  while(true){Game.state.turn.used=0;if(!Game.buildUnit('infantry',true))break;}
+  while(Game.buildUnit('infantry',true)){}
   for(let month=0;month<3;month++){
-    Game.state.turn.used=0; // Isolate this month's mobilization/recruitment accounting from prior manual orders.
     const before=c.manpower,pool=c.mobilization.reserve,action=Game.nationalMobilizationStatus().actions.mobilize;
     assert.equal(action.available,true);assert.equal(Game.nationalMobilizationAction('mobilize'),true);
     near(c.manpower-before,action.gains.manpower);near(pool-c.mobilization.reserve,action.gains.manpower);

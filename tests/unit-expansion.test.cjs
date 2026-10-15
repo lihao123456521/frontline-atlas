@@ -36,8 +36,7 @@ test('shared research/year gates enforce costs and all new roles deliver full fo
   assert.equal(Game.unitAvailability('engineer').available,true);assert.equal(Game.unitAvailability('heavyArmor').available,false);assert.equal(Game.unitAvailability('tankDestroyer').available,false);
   Game.state.date.year=1941;const before=Game.province(from).garrison.length;
   for(const key of added){
-    // Each role is an independent production/cost case; the turn-system suite checks aggregate command limits.
-    Game.state.turn.used=0;const old=c.equipment;assert.equal(Game.buildUnit(key),true);assert.equal(c.equipment,old-types[key].equip);
+    const old=c.equipment;assert.equal(Game.buildUnit(key),true);assert.equal(c.equipment,old-types[key].equip);
   }
   for(let month=0;month<3;month++)Game.endTurn();
   assert.ok(Game.province(from).garrison.length>=before+5);

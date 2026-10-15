@@ -80,6 +80,65 @@ const OrderOfBattle = (() => {
   const isLand=d=>(d.kind||UNIT_TYPES[d.type]?.kind)==='land';
   const allied=(s,a,b)=>!!s.alliances?.[[a,b].sort().join('|')];
   const atWar=(s,a,b)=>(s.wars||[]).some(w=>(w.a===a&&w.b===b)||(w.b===a&&w.a===b));
+  function weightedAllocation(entries,total){
+    const sum=entries.reduce((n,e)=>n+e.weight,0);
+    if(!sum||!total)return entries.map(e=>({...e,count:0}));
+    const allocated=entries.map((e,index)=>{const quota=total*e.weight/sum,count=Math.floor(quota);return {...e,index,count,remainder:quota-count};});
+    const ranked=[...allocated].sort((a,b)=>b.remainder-a.remainder||a.index-b.index);
+    for(let n=total-allocated.reduce((sum,e)=>sum+e.count,0),i=0;i<n;i++)ranked[i].count++;
+    return allocated;
+  }
+  function reinforcementComposition(composition){
+    const entries=Object.entries(composition).filter(([,count])=>count>0).sort(([a],[b])=>a.localeCompare(b)).map(([type,weight])=>({type,weight}));
+    return Object.fromEntries(weightedAllocation(entries,Math.round(entries.reduce((n,e)=>n+e.weight,0)*.5)).map(e=>[e.type,e.count]));
+  }
+  function nominalFor(scenario,id,type){
+    return id==='ger'&&scenario==='barbarossa41'?({infantry:15000,armor:17000,motorized:14000}[type]||UNIT_TYPES[type].man*1000):UNIT_TYPES[type].man*1000;
+  }
+  function preview(scenario,id,options={}){
+    const config=tables[scenario]?.[id];if(!config)return null;
+    const composition={...config.composition},reinforced=options.reinforcedArmy===true;
+    if(reinforced)for(const [type,count]of Object.entries(reinforcementComposition(composition)))composition[type]+=count;
+    const summarize=counts=>Object.entries(counts).reduce((result,[type,count])=>{
+      const t=UNIT_TYPES[type],nominal=nominalFor(scenario,id,type)*count;
+      result.divisions+=count;result.nominalPersonnel+=nominal;result.personnel+=nominal*Math.max(1,Math.round(t.hp*config.readiness))/t.hp;return result;
+    },{divisions:0,nominalPersonnel:0,personnel:0});
+    const historical=summarize(config.composition),opening=summarize(composition);
+    return {...opening,historicalDivisions:historical.divisions,historicalPersonnel:historical.personnel,
+      historicalNominalPersonnel:historical.nominalPersonnel,composition,reinforced,approximate:true};
+  }
+  function landSummary(units){
+    const result={objects:units.length,divisions:0,nominalPersonnel:0,personnel:0,composition:{}};
+    for(const d of units){
+      const permille=d.formationPermille||1000,nominal=d.nominalPersonnel||UNIT_TYPES[d.type].man*permille;
+      result.divisions+=permille/1000;result.nominalPersonnel+=nominal;result.personnel+=nominal*d.hp/d.maxHp;
+      result.composition[d.type]=(result.composition[d.type]||0)+permille/1000;
+    }
+    return result;
+  }
+  function reinforceOpeningArmy(s,makeDivision,report){
+    report.reinforcedArmy={enabled:true,targetMultiplier:1.5,label:'增强开局 · 游戏配置',countries:{}};
+    for(const id of Object.keys(report.countries)){
+      const owned=s.provinces.filter(p=>p.owner===id),original=owned.flatMap(p=>p.garrison.filter(d=>isLand(d)&&d.hp>0));
+      const before=landSummary(original),extra=reinforcementComposition(before.composition),added=[];
+      for(const [type,count]of Object.entries(extra)){
+        const locations=owned.map(p=>({p,units:p.garrison.filter(d=>isLand(d)&&d.type===type&&d.hp>0)})).filter(e=>e.units.length)
+          .sort((a,b)=>a.p.id.localeCompare(b.p.id)).map(e=>({...e,weight:e.units.length}));
+        for(const slot of weightedAllocation(locations,count))for(let n=0;n<slot.count;n++){
+          const source=slot.units[n%slot.units.length],unit=makeDivision(type);
+          unit.hp=source.hp;unit.maxHp=source.maxHp;unit.org=source.org;unit.maxOrg=source.maxOrg;
+          if(source.nominalPersonnel!==undefined)unit.nominalPersonnel=source.nominalPersonnel;
+          slot.p.garrison.push(unit);added.push(unit);
+        }
+      }
+      const after=landSummary(original.concat(added)),summary=report.countries[id];
+      report.reinforcedArmy.countries[id]={before,added:landSummary(added),after,
+        personnelMultiplier:before.personnel?after.personnel/before.personnel:1,
+        nominalMultiplier:before.nominalPersonnel?after.nominalPersonnel/before.nominalPersonnel:1};
+      summary.historicalLand=summary.land;summary.land=after.divisions;summary.total=summary.land+summary.naval+summary.air;
+      summary.composition={...after.composition};summary.note+=' 增强开局额外配置约50%陆军兵员，属于游戏平衡配置，不是历史统计。';
+    }
+  }
   function allocations(s,owned,total){
     const id=owned[0].owner;
     const capital=owned.find(p=>p.id===s.countries?.[id]?.capital)||owned.find(p=>p.isCapital)||owned[0];
@@ -245,11 +304,48 @@ const OrderOfBattle = (() => {
       report.countries[id].landCount=owned.reduce((n,p)=>n+land(p).length,0);
     }
   }
-  function apply(s,makeDivision){
+  function splitOpeningBattleGroups(s,makeDivision,report){
+    report.battleGroups={};
+    for(const id of Object.keys(report.countries)){
+      const owned=s.provinces.filter(p=>p.owner===id),land=p=>p.garrison.filter(d=>isLand(d)&&d.hp>0);
+      const capital=owned.find(p=>p.id===s.countries[id]?.capital)||owned.find(p=>p.isCapital),protectedUnits=new Set();
+      for(const p of owned)if(p===capital||p.garrison.some(d=>(d.kind||UNIT_TYPES[d.type]?.kind)==='naval'&&d.hp>0)){
+        const core=land(p).filter(d=>(d.formationPermille||1000)===1000).sort((a,b)=>b.maxHp-a.maxHp)[0];
+        if(core)protectedUnits.add(core);
+      }
+      const before=owned.reduce((n,p)=>n+land(p).length,0);let split=0;
+      for(const p of owned)for(const original of [...land(p)]){
+        const permille=original.formationPermille||1000;
+        // Local 40-permille garrisons and already reduced formations remain
+        // intact. Two substantial groups offer independent orders without
+        // manufacturing a new historical division or a collection of tiny units.
+        if(permille<800||protectedUnits.has(original))continue;
+        const retained=Math.ceil(permille/2),detached=permille-retained,type=UNIT_TYPES[original.type];
+        const nominal=original.nominalPersonnel||type.man*permille,leftNominal=Math.round(nominal*retained/permille);
+        const hp=original.hp,org=original.org,maxOrg=original.maxOrg,groupId=original.id;
+        const child=makeDivision(original.type,detached);
+        original.formationPermille=retained;original.maxHp=type.hp*retained/1000;original.hp=hp*retained/permille;
+        original.nominalPersonnel=leftNominal;
+        child.maxHp=type.hp*detached/1000;child.hp=hp*detached/permille;child.org=org;child.maxOrg=maxOrg;
+        child.nominalPersonnel=nominal-leftNominal;
+        for(const unit of [original,child]){
+          unit.formationRole='battleGroup';unit.formationGroupId=groupId;unit.name=type.name.replace(/师$/,'')+'战斗群';
+        }
+        p.garrison.push(child);split++;
+      }
+      const after=owned.reduce((n,p)=>n+land(p).length,0);
+      report.battleGroups[id]={before,after,split,minimumSourcePermille:800,targetPermille:500};
+      report.countries[id].landCount=after;
+    }
+  }
+  function apply(s,makeDivision,options={}){
     if(s.orderOfBattleVersion===1)return s.orderOfBattle;
     const table=tables[s.scenario];if(!table)return null;
     const report={version:1,scenario:s.scenario,year:s.date.year,month:s.date.month,approximate:true,
-      unitScale:'陆军按师级等效编制近似，驻防分队从既有步兵师拆出；海军按舰队编队，空军按联队，不能相加当作师数。',countries:{}};
+      unitScale:'陆军按师级等效编制近似；战斗群与驻防分队从既有陆军拆出，可独立调遣但不增加全国人数或历史师数。海军按舰队编队，空军按联队，不能相加当作师数。',countries:{}};
+    report.configuration=options.reinforcedArmy===true?'reinforced':'historical';
+    report.reinforcedArmy={enabled:false};
+    if(options.reinforcedArmy===true)report.unitScale='增强开局额外配置约50%陆军兵员，属于游戏配置，不冒称历史人数。'+report.unitScale;
     // 未列历史估算的小国保持原有师数和类型，只采用相同的地理部署规则。
     const fallback=Object.fromEntries(Object.keys(s.countries).filter(id=>!table[id]).map(id=>{
       const units=s.provinces.filter(p=>p.owner===id).flatMap(p=>p.garrison).filter(isLand);
@@ -292,8 +388,10 @@ const OrderOfBattle = (() => {
         if(chosen.groupRoles)chosen.groupRoles.placed[type]=(chosen.groupRoles.placed[type]||0)+1;
       }
     }
+    if(options.reinforcedArmy===true)reinforceOpeningArmy(s,makeDivision,report);
     fillOpeningCoverage(s,makeDivision,report);
+    splitOpeningBattleGroups(s,makeDivision,report);
     s.orderOfBattleVersion=1;s.orderOfBattle=report;return report;
   }
-  return {apply,tables,sources};
+  return {apply,tables,sources,preview};
 })();

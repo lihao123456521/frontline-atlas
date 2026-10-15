@@ -81,10 +81,13 @@ test('legal old frontline battles preserve progress while obsolete aggregate sho
   assert.ok(Game.state.administrativeMigration.cancelledCombats.some(c=>c.unitIds.includes(sent.id)),'obsolete combat migration is auditable');
 });
 test('documented Polish 1939 frontier armies use their own administrative provinces without adding formations',()=>{
-  const {Game}=setup({scenario:'poland39'}),count=p=>p.garrison.filter(d=>d.kind==='land').length;
+  const {Game}=setup({scenario:'poland39'}),land=p=>p.garrison.filter(d=>d.kind==='land'),count=p=>Game.formationTotal(land(p));
   const region=id=>Game.state.provinces.find(p=>p.administrativeRegionId===id);
   assert.equal(Game.armyTotals('pol').land,39);assert.equal(count(region('pol_1934_1')),5);assert.equal(count(region('pol_1934_4')),4);
   assert.equal(count(Game.province(Game.provinceById('pol_krakow'))),7);
+  for(const [p,people]of [[region('pol_1934_1'),43000],[region('pol_1934_4'),34400],[Game.province(Game.provinceById('pol_krakow')),60200]]){
+    assert.equal(p.owner,'pol');assert.equal(Game.personnelOf(land(p)),people,'battle-group splits preserve the actual Polish frontier army');
+  }
   const deployed=Game.state.provinces.filter(p=>p.owner==='pol'&&count(p)>0);assert.ok(deployed.length>5,'central and eastern reserves have independent provincial locations');
   assert.equal(Game.armyTotals('ger').land,103);assert.equal(Game.armyTotals('fra').land,86);
   const frenchFront=Game.state.provinces.filter((p,i)=>p.owner==='fra'&&Game.neighbors(i).some(j=>Game.province(j).owner==='ger'));

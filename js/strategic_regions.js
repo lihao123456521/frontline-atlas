@@ -4,7 +4,7 @@
  * not a new historical administrative boundary dataset. */
 const StrategicRegions = (() => {
   if(typeof World!=='undefined'&&World.installStrategicAnchors)World.installStrategicAnchors();
-  const version='strategic-balanced-1',historical=typeof HistoricalRegions!=='undefined'?HistoricalRegions:null;
+  const version='strategic-balanced-2',previousVersion='strategic-balanced-1',historical=typeof HistoricalRegions!=='undefined'?HistoricalRegions:null;
   const legacy=historical?{...historical}:null;
   const aliases=new Map(),members=new Map(),groups=new Map();
   const targets={uk:70,fra:54,ger:28};
@@ -33,16 +33,17 @@ const StrategicRegions = (() => {
     for(const group of groups.values())members.set(group.node.id,group.list.map(n=>n.id));
   }
   const idOf=p=>typeof p==='string'?p:p?.id;
-  const canonical=p=>aliases.get(idOf(p))||idOf(p);
-  const originalMembers=p=>members.get(idOf(p))||[idOf(p)];
-  const expandInputs=provinces=>provinces.flatMap(p=>originalMembers(p.p||p).map(id=>({id})));
-  const balanced=legacy?(()=>{
+  function buildBalanced(groupMap,aliasMap,memberMap,buildVersion){
+    if(!legacy)return null;
+    const canonical=p=>aliasMap.get(idOf(p))||idOf(p);
+    const originalMembers=p=>memberMap.get(idOf(p))||[idOf(p)];
+    const expandInputs=provinces=>provinces.flatMap(p=>originalMembers(p.p||p).map(id=>({id})));
     const regions=new Map(),rings=new Map();
-    for(const [id,list]of members){
+    for(const [id,list]of memberMap){
       const rs=list.flatMap(old=>legacy.regionsFor(old).map(r=>({...r,playableProvinceId:id,strategicApproximation:list.length>1})));
       regions.set(id,rs);rings.set(id,rs.flatMap(r=>r.rings));
     }
-    const nodes=[...groups.values()].map(g=>({...g.node,area:g.area,
+    const nodes=[...groupMap.values()].map(g=>({...g.node,area:g.area,
       name:g.list.length>1?g.node.name+'战区':g.node.name,
       strategicRegionMembers:g.list.map(n=>n.id),strategicApproximation:g.list.length>1,
       coastal:g.list.some(n=>n.coastal)}));
@@ -51,7 +52,7 @@ const StrategicRegions = (() => {
       const key=[a,b].sort().join('|'),previous=edges.get(key);
       if(!previous||edge.length>previous.length)edges.set(key,{...edge,a,b});
     }
-    return {...legacy,version,nodes,provinceIds:nodes.map(n=>n.id),adjacency:[...edges.values()],
+    return {...legacy,version:buildVersion,nodes,provinceIds:nodes.map(n=>n.id),adjacency:[...edges.values()],
       regionsFor:p=>regions.get(idOf(p))||[],ringsFor:p=>rings.get(idOf(p))||null,
       contains:(p,x,y)=>originalMembers(p).some(id=>legacy.contains(id,x,y)),
       provinceIdForRegion:id=>canonical(legacy.provinceIdForRegion(id)),
@@ -61,15 +62,45 @@ const StrategicRegions = (() => {
         const ids=originalMembers(p),member=ids.length===1?ids[0]:legacy.ownerAt(x,y,ids.map(id=>({id})));
         return !member||legacy.anchorBoundaryContains(member,x,y);
       }};
-  })():null;
-  function useBalanced(){if(historical&&balanced)Object.assign(historical,balanced);return version;}
+  }
+  // Freeze the v47 grouping before reducing small land-connected regions. Saves
+  // use that exact geometry and index order, including independently held enclaves.
+  const previousBalanced=buildBalanced(groups,new Map(aliases),new Map(members),previousVersion);
+  const smallRegionMerges=[];
+  if(legacy){
+    const smallAreaLimit=3;
+    for(const small of [...groups.values()].filter(g=>g.area<smallAreaLimit).sort((a,b)=>a.area-b.area||a.node.id.localeCompare(b.node.id))){
+      if(!groups.has(small.node.id)||small.node.id===small.node.strategicProvinceId||small.area>=smallAreaLimit)continue;
+      const candidates=[];
+      for(const edge of legacy.adjacency){
+        const a=groups.get(aliases.get(edge.a)),b=groups.get(aliases.get(edge.b));
+        const neighbor=a===small?b:b===small?a:null;
+        if(!neighbor||neighbor===small||edge.length<=1e-8||neighbor.node.shapeOwner!==small.node.shapeOwner||
+           neighbor.node.strategicProvinceId!==small.node.strategicProvinceId)continue;
+        candidates.push({neighbor,length:edge.length});
+      }
+      candidates.sort((a,b)=>b.length-a.length||b.neighbor.area-a.neighbor.area||a.neighbor.node.id.localeCompare(b.neighbor.node.id));
+      const keep=candidates[0]?.neighbor;if(!keep)continue;
+      smallRegionMerges.push({id:small.node.id,into:keep.node.id,country:small.node.shapeOwner,area:small.area});
+      keep.list.push(...small.list);keep.area+=small.area;groups.delete(small.node.id);
+      for(const node of keep.list)aliases.set(node.id,keep.node.id);
+    }
+    members.clear();for(const group of groups.values())members.set(group.node.id,group.list.map(n=>n.id));
+  }
+  // Each geometry snapshot owns its lookup maps. Switching to an old save must
+  // never leave v2 hit testing attached to its v1 province array.
+  const balanced=buildBalanced(groups,new Map(aliases),new Map(members),version);
+  function useBalanced(requestedVersion=version){const selected=requestedVersion===previousVersion?previousBalanced:balanced;
+    if(historical&&selected)Object.assign(historical,selected);return selected?.version||version;}
   function useLegacy(){if(historical&&legacy)Object.assign(historical,legacy);return legacy?.version;}
   // Old saves keep their exact province indexes, controllers, units and ongoing
   // routes. Rebalancing is used by new campaigns; it never swallows disputed land.
   function prepareState(s,{loading=false}={}){
-    const old=loading&&s.strategicRegionsVersion!==version;
-    if(old)useLegacy();else useBalanced();
-    return {mode:old?'legacy-administrative':'balanced',preservedProvinceIndexes:true};
+    const savedVersion=s.strategicRegionsVersion;
+    if(loading&&savedVersion&&savedVersion!==version&&savedVersion!==previousVersion)throw new Error('Unsupported strategic regions version: '+savedVersion);
+    const old=loading&&!savedVersion;
+    if(old)useLegacy();else useBalanced(loading?savedVersion:version);
+    return {mode:old?'legacy-administrative':savedVersion===previousVersion?'balanced-v1':'balanced',preservedProvinceIndexes:true};
   }
   function apply(s){
     useBalanced();
@@ -95,9 +126,11 @@ const StrategicRegions = (() => {
     s.strategicMapBasis='Europe: adjacent historical administrative groups; world: clipped strategic city cells';
   }
   useBalanced();
-  return {version,useBalanced,useLegacy,prepareState,apply,
+  return {version,previousVersion,useBalanced,useLegacy,prepareState,apply,smallRegionMerges,
     safeMapping:Object.fromEntries(aliases),members:Object.fromEntries(members),
     legacyProvinceIds:legacy?.nodes.map(n=>n.id)||[],balancedProvinceIds:balanced?.nodes.map(n=>n.id)||[],
+    previousProvinceIds:previousBalanced?.nodes.map(n=>n.id)||[],
+    previousCounts:previousBalanced?previousBalanced.nodes.reduce((o,n)=>(o[n.shapeOwner]=(o[n.shapeOwner]||0)+1,o),{}):{},
     beforeCounts:legacy?legacy.nodes.reduce((o,n)=>(o[n.shapeOwner]=(o[n.shapeOwner]||0)+1,o),{}):{},
     afterCounts:balanced?balanced.nodes.reduce((o,n)=>(o[n.shapeOwner]=(o[n.shapeOwner]||0)+1,o),{}):{}};
 })();

@@ -6,53 +6,29 @@
 const Game = (function(){
 
   let state = null;
-  let turnResolving = false, playerCommandDepth = 0;
-
-  function freshTurn(){return {number:1,daysPerTurn:7,limit:3,used:0,pendingDays:0};}
-  function turnBlockReason(){
+  let playerCommandDepth = 0;
+  function timeBlockReason(){
     if(!state)return '尚未开始战役';
     if(state.over)return '战役已结束';
     if(state.pendingEvent)return '请先处理历史事件';
     if(state.worldEvents.some(e=>e.kind==='invasion'&&!e.acknowledged))return '请先确认防御警报';
     return '';
   }
-  function turnStatus(){
-    const t=state?.turn||freshTurn(),blockedReason=turnBlockReason();
-    const remaining=Math.max(0,t.limit-t.used);
-    const reason=turnResolving?'正在结算本回合':blockedReason|| (remaining===0?'本回合行动已用尽，请结束回合':'');
-    return {turnNumber:t.number,number:t.number,daysPerTurn:t.daysPerTurn,limit:t.limit,used:t.used,remaining,
-      pendingDays:t.pendingDays,resolving:turnResolving,blocked:!!blockedReason,blockedReason,reason,
-      canAct:!!state&&!state.over&&!turnResolving&&remaining>0,canFinish:!!state&&!turnResolving&&!blockedReason};
+  function timeStatus(){
+    const blockedReason=timeBlockReason();
+    return {blocked:!!blockedReason,blockedReason,reason:blockedReason,canAdvance:!!state&&!blockedReason};
   }
-  // Only public player commands are charged. Internal AI/production calls use the original functions.
+  // Public orders save immediately; AI and production still use the original batched functions.
   function playerAction(fn,args){
-    if(!state||state.over||turnResolving)return false;
-    if(state.turn.used>=state.turn.limit){log('本回合行动已用尽，请结束回合。','info');if(window.UI)UI.refresh();return false;}
+    if(!state||state.over)return false;
     if(playerCommandDepth)return fn(...args);
     playerCommandDepth++;
     let result;
     try {result=fn(...args);} finally {playerCommandDepth--;}
-    if(result===true){state.turn.used++;autosave();}
-    if(window.UI)UI.refresh();
+    if(result===true)autosave();
     return result===true;
   }
   function command(fn,isPlayer=()=>true){return (...args)=>isPlayer(...args)?playerAction(fn,args):fn(...args);}
-  function finishTurn(){
-    if(!state||turnResolving||turnBlockReason())return false;
-    const t=state.turn;
-    if(!t.pendingDays)t.pendingDays=t.daysPerTurn;
-    turnResolving=true;
-    try {
-      while(t.pendingDays>0&&!turnBlockReason()){
-        // Reserve the completed day before advanceDay saves, so a reload never repeats income.
-        t.pendingDays--;
-        if(!advanceDay({automatic:false})){t.pendingDays++;break;}
-        if(!turnBlockReason())issueAutoOffensive({chargeActions:true});
-      }
-      if(t.pendingDays===0){t.number++;t.used=0;}
-    } finally {turnResolving=false;autosave();if(window.UI)UI.refresh();}
-    return t.pendingDays===0;
-  }
 
   /* ---------------- 工具 ---------------- */
   function province(idx){ return state.provinces[idx]; }
@@ -72,8 +48,9 @@ const Game = (function(){
   function formationPermille(unit){return unit?.formationPermille===undefined?1000:unit.formationPermille;}
   function formationScale(unit){return formationPermille(unit)/1000;}
   function formationTotal(units){return units.reduce((sum,d)=>sum+formationPermille(d),0)/1000;}
-  function unitName(type,permille){
+  function unitName(type,permille,role){
     const t=UNIT_TYPES[type];
+    if(role==='battleGroup')return t.name.replace(/师$/,'')+'战斗群';
     return permille===1000?t.name:type==='infantry'&&permille<=500?'步兵驻防分队':'缩编'+t.name;
   }
   function makeDivision(type,permille=1000){
@@ -109,7 +86,7 @@ const Game = (function(){
   }
 
   /* ---------------- 初始化 ---------------- */
-  function init(playerId, playerIdeo, playerAdvisor, difficulty, scenarioId){
+  function init(playerId, playerIdeo, playerAdvisor, difficulty, scenarioId, options={}){
     if(typeof StrategicRegions!=='undefined')StrategicRegions.useBalanced();
     const scenario = SCENARIOS.find(s => s.id === scenarioId) || SCENARIOS[0];
     if(scenario.player && scenario.player!==playerId){
@@ -125,7 +102,7 @@ const Game = (function(){
       scenario: scenario.id,
       date: { year: scenario.date.year, month: scenario.date.month, day:scenario.date.day||1 },
       unitSerial:0, combatSerial:0, activeCombats:[], daysElapsed:0,
-      turn:freshTurn(), pendingEvent:null,
+      pendingEvent:null,
       worldEvents:[], worldEventSerial:0,
       aiBuildQueue:[],
       countries: {},
@@ -224,7 +201,7 @@ const Game = (function(){
     if (typeof World !== "undefined") World.apply(state, makeDivision);
     if (typeof History !== "undefined" && History.expandProvinces) History.expandProvinces(state);
     buildGraph();
-    if (typeof OrderOfBattle !== "undefined") OrderOfBattle.apply(state,makeDivision);
+    if (typeof OrderOfBattle !== "undefined") OrderOfBattle.apply(state,makeDivision,options);
     initializeArmyState();
     Object.keys(state.countries).forEach(cid => computeManpower(cid));
     initIntel();
@@ -1027,21 +1004,19 @@ const Game = (function(){
     const text=assessment.candidates.length?'已发现可进攻目标，等待下一自动日':assessment.needsRest?'等待部队休整'+(regroup?'；'+regroup:''):regroup|| (assessment.needsStrength?'兵力不足，等待集结':assessment.hasFront?'暂无合适的可达目标':'暂无可达目标');
     return {enabled:true,active:false,count,text};
   }
-  function issueAutoOffensive(options={}){
+  function issueAutoOffensive(){
     if(!state.autoOffensive||!country(state.player)?.alive)return;
-    const charged=options.chargeActions===true,hasBudget=()=>!charged||state.turn.used<state.turn.limit;
     let active=state.activeCombats.filter(c=>c.attacker===state.player).length;
-    while(active<2&&hasBudget()){
+    while(active<2){
       const next=autoOffensiveTargets().candidates[0];if(!next)break;
       const ok=next.kind==='amphib'?amphibious(next.from,next.to,next.send,state.player,true):doAssault(state.player,next.from,next.to,0,next.send,true);
       if(!ok)break;
-      if(charged){state.turn.used++;autosave();}
       const combat=state.activeCombats[state.activeCombats.length-1];
       combat.autoOffensiveDay=state.daysElapsed;
       if(next.careful)combat.tactics='careful';
       active++;
     }
-    if(active===0&&hasBudget()&&moveAutoReserve()&&charged){state.turn.used++;autosave();}
+    if(active===0)moveAutoReserve();
   }
   // 战斗胜率预估（供进攻策划面板使用，取随机区间中点，确定性）；sendCount 可指定预估出击数量
   function battlePreview(fromIdx, toIdx, sendCount, amphib){
@@ -1566,7 +1541,7 @@ const Game = (function(){
     if (window.UI) UI.refresh();
   }
 
-  /* ---------------- 回合推进 ---------------- */
+  /* ---------------- 日期推进 ---------------- */
   function cleanupPeace(a,b){
     state.activeCombats.filter(c=>(c.attacker===a&&c.defender===b)||(c.attacker===b&&c.defender===a)).slice().forEach(c=>cancelCombat(c));
   }
@@ -1585,7 +1560,7 @@ const Game = (function(){
     if(options?.automatic===true)issueAutoOffensive();
     checkVictory();autosave();if(window.UI){if(UI.markSaved)UI.markSaved();UI.refresh();if(briefItems.length&&UI.showTurnBriefing)UI.showTurnBriefing(fmtDate(state.date),briefItems);}return true;
   }
-  // 兼容旧业务调用：直接推进一个月。回合制界面使用 finishTurn。
+  // 兼容旧业务调用：直接推进一个月；生产界面以 advanceDay 逐日推进。
   function endTurn(){
     if (state.over) return;
     state.daysElapsed=(state.daysElapsed||0)+daysInMonth(state.date.year,state.date.month);
@@ -2112,6 +2087,7 @@ const Game = (function(){
     if (Object.values(s.research.progress).some(v => !Number.isFinite(v) || v < 0)) return false;
     const ids=new Set(),unitValid=d=>{
       if(d?.formationPermille!==undefined&&(!Number.isInteger(d.formationPermille)||d.formationPermille<1||d.formationPermille>1000||UNIT_TYPES[d.type]?.kind!=='land'))return false;
+      if(d?.formationRole!==undefined&&(d.formationRole!=='battleGroup'||UNIT_TYPES[d.type]?.kind!=='land'||typeof d.formationGroupId!=='string'||!d.formationGroupId||d.formationGroupId.length>128))return false;
       if(d?.nominalPersonnel!==undefined&&(!Number.isSafeInteger(d.nominalPersonnel)||d.nominalPersonnel<=0||d.nominalPersonnel>100000||UNIT_TYPES[d.type]?.kind!=='land'))return false;
       if(!obj(d)||!UNIT_TYPES[d.type]||!Number.isFinite(d.hp)||!Number.isFinite(d.maxHp)||d.maxHp<=0||d.hp<0||
         (d.org!==undefined&&(!Number.isFinite(d.org)||d.org<0))||(d.maxOrg!==undefined&&(!Number.isFinite(d.maxOrg)||d.maxOrg<=0))||
@@ -2182,7 +2158,8 @@ const Game = (function(){
       if (typeof raw !== "string" || !raw) return false;
       const candidate = JSON.parse(raw);
       if (!validSave(candidate)) return false;
-      if(candidate.turn===undefined){candidate.turn=freshTurn();candidate.autoOffensive=false;}
+      // v47 may have stopped mid-turn. Its remaining days were never played and must not be replayed on load.
+      delete candidate.turn;
       if(candidate.pendingEvent===undefined)candidate.pendingEvent=null;
       if (candidate.campaign === undefined){
         candidate.campaign = Campaign.create(candidate);
@@ -2205,7 +2182,7 @@ const Game = (function(){
       const allUnits=candidate.provinces.flatMap(p=>p.garrison).concat(candidate.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)));
       allUnits.forEach(d=>{const match=/^u(\d+)$/.exec(d.id||'');if(match)candidate.unitSerial=Math.max(candidate.unitSerial,Number(match[1]));});
       const restore=d=>{
-        const t=UNIT_TYPES[d.type],permille=formationPermille(d),fresh={...d,id:d.id||'u'+(++candidate.unitSerial),type:t.key,name:unitName(d.type,permille),kind:t.kind,atk:t.atk,def:t.def,hp:t.hp*permille/1000,maxHp:t.hp*permille/1000,org:t.org,maxOrg:t.org};
+        const t=UNIT_TYPES[d.type],permille=formationPermille(d),fresh={...d,id:d.id||'u'+(++candidate.unitSerial),type:t.key,name:unitName(d.type,permille,d.formationRole),kind:t.kind,atk:t.atk,def:t.def,hp:t.hp*permille/1000,maxHp:t.hp*permille/1000,org:t.org,maxOrg:t.org};
         fresh.hp=d.maxHp===fresh.maxHp?Math.max(0,Math.min(d.hp,fresh.maxHp)):Math.max(0,Math.min(1,d.hp/d.maxHp))*fresh.maxHp;
         fresh.org=Number.isFinite(d.org)?(d.maxOrg===fresh.maxOrg?Math.max(0,Math.min(d.org,fresh.maxOrg)):Math.max(0,Math.min(1,d.org/(d.maxOrg||fresh.maxOrg)))*fresh.maxOrg):fresh.maxOrg;
         if(!fresh.combatId){delete fresh.arrivalDay;delete fresh.routePath;delete fresh.returnFrom;}
@@ -2328,7 +2305,7 @@ const Game = (function(){
 
   return {
     get state(){ return state; },
-    init, onMapClick, endTurn, advanceDay, finishTurn, advanceTurn:finishTurn, turnStatus, getCombats, getCombat, combatReinforcements, setCombatTactics,
+    init, onMapClick, endTurn, advanceDay, finishTurn:advanceDay, advanceTurn:advanceDay, timeStatus, getCombats, getCombat, combatReinforcements, setCombatTactics,
     reinforceCombat:command(reinforceCombat), retreatCombat, requestCombatSupport:command(requestCombatSupport), armyTotals, unitPersonnel, personnelOf, provincePersonnel, capitulationProgress,
     buildUnit:command(buildUnit), unitAvailability, landCount, formationScale, formationTotal, makeDivision, aiUnitTargets, fortBonusOf, bombingAvailability, navalStrength,
     buildFactory:command(buildFactory), buildProvince:command(buildProvince), trade:command(trade), bombProvince:command(bombProvince),

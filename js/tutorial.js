@@ -56,9 +56,9 @@ const WarTutorial = (() => {
     if(t.step==='order')return '战术已选定；点击「确认进攻」'+(!q?.owner||Game.isAtWar(state().player,q.owner)?'。':'（将宣战），按正常代价开战。');
     if(t.step==='advance'){
       if(blocked())return '命令已执行；先处理事件或确认警报，再继续推进。';
-      return '命令已下达；点击「结束回合」，观察行军和战果。';
+      return typeof UI!=='undefined'&&UI.getSpeed?.()===0?'命令已下达；点击「继续作战」，观察行军。':'部队正在行军；观察日期和战场推进。';
     }
-    if(t.step==='complete')return '战场已推进，首次出征完成。每回合 3 次行动，准备好再结束回合。';
+    if(t.step==='complete')return '首次出征完成。时间自动推进，你可随时暂停、改战术或增援。';
     return '暂时没有可出征的陆路部队；可退出教程，正常征兵或调兵。';
   }
   function draw(){

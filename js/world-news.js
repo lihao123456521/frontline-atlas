@@ -37,13 +37,14 @@ const WorldNews=(()=>{
     box.setAttribute('role',urgent?'alert':'status');box.setAttribute('aria-live',urgent?'assertive':'polite');
     box.appendChild(element('div','news-eyebrow',(urgent?'敌袭待确认':related?'前线快报':'世界快报')+' / '+e.day));
     box.appendChild(element('h3','news-title',e.title));
-    if(urgent)box.appendChild(element('p','news-detail','确认后可继续规划回合。'));
+    if(urgent)box.appendChild(element('p','news-detail','已知晓后继续推进；查看战场可暂停布置。'));
     else if(e.count>1)box.appendChild(element('p','news-detail',`${e.count} 条消息已记入世界大事。`));
     const close=element('button','news-close',urgent?'已知晓':'×');close.setAttribute('aria-label',urgent?'确认防御警报':'关闭重点事件');close.addEventListener('click',dismiss);box.appendChild(close);
     if(Number.isInteger(e.provinceIdx)){
       const locate=element('button','news-locate',urgent?'查看战场 →':'查看地点 →');
       locate.addEventListener('click',()=>{
         const idx=e.provinceIdx;dismiss();
+        if(urgent&&typeof UI!=='undefined')UI.pauseForOrders?.();
         if(urgent&&typeof UI!=='undefined'&&UI.focusCombat?.(e.combatId))return;
         selectCity?.(idx);if(typeof MapView!=='undefined')MapView.focusProvince(idx,true);
       });box.appendChild(locate);

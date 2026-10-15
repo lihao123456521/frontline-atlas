@@ -9,7 +9,7 @@ function setup(scenario,player='ger'){
 }
 const units=G=>G.state.provinces.flatMap(p=>p.garrison).concat(G.state.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)));
 for(const scenario of ['sandbox36','poland39','barbarossa41'])test(scenario+' begins independent world wars within two weeks without any player offensive',()=>{
-  const G=setup(scenario),seen=new Set(),operations=[];assert.equal(G.state.provinces.length,472);
+  const G=setup(scenario),seen=new Set(),operations=[];assert.equal(G.state.provinces.length,456);
   let diplomacyDay=-3;const initialIds=new Set(units(G).map(u=>u.id)),warDays={};
   for(let day=1;day<=14;day++){
     G.advanceDay();const ids=units(G).map(u=>u.id);assert.equal(new Set(ids).size,ids.length);assert.ok(ids.every(id=>initialIds.has(id)),'orders do not manufacture soldiers');

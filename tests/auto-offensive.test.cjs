@@ -180,7 +180,8 @@ test('manual trade, research and training still refresh immediately',()=>{
   const c=Game.country('ger');c.res=500;c.equipment=500;c.manpower=1000;
   Game.trade();assert.ok(refreshes>0);let prior=refreshes;
   assert.equal(Game.assignResearch('inf1',0),true);assert.ok(refreshes>prior);prior=refreshes;
-  assert.equal(Game.buildUnit('infantry'),true);assert.ok(refreshes>prior);assert.equal(Game.turnStatus().used,3);
+  assert.equal(Game.buildUnit('infantry'),true);assert.ok(refreshes>prior);
+  assert.equal(Game.buildUnit('infantry'),true,'normal resource-funded orders remain available after three commands');
 });
 
 test('a failed automatic assault reports and honors remaining regroup days',()=>{

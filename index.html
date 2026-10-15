@@ -4,21 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>钢铁雄心 · 浏览器版</title>
-<meta name="hoi-version" content="47">
-<link rel="stylesheet" href="css/style.css?v=47">
-<link rel="stylesheet" href="css/command-center.css?v=47">
-<link rel="stylesheet" href="css/historical-map.css?v=47">
-<link rel="stylesheet" href="css/war-command.css?v=47">
-<link rel="stylesheet" href="css/map-fronts.css?v=47">
-<link rel="stylesheet" href="css/map-command.css?v=47">
-<link rel="stylesheet" href="css/start-screen.css?v=47">
-<link rel="stylesheet" href="css/war-focus.css?v=47">
-<link rel="stylesheet" href="css/experience.css?v=47">
-<link rel="stylesheet" href="css/tutorial.css?v=47">
-<link rel="stylesheet" href="css/global-overview.css?v=47">
+<meta name="hoi-version" content="48">
+<link rel="stylesheet" href="css/style.css?v=48">
+<link rel="stylesheet" href="css/command-center.css?v=48">
+<link rel="stylesheet" href="css/historical-map.css?v=48">
+<link rel="stylesheet" href="css/war-command.css?v=48">
+<link rel="stylesheet" href="css/map-fronts.css?v=48">
+<link rel="stylesheet" href="css/map-command.css?v=48">
+<link rel="stylesheet" href="css/start-screen.css?v=48">
+<link rel="stylesheet" href="css/war-focus.css?v=48">
+<link rel="stylesheet" href="css/experience.css?v=48">
+<link rel="stylesheet" href="css/tutorial.css?v=48">
+<link rel="stylesheet" href="css/global-overview.css?v=48">
 </head>
 <body>
-<script src="js/runtime.js?v=47"></script>
+<script src="js/runtime.js?v=48"></script>
 
 <!-- 开始界面 -->
 <div id="startScreen">
@@ -47,7 +47,7 @@
       </fieldset>
       <button id="btnStart">进入战区 <span aria-hidden="true">→</span></button>
       <button id="btnContinue" class="btn-continue" style="display:none">继续上次战役</button>
-      <p class="setup-footnote">本地存档 <span id="releaseVersion">版本 v47</span></p>
+      <p class="setup-footnote">本地存档 <span id="releaseVersion">版本 v48</span></p>
     </section>
   </div>
 </div>
@@ -62,8 +62,11 @@
   </div>
   <div class="clock-controls">
     <div id="topBarDate"></div>
-    <div class="turn-action-chip"><span>行动</span><strong id="turnActions">3 / 3</strong></div>
-    <button id="btnPause" title="Space 结束回合">结束回合 · 7天</button>
+    <button id="btnPause" title="Space 暂停或继续">Ⅱ 暂停指挥</button>
+    <div id="topBarSpeed"><details class="time-settings"><summary aria-label="调整推进节奏">节奏</summary><div class="time-options">
+      <button data-s="1">从容 · 6秒/天</button><button data-s="2">标准 · 4秒/天</button><button data-s="3">加速 · 2秒/天</button>
+      <button id="btnAdvance">单步一天</button>
+    </div></details></div>
   </div>
 </header>
 
@@ -86,7 +89,7 @@
   <div id="mapHint" class="map-hint">
     <div class="mh-title">选择目标，下达进攻</div>
     <div class="mh-body">
-      <b>部署命令 → 结束回合 → 查看战果</b>
+      <b>选择目标 → 确认出征 → 自动行军</b>
     </div>
     <button id="mapHintClose" class="mh-close">知道了</button>
   </div>
@@ -164,7 +167,7 @@
     </select>
     <button id="mapFocusPlayer" title="聚焦当前国家" aria-label="聚焦当前国家" style="width:auto;padding:0 6px;font-size:11px">本国</button>
   </div>
-  <div class="speed-indicator" id="speedLabel">第 1 回合 · 部署阶段</div>
+  <div class="speed-indicator" id="speedLabel">标准 · 4秒 / 天</div>
   <div id="mapTooltip" class="map-tooltip"></div>
 </div>
 
@@ -203,24 +206,24 @@
 <!-- 提示框 -->
 <div id="tooltip"></div>
 
-<script src="js/data.js?v=47"></script>
-<script src="js/data_world.js?v=47"></script>
-<script src="js/data_provinces.js?v=47"></script>
-<script src="js/data_historical_map.js?v=47"></script>
-<script src="js/data_world_historical.js?v=47"></script>
-<script src="js/data_historical_regions.js?v=47"></script>
-<script src="js/historical_regions.js?v=47"></script>
-<script src="js/history.js?v=47"></script>
-<script src="js/world.js?v=47"></script>
-<script src="js/strategic_regions.js?v=47"></script>
-<script src="js/campaign.js?v=47"></script>
-<script src="js/order_of_battle.js?v=47"></script>
-<script src="js/game.js?v=47"></script>
-<script src="js/map.js?v=47"></script>
-<script src="js/world-news.js?v=47"></script>
-<script src="js/global-overview.js?v=47"></script>
-<script src="js/ui.js?v=47"></script>
-<script src="js/tutorial.js?v=47"></script>
-<script src="js/main.js?v=47"></script>
+<script src="js/data.js?v=48"></script>
+<script src="js/data_world.js?v=48"></script>
+<script src="js/data_provinces.js?v=48"></script>
+<script src="js/data_historical_map.js?v=48"></script>
+<script src="js/data_world_historical.js?v=48"></script>
+<script src="js/data_historical_regions.js?v=48"></script>
+<script src="js/historical_regions.js?v=48"></script>
+<script src="js/history.js?v=48"></script>
+<script src="js/world.js?v=48"></script>
+<script src="js/strategic_regions.js?v=48"></script>
+<script src="js/campaign.js?v=48"></script>
+<script src="js/order_of_battle.js?v=48"></script>
+<script src="js/game.js?v=48"></script>
+<script src="js/map.js?v=48"></script>
+<script src="js/world-news.js?v=48"></script>
+<script src="js/global-overview.js?v=48"></script>
+<script src="js/ui.js?v=48"></script>
+<script src="js/tutorial.js?v=48"></script>
+<script src="js/main.js?v=48"></script>
 </body>
 </html>

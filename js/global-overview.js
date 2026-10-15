@@ -127,7 +127,7 @@ const WorldOverview=(()=>{
     if(!overlay){previousFocus=document.activeElement;overlay=el('section','world-overview');overlay.id='worldOverview';document.body.appendChild(overlay);document.body.classList.add('world-overview-open');document.addEventListener('keydown',keydown);}
     render();overlay.querySelector('button')?.focus();
   }
-  function close(){if(!overlay)return;overlay.remove();overlay=null;document.body.classList.remove('world-overview-open');document.removeEventListener('keydown',keydown);previousFocus?.focus?.();previousFocus=null;}
+  function close(){if(!overlay)return;overlay.remove();overlay=null;document.body.classList.remove('world-overview-open');document.removeEventListener('keydown',keydown);previousFocus?.focus?.();previousFocus=null;callbacks.onClose?.();}
   function refresh(state){if(!overlay)return;stateRef=state;render();}
   return {open,close,refresh,get isOpen(){return !!overlay;}};
 })();

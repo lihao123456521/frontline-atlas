@@ -104,14 +104,14 @@ test('an old invasion whose combat ended still locates its city',()=>{
 test('ordinary history pruning cannot remove an unconfirmed defense alert',()=>{
   const {Game,enemy,own}=engine();Game.resolveAttack('fra',enemy,own,5);const id=Game.state.worldEvents.find(e=>e.kind==='invasion')?.id;
   Game.acceptPeace('fra');
-  for(let i=0;i<25;i++){Game.state.turn.used=0;assert.equal(Game.diploAction('declare','fra'),true);assert.equal(Game.acceptPeace('fra'),true);}
+  for(let i=0;i<25;i++){assert.equal(Game.diploAction('declare','fra'),true);assert.equal(Game.acceptPeace('fra'),true);}
   assert.ok(id);assert.ok(Game.state.worldEvents.some(e=>e.id===id),'unconfirmed alert must survive the ordinary history limit');
   assert.equal(Game.load(Game.save()),true);
 });
 
 test('more than 40 unconfirmed real attacks are retained and remain loadable',()=>{
   const {Game,enemy,own}=engine();
-  for(let i=0;i<45;i++){Game.state.turn.used=0;assert.equal(Game.resolveAttack('fra',enemy,own,5),true);assert.equal(Game.acceptPeace('fra'),true);}
+  for(let i=0;i<45;i++){assert.equal(Game.resolveAttack('fra',enemy,own,5),true);assert.equal(Game.acceptPeace('fra'),true);}
   assert.equal(Game.state.worldEvents.filter(e=>e.kind==='invasion'&&!e.acknowledged).length,45);
   assert.equal(Game.load(Game.save()),true);
 });

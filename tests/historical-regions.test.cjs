@@ -62,19 +62,31 @@ test('documented theatre strengths replace generic weighted deployment without i
   const ctx=vm.createContext({console,Math,window:{},localStorage:{getItem:()=>null,setItem:()=>{}}});
   for(const file of ['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','data_historical_regions.js','historical_regions.js','history.js','world.js','campaign.js','order_of_battle.js','game.js'])
     vm.runInContext(fs.readFileSync(path.join(root,file),'utf8'),ctx,{filename:file});
-  const Game=vm.runInContext('Game',ctx),count=p=>p.garrison.filter(d=>d.kind==='land').length;
+  const Game=vm.runInContext('Game',ctx),types=vm.runInContext('UNIT_TYPES',ctx),count=p=>Game.formationTotal(p.garrison.filter(d=>d.kind==='land'));
   Game.init('ger','fas',null,'standard','poland39');
   const west=Game.state.provinces.filter((p,i)=>p.owner==='ger'&&Game.neighbors(i).some(n=>Game.province(n).owner==='fra'));
   assert.equal(west.reduce((n,p)=>n+count(p),0),33);assert.ok(west.every(p=>p.garrison.filter(d=>d.kind==='land').every(d=>d.type==='infantry')));
+  assert.ok(Math.abs(Game.personnelOf(west.flatMap(p=>p.garrison.filter(d=>d.kind==='land')))-297000)<1e-7,'western field personnel remain unchanged');
   assert.equal(Game.armyTotals('ger').land,103);assert.equal(Game.armyTotals('pol').land,39);
   assert.equal(count(Game.province(Game.provinceById('pol_poznan'))),4);assert.equal(count(Game.province(Game.provinceById('pol_1934_1'))),5);assert.equal(count(Game.province(Game.provinceById('pol_krakow'))),7);
   Game.init('ger','fas',null,'standard','barbarossa41');
   const east=Game.state.provinces.filter((p,i)=>p.owner==='ger'&&Game.neighbors(i).some(n=>Game.province(n).owner==='sov'));
   const units=east.flatMap(p=>p.garrison.filter(d=>d.kind==='land'));
-  assert.equal(units.length,148);assert.equal(units.filter(d=>d.type==='armor').length,19);assert.equal(units.filter(d=>d.type==='motorized').length,15);
-  assert.equal(count(Game.province(Game.provinceById('nor_trondheim'))),4);assert.equal(Game.armyTotals('ger').land,208);
+  assert.equal(Game.formationTotal(units),148);assert.equal(Game.formationTotal(units.filter(d=>d.type==='armor')),19);assert.equal(Game.formationTotal(units.filter(d=>d.type==='motorized')),15);
   const nominals={infantry:15000,armor:17000,motorized:14000};
-  for(const p of Game.state.provinces)for(const d of p.garrison)if(d.owner==='ger'&&d.kind==='land')assert.equal(d.nominalPersonnel,nominals[d.type]===undefined?undefined:nominals[d.type]*(d.formationPermille??1000)/1000);
+  // The remaining eastern formations also include specialist types; their
+  // original game-scale personnel and per-type rounded readiness stay intact.
+  const easternPeople=units.reduce((n,d)=>{
+    const t=types[d.type],nominal=nominals[d.type]??t.man*1000;
+    return n+nominal*Game.formationScale(d)*Math.round(t.hp*.92)/t.hp;
+  },0);
+  assert.ok(Math.abs(Game.personnelOf(units)-easternPeople)<1e-7,'eastern field personnel retain each historical type and opening readiness');
+  assert.equal(count(Game.province(Game.provinceById('nor_trondheim'))),4);assert.equal(Game.armyTotals('ger').land,208);
+  for(const p of Game.state.provinces)for(const d of p.garrison)if(d.owner==='ger'&&d.kind==='land'){
+    const scale=(d.formationPermille??1000)/1000,nominal=nominals[d.type];
+    if(nominal!==undefined)assert.equal(d.nominalPersonnel,nominal*scale);
+    else assert.equal(d.nominalPersonnel??types[d.type].man*1000*scale,types[d.type].man*1000*scale);
+  }
   assert.ok(Game.state.orderOfBattle.countries.ger.sources.some(s=>s.scope.includes('15000')));
   const sovForward=Game.state.provinces.filter((p,i)=>p.owner==='sov'&&Game.neighbors(i).some(n=>Game.province(n).owner==='ger'));
   assert.equal(sovForward.reduce((n,p)=>n+count(p),0),56);assert.equal(Game.armyTotals('sov').land,303);

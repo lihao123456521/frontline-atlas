@@ -37,8 +37,6 @@ function startAndClaim(Game){
 
 function reachFinal(Game){
   startAndClaim(Game);
-  // Campaign objective component: the initial preparation orders belong to a separate deployment round.
-  Game.state.turn.used=0;
   assert.equal(Game.buildUnit('infantry'),true);
   assert.equal(Game.buildFactory('civ'),true);
   assert.equal(Game.getCampaign().status,'active');
@@ -49,7 +47,6 @@ function reachFinal(Game){
   assert.equal(Game.getCampaign().status,'ready');
   assert.equal(Game.claimCampaignReward(),true);
   assert.equal(Game.getCampaign().stageIndex,2);
-  Game.state.turn.used=0; // The final-route component starts with a fresh deployment budget.
 }
 
 test('real orders and completions advance stages; rewards require explicit claim and cannot repeat',()=>{

@@ -73,7 +73,7 @@ test('enemy-border troops exceed hinterland troops, with capital reserves and ro
   const [capital,front,reserve]=s.provinces;
   assert.ok(Math.abs(landCount(s,'ger')-30)<1e-8);assert.ok(front.garrison.length>capital.garrison.length);
   assert.ok(capital.garrison.length>reserve.garrison.length);assert.ok(reserve.garrison.length>0);
-  assert.equal(front.garrison.filter(d=>d.type==='armor').length,3);
+  assert.equal(front.garrison.filter(d=>d.type==='armor').reduce((n,d)=>n+(d.formationPermille||1000),0),3000);
 });
 test('all typed configurations have valid land roles, total composition, provenance, and a bounded unit budget',()=>{
   const {oob,types}=setup();

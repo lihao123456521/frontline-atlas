@@ -12,7 +12,7 @@ function setup(scenario,withoutDetachments=false){
     let source=fs.readFileSync(path.join(root,file),'utf8');
     // Compare against the same complete historical opening, before its final
     // geographical split. This also detects unintended economic changes.
-    if(file==='order_of_battle.js'&&withoutDetachments)source=source.replace('    fillOpeningCoverage(s,makeDivision,report);','');
+    if(file==='order_of_battle.js'&&withoutDetachments)source=source.replace('    fillOpeningCoverage(s,makeDivision,report);','').replace('    splitOpeningBattleGroups(s,makeDivision,report);','');
     vm.runInContext(source,ctx,{filename:file});
   }
   const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard',scenario);
@@ -30,7 +30,7 @@ function summary(Game,types,id){
 const scenarios=['sandbox36','poland39','barbarossa41','pacific42'];
 for(const scenario of scenarios)test(scenario+' covers real controlled provinces without increasing national troops or resources',()=>{
   const baseline=setup(scenario,true),opening=setup(scenario),s=opening.Game.state,b=baseline.Game.state;
-  assert.equal(s.provinces.length,472);
+  assert.equal(s.provinces.length,456);
   assert.equal(JSON.stringify(s.countries),JSON.stringify(b.countries),'national resources and economy');
   assert.equal(JSON.stringify(s.provinces.map(p=>({id:p.id,owner:p.owner}))),JSON.stringify(b.provinces.map(p=>({id:p.id,owner:p.owner}))));
   const all=s.provinces.flatMap(p=>p.garrison);assert.equal(new Set(all.map(d=>d.id)).size,all.length,'all unit IDs remain unique');
@@ -49,9 +49,9 @@ for(const scenario of scenarios)test(scenario+' covers real controlled provinces
     for(const p of owned(b,id))for(const original of p.garrison){
       const retained=s.provinces.find(q=>q.id===p.id).garrison.find(d=>d.id===original.id);
       assert.ok(retained,p.id+' retains its original unit '+original.id);
-      if(original.kind!=='land'||original.type!=='infantry')assert.equal(JSON.stringify(retained),JSON.stringify(original));
+      if(original.kind!=='land')assert.equal(JSON.stringify(retained),JSON.stringify(original));
       else{
-        assert.ok((retained.formationPermille||1000)>=500,'original infantry retains a combat-capable core');
+        assert.ok((retained.formationPermille||1000)>=400,'original land unit retains a substantial combat group');
         assert.ok(Math.abs(retained.hp/retained.maxHp-original.hp/original.maxHp)<1e-12,'readiness unchanged');
         assert.equal(retained.org,original.org);
       }
@@ -85,7 +85,8 @@ test('German 1939 and 1941 historical front totals remain unchanged while rear p
     for(const enemy of scenario==='poland39'?['pol','fra']:['sov']){
       assert.equal(formations(front(s,enemy)),formations(front(b,enemy)),scenario+' '+enemy+' front equivalence');
       assert.equal(formations(front(s,enemy)),(scenario==='barbarossa41'?148:enemy==='pol'?62:33)*1000,'documented strategic force');
-      assert.ok(front(s,enemy).every(d=>d.kind!=='land'||(d.formationPermille||1000)===1000),'active main fronts keep intact historical formations');
+      assert.ok(front(s,enemy).every(d=>d.kind!=='land'||(d.formationPermille||1000)>=400),'main-front groups remain substantial formations');
+      assert.ok(front(s,enemy).some(d=>d.formationRole==='battleGroup'),'main fronts gain independently commandable groups');
     }
     if(scenario==='barbarossa41'){
       assert.equal(formations(s.provinces.find(p=>p.id==='nor_trondheim').garrison),4000);

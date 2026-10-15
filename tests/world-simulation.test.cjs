@@ -126,7 +126,6 @@ test('peace is announced only after a real war ends',()=>{
 test('event queue retains the latest 40 real outcomes and a monotonic serial',()=>{
   const {Game}=setup(),s=Game.state;
   for(let i=0;i<25;i++){
-    s.turn.used=0; // Each independent war/peace pair exercises event retention, not the action budget.
     assert.equal(Game.diploAction('declare','fra'),true);
     Game.proposePeace('fra');
   }
