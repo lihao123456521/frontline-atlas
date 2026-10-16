@@ -10,7 +10,7 @@ const Game = (function(){
   function timeBlockReason(){
     if(!state)return '尚未开始战役';
     if(state.over)return '战役已结束';
-    if(state.pendingEvent)return '请先处理历史事件';
+    if(state.pendingEvent)return '请先处理局势事件';
     if(state.worldEvents.some(e=>e.kind==='invasion'&&!e.acknowledged))return '请先确认防御警报';
     return '';
   }
@@ -217,6 +217,7 @@ const Game = (function(){
     // 顾问加成（须在所有初始化之后，避免被覆盖）
     applyAdvisor(playerId, playerAdvisor);
     Object.values(state.countries).forEach(initializeMobilization);
+    if(typeof Unrest!=='undefined')Unrest.initialize(state);
     state.campaign = Campaign.create(state);
 
     log("游戏开始：" + country(playerId).name + "（" + IDEOLOGIES[state.playerIdeo].name + "）登上历史舞台。", "good");
@@ -1463,17 +1464,17 @@ const Game = (function(){
   function sovereigntyAvailability(action,targetId){
     const c=country(state.player),target=country(targetId),integrating=target?.subjectOf===state.player;
     const mode=action==='annex'?(integrating?'integration':'proposal'):action;
-    const requestedCosts={pp:action==='puppet'?20:action==='annex'?(integrating?50:30):action==='submit'?10:0,stability:action==='puppet'?2:action==='annex'?5:0};
+    const requestedCosts={pp:0,stability:0};
     const consequences={worldTension:action==='annex'?(integrating?5:10):action==='puppet'?5:0,tributeRate:['puppet','submit'].includes(action)?.1:0};
     const reasons=[],base={cost:requestedCosts.pp,costs:requestedCosts,requestedCosts,consequences,mode,strengthRatio:0,responseLikelihood:0,
-      acceptanceLabel:'不可提案',responseReason:'需要存续的其他国家',predictedOutcome:'refused',cooldownDays:0,refusalCost:5};
+      acceptanceLabel:'不可提案',responseReason:'需要存续的其他国家',predictedOutcome:'refused',cooldownDays:0,refusalCost:0};
     if(!c?.alive||!target?.alive||targetId===state.player||state.over)return {...base,available:false,reasons:['需要存续的其他国家及未结束的战役']};
     if(action==='release'){
       if(!integrating)reasons.push('只能放归自己扶持的傀儡政府');
       return {...base,available:!reasons.length,reasons,predictedOutcome:'released',responseLikelihood:100,acceptanceLabel:'恢复独立',responseReason:'解除附属同盟和贡赋，保留领土与军队'};
     }
-    if(c.subjectOf)reasons.push('附属国不能独立决定吞并或扶持政府');
-    if(state.wars.some(w=>[c.id,targetId].includes(w.a)||[c.id,targetId].includes(w.b)))reasons.push('双方须均处于和平，交战敌国需通过实际战斗解决');
+    if(c.subjectOf)reasons.push('附属国不能独立改变主权关系');
+    if(action==='surrender'&&!isAtWar(state.player,targetId))reasons.push('双方尚未交战，无需劝降；可直接提出合并或傀儡提案');
     if(!state.provinces.some(p=>p.owner===targetId))reasons.push('目标没有实际控制领土');
     if(target.subjectOf&&(!integrating||action!=='annex'))reasons.push('目标须为独立国家，自己的傀儡仅可整合或放归');
     if(action!=='submit'&&Object.values(state.countries).some(other=>other.subjectOf===targetId))reasons.push('目标拥有附属国，须先解除附属关系');
@@ -1485,18 +1486,34 @@ const Game = (function(){
     const power=clamp(Math.log2(Math.max(.01,action==='submit'?1/Math.max(.01,strengthRatio):strengthRatio))*18,-60,70),relations=relation(state.player,targetId)*.22;
     const stability=action==='submit'?(c.stability-50)*.15:(50-target.stability)*.25;
     const major=['ger','sov','uk','fra','ita','jpn','usa','chn'].includes(targetId)&&action!=='submit'?-25:0;
-    const score=clamp(Math.round(30+power+relations+stability+major+(isAllied(state.player,targetId)?12:0)+(adjacent?8:0)-(protectedBy&&action!=='submit'?20:0)+(integrating?15:0)),0,100);
-    const predictedOutcome=action==='annex'?(score>=80?'annexed':!integrating&&score>=50?'puppeted':'refused'):score>=50?'puppeted':'refused';
-    const costs=predictedOutcome==='refused'?{pp:5,stability:0}:action==='annex'&&predictedOutcome==='puppeted'?{pp:20,stability:2}:requestedCosts;
-    const acceptanceLabel=predictedOutcome==='annexed'?'同意合并':predictedOutcome==='puppeted'?(action==='submit'?'接受保护请求':action==='annex'?'拒绝合并，接受傀儡折中':'接受傀儡提案'):'将拒绝提案';
+    const targetPressure=diplomaticWarPressure(targetId),playerPressure=diplomaticWarPressure(state.player);
+    const warPressure=isAtWar(state.player,targetId)?targetPressure*55-playerPressure*45:0;
+    const score=clamp(Math.round(action==='surrender'?
+      45+clamp(Math.log2(Math.max(.01,strengthRatio))*20,-70,75)+warPressure+(50-target.stability)*.3+(major?-15:0)-(protectedBy?10:0):
+      30+power+relations+stability+major+(isAllied(state.player,targetId)?12:0)+(adjacent?8:0)-(protectedBy&&action!=='submit'?20:0)+(integrating?15:0)+warPressure),0,100);
+    const predictedOutcome=['annex','surrender'].includes(action)?(score>=80?'annexed':!integrating&&score>=50?'puppeted':'refused'):score>=50?'puppeted':'refused';
+    const costs=requestedCosts;
+    const acceptanceLabel=predictedOutcome==='annexed'?(action==='surrender'?'接受劝降并统一管理':'同意合并'):predictedOutcome==='puppeted'?(action==='submit'?'接受保护请求':action==='annex'?'拒绝合并，接受傀儡折中':action==='surrender'?'接受停战与傀儡折中':'接受傀儡提案'):'将拒绝提案';
     const responseReason='接受倾向 '+score+'/100：实际陆军兵员比 '+strengthRatio.toFixed(2)+'，关系 '+relation(state.player,targetId)+'，目标稳定度 '+Math.round(target.stability)+
-      (major?'，大国独立意愿强':'')+(isAllied(state.player,targetId)?'，已有同盟':'')+(adjacent?'，陆地接壤':'，无直接陆地接壤')+(protectedBy?'，第三国保护':'')+(integrating?'，已有附属关系':'')+'。';
-    const last=state.sovereigntyCooldowns?.[jKey(state.player,targetId)],cooldownDays=last===undefined?0:Math.max(0,30-((state.daysElapsed||0)-last));
-    if(cooldownDays)reasons.push('上次提案被拒绝，还需 '+cooldownDays+' 天再次接触');
-    if(c.pp<costs.pp)reasons.push('政治权力不足（需 '+costs.pp+'）');
-    if(c.stability<costs.stability)reasons.push('稳定度不足以承担整合成本');
+      (major?'，大国独立意愿强':'')+(isAllied(state.player,targetId)?'，已有同盟':'')+(adjacent?'，陆地接壤':'，无直接陆地接壤')+(protectedBy?'，第三国保护':'')+(integrating?'，已有附属关系':'')+
+      (isAtWar(state.player,targetId)?'，目标失地 '+Math.round(targetPressure*100)+'%，我方失地 '+Math.round(playerPressure*100)+'%':'')+'。提案免费，可随局势变化再次协商。';
     return {...base,cost:costs.pp,costs,consequences:{...consequences,worldTension:predictedOutcome==='refused'?0:action==='annex'&&predictedOutcome==='puppeted'?5:consequences.worldTension,tributeRate:predictedOutcome==='puppeted'?.1:0},
-      strengthRatio,available:!reasons.length,reasons,responseLikelihood:score,acceptanceLabel,responseReason,predictedOutcome,cooldownDays};
+      strengthRatio,available:!reasons.length,reasons,responseLikelihood:score,acceptanceLabel,responseReason,predictedOutcome};
+  }
+  function diplomaticWarPressure(id){
+    const homelands=state.provinces.filter(provinceState=>provinceState.originalOwner===id);
+    const total=homelands.reduce((sum,provinceState)=>sum+victoryWeight(provinceState),0);
+    return total?homelands.reduce((sum,provinceState)=>sum+(provinceState.owner!==id&&!isAllied(id,provinceState.owner)?victoryWeight(provinceState):0),0)/total:0;
+  }
+  function settleDiplomaticWars(id,otherId){
+    const ended=state.wars.filter(war=>(war.a===id||war.b===id)&&(!otherId||war.a===otherId||war.b===otherId));
+    for(const war of ended){
+      cleanupPeace(war.a,war.b);
+      delete state.justifies[jKey(war.a,war.b)];delete state.justifies[jKey(war.b,war.a)];
+      state.worldEvents.filter(event=>event.kind==='invasion'&&event.countryIds.includes(war.a)&&event.countryIds.includes(war.b)).forEach(event=>{event.acknowledged=true;});
+    }
+    state.wars=state.wars.filter(war=>!ended.includes(war));
+    if(state.pendingPeace&&ended.some(war=>war.a===state.pendingPeace.from||war.b===state.pendingPeace.from))state.pendingPeace=null;
   }
   function cancelSovereigntyRoutes(targetId){
     const affected=new Set(state.provinces.map((p,i)=>p.owner===targetId?i:-1).filter(i=>i>=0));
@@ -1505,26 +1522,29 @@ const Game = (function(){
         (combat.routePath||[combat.from,combat.to]).some(i=>affected.has(i))||
         combat.attackers.some(entry=>entry.owner===targetId||(entry.routePath||[]).some(i=>affected.has(i)))||
         province(combat.to).garrison.some(unit=>unit.combatId===combat.id&&(unit.owner===targetId||(unit.routePath||[]).some(i=>affected.has(i))));
-      if(touched)cancelCombat(combat,'外交地位变更，相关在途部队已安全撤回。');
+      if(touched){
+        cancelCombat(combat,'外交地位变更，相关在途部队已安全撤回。');
+        state.worldEvents.filter(event=>event.kind==='invasion'&&event.combatId===combat.id).forEach(event=>{event.acknowledged=true;});
+      }
     }
   }
   function sovereigntyAction(action,targetId){
     const status=sovereigntyAvailability(action,targetId);if(!status.available)return false;
     const c=country(state.player),target=country(targetId);
     const outcome=status.predictedOutcome;
-    c.pp-=status.costs.pp;c.stability-=status.costs.stability;
     state.diplomaticResponse={action,target:targetId,outcome,reason:status.acceptanceLabel+'。'+status.responseReason,costs:{...status.costs},day:state.daysElapsed||0};
     if(outcome==='refused'){
-      state.sovereigntyCooldowns=state.sovereigntyCooldowns||{};state.sovereigntyCooldowns[jKey(state.player,targetId)]=state.daysElapsed||0;
-      log(target.name+' 拒绝了外交提案；政治权力 -5，30 天后可再次提案。'+status.responseReason,'info');
+      log(target.name+' 拒绝了外交提案；未消耗资源，可随时再次协商。'+status.responseReason,'info');
       if(window.UI)UI.refresh();return true;
     }
     state.wt=clamp(state.wt+(action==='annex'&&outcome==='puppeted'?5:status.consequences.worldTension),0,100);
     if(action==='submit'){
+      settleDiplomaticWars(state.player);cancelSovereigntyRoutes(state.player);
       c.subjectOf=targetId;state.alliances[relKey(state.player,targetId)]=true;setRelation(state.player,targetId,100);
       state.diplomaticResponse.subject=state.player;state.diplomaticResponse.overlord=targetId;
       log(target.name+' 接受保护请求；我国成为其附属国，保留领土与军队，每月收入10%作为贡赋转账。','info');
     }else if(outcome==='puppeted'){
+      settleDiplomaticWars(targetId);cancelSovereigntyRoutes(targetId);
       target.subjectOf=state.player;state.alliances[relKey(state.player,targetId)]=true;setRelation(state.player,targetId,100);
       state.diplomaticResponse.subject=targetId;state.diplomaticResponse.overlord=state.player;
       log('在 '+target.name+' 扶持傀儡政府；保留本国领土与军队，每月收入的10%作为贡赋转账。','good');
@@ -1533,6 +1553,7 @@ const Game = (function(){
       cancelSovereigntyRoutes(targetId);setRelation(state.player,targetId,50);
       log(target.name+' 恢复独立，贡赋与附属同盟已解除。','info');
     }else{
+      settleDiplomaticWars(targetId);
       cancelSovereigntyRoutes(targetId);
       const lands=state.provinces.filter(p=>p.owner===targetId),home=lands[0];
       for(const p of state.provinces){
@@ -1556,8 +1577,8 @@ const Game = (function(){
     if(window.UI)UI.refresh();return true;
   }
   function diplomacyAvailability(action,targetId,enemyId){
-    if(state&&['annex','puppet','release','submit'].includes(action))return sovereigntyAvailability(action,targetId);
-    const costs={ally:25,improve:10,declare:0,call:0,intel:15,guarantee:15,justify:20};
+    if(state&&['annex','puppet','release','submit','surrender'].includes(action))return sovereigntyAvailability(action,targetId);
+    const costs={ally:0,improve:0,declare:0,call:0,intel:0,guarantee:0,justify:0};
     const cost=costs[action]??0,reasons=[];
     if(!state)return {available:false,reasons:['尚未开始战役'],cost};
     const target=country(targetId),c=country(state.player);
@@ -1566,10 +1587,19 @@ const Game = (function(){
     if(!target || !target.alive || targetId===state.player)reasons.push('需要存续的其他国家');
     if(reasons.length)return {available:false,reasons,cost};
     const war=isAtWar(state.player,targetId),allied=isAllied(state.player,targetId);
-    if(['ally','improve','guarantee','justify'].includes(action) && war)reasons.push('当前正在交战');
+    if(action==='justify'&&war)reasons.push('当前正在交战，无需再次正当化');
     if(action==='ally'){
       if(allied)reasons.push('已经结盟');
-      if(relation(state.player,targetId)<50)reasons.push('关系需达到 50（当前 '+relation(state.player,targetId)+'）');
+      const strengthRatio=armyTotals(state.player).landPersonnel/Math.max(1,armyTotals(targetId).landPersonnel);
+      const sharedEnemy=Object.keys(state.countries).some(id=>id!==state.player&&id!==targetId&&isAtWar(state.player,id)&&isAtWar(targetId,id));
+      const conflictingAlly=Object.keys(state.countries).some(id=>isAllied(targetId,id)&&isAtWar(state.player,id));
+      const score=clamp(Math.round(50+relation(state.player,targetId)*.3+(sharedEnemy?20:0)-(conflictingAlly?15:0)+
+        (war?clamp(Math.log2(Math.max(.01,strengthRatio))*8,-25,35)+diplomaticWarPressure(targetId)*45-diplomaticWarPressure(state.player)*30:0)),0,100);
+      const predictedOutcome=score>=50?'allied':'refused';
+      return {available:!reasons.length,reasons,cost,costs:{pp:0,stability:0},requestedCosts:{pp:0,stability:0},cooldownDays:0,refusalCost:0,
+        responseLikelihood:score,predictedOutcome,acceptanceLabel:predictedOutcome==='allied'?'接受同盟提案':'暂不接受同盟',
+        responseReason:'接受倾向 '+score+'/100：关系 '+relation(state.player,targetId)+(sharedEnemy?'，拥有共同敌人':'')+(conflictingAlly?'，现有盟友与我方交战':'')+
+          (war?'，实际陆军兵员比 '+strengthRatio.toFixed(2)+'，目标失地 '+Math.round(diplomaticWarPressure(targetId)*100)+'%':'')+'。提案免费；接受时结束双方战争。'};
     }
     if(['declare','justify'].includes(action) && allied)reasons.push('不能向同盟国开战');
     if(['declare','justify'].includes(action) && c.subjectOf)reasons.push('附属国不能独立发动或正当化战争，由宗主国决定参战');
@@ -1589,7 +1619,6 @@ const Game = (function(){
         if(isAllied(targetId,enemyId))reasons.push('盟友与该敌人已有同盟');
       }
     }
-    if(c.pp<cost)reasons.push('政治权力不足（需 '+cost+'）');
     return {available:reasons.length===0,reasons,cost};
   }
   function callAlly(targetId,enemyId){
@@ -1601,30 +1630,29 @@ const Game = (function(){
   }
   function diploAction(action, targetId, enemyId){
     if(!diplomacyAvailability(action,targetId,enemyId).available)return false;
-    if(['annex','puppet','release','submit'].includes(action))return sovereigntyAction(action,targetId);
+    if(['annex','puppet','release','submit','surrender'].includes(action))return sovereigntyAction(action,targetId);
     if(action==='call')return callAlly(targetId,enemyId);
-    const c = country(state.player), name = country(targetId).name;
+    const name = country(targetId).name;
     if (action === "intel"){
-      if (c.pp < 15) log("政治权力不足（需15）。", "war");
-      else { c.pp -= 15; setIntel(state.player, targetId, intelLevel(state.player, targetId)+25);
-        log("加强了对 " + name + " 的情报网络（情报 " + intelLevel(state.player, targetId) + "）。", "info"); }
+      setIntel(state.player, targetId, intelLevel(state.player, targetId)+25);
+      log("加强了对 " + name + " 的情报网络（情报 " + intelLevel(state.player, targetId) + "）。", "info");
     } else if (action === "improve"){
-      if (c.pp < 10) log("政治权力不足（需10）。", "war");
-      else { c.pp -= 10; setRelation(state.player, targetId, relation(state.player,targetId)+15); log("改善与 " + name + " 的关系。", "info"); }
+      setRelation(state.player, targetId, relation(state.player,targetId)+15);log("改善与 " + name + " 的关系。", "info");
     } else if (action === "guarantee"){
-      if (c.pp < 15) log("政治权力不足（需15）。", "war");
-      else { c.pp -= 15; state.guarantees[relKey(state.player,targetId)] = true;
-        setRelation(state.player, targetId, relation(state.player,targetId)+10); log("对 " + name + " 提供独立保证。", "info"); }
+      state.guarantees[relKey(state.player,targetId)] = true;
+      setRelation(state.player, targetId, relation(state.player,targetId)+10);log("对 " + name + " 提供独立保证。", "info");
     } else if (action === "ally"){
-      if (relation(state.player,targetId) < 50) log("关系需达到 50 才能结盟（当前" + relation(state.player,targetId) + "）。", "war");
-      else if (c.pp < 25) log("政治权力不足（需25）。", "war");
-      else { c.pp -= 25; state.alliances[relKey(state.player,targetId)] = true; setRelation(state.player, targetId, 100); log("与 " + name + " 缔结同盟！", "good"); }
+      const status=diplomacyAvailability(action,targetId,enemyId);
+      state.diplomaticResponse={action,target:targetId,outcome:status.predictedOutcome,reason:status.acceptanceLabel+'。'+status.responseReason,costs:{...status.costs},day:state.daysElapsed||0};
+      if(status.predictedOutcome==='allied'){
+        settleDiplomaticWars(state.player,targetId);state.alliances[relKey(state.player,targetId)]=true;setRelation(state.player,targetId,100);
+        log(name+' 接受同盟提案，双方缔结同盟并结束彼此的战争。','good');
+      }else log(name+' 暂不接受同盟，未消耗资源，可随局势变化再次协商。'+status.responseReason,'info');
     } else if (action === "justify"){
-      if (c.pp < 20) log("政治权力不足（需20）。", "war");
-      else { c.pp -= 20; const turns = state.wt >= 25 ? 4 : 8;
-        state.justifies[jKey(state.player,targetId)] = turns;
-        log("开始对 " + name + " 的正当化战争（约" + turns + "回合）。", "info");
-        if (window.UI) UI.toast("正在正当化对 " + name + " 的战争（约 " + turns + " 回合）。", "info"); }
+      const turns = state.wt >= 25 ? 4 : 8;
+      state.justifies[jKey(state.player,targetId)] = turns;
+      log("开始对 " + name + " 的正当化战争（约" + turns + "回合）。", "info");
+      if (window.UI) UI.toast("正在正当化对 " + name + " 的战争（约 " + turns + " 回合）。", "info");
     } else if (action === "declare"){
       if (isAtWar(state.player, targetId)) log("已处于战争状态。", "war");
       else if ((state.justifies[jKey(state.player,targetId)]||0) > 0) log("正当化尚未完成。", "war");
@@ -1704,6 +1732,7 @@ const Game = (function(){
       state.date.day=1;state.date.month++;if(state.date.month>12){state.date.month=1;state.date.year++;}monthEnded=true;
     }
     dailyManpower(incomeYear,incomeMonth);processCombats();restDaily();
+    if(typeof Unrest!=='undefined')Unrest.tick(state,unrestContext());
     const briefItems=monthEnded?monthlySettlement(true):[];
     aiOrders();
     if(options?.automatic===true)issueAutoOffensive();
@@ -2149,15 +2178,22 @@ const Game = (function(){
     log("【事件】" + ev.name + "：" + ev.text, "info");
   }
 
+  function unrestContext(){return {cancelCombat,declareWar,doAssault,log,recordWorldEvent,settleDiplomaticWars};}
+  function unrestStatus(id=state?.player){return state&&typeof Unrest!=='undefined'?Unrest.status(state,id):null;}
+  function unrestAction(action){
+    if(!state||state.over||typeof Unrest==='undefined'||!Unrest.respond(state,state.player,action,unrestContext()))return false;
+    if(window.UI)UI.refresh();return true;
+  }
+
   /* ---------------- 历史剧本事件链 ---------------- */
   function checkScriptedEvents(){
     if (state.over || state.pendingEvent || !country(state.player).alive) return;
     for (const ev of SCRIPTED_EVENTS){
-      if (ev.year === state.date.year && ev.month === state.date.month && !state.triggeredEvents[ev.id]){
+      if (!state.triggeredEvents[ev.id] && typeof ev.trigger==='function' && ev.trigger(country(state.player),state)){
         state.triggeredEvents[ev.id] = true;
         state.pendingEvent=ev.id;
-        log("【历史】" + ev.title + "：" + ev.text, "info");
-        if (window.UI){ UI.toast("历史事件：" + ev.title, "info"); UI.sfx("event"); UI.showEvent(ev); }
+        log("【局势】" + ev.title + "：" + ev.text, "info");
+        if (window.UI){ UI.toast("局势事件：" + ev.title, "info"); UI.sfx("event"); UI.showEvent(ev); }
         return;   // 每月最多触发一个历史事件
       }
     }
@@ -2200,6 +2236,7 @@ const Game = (function(){
   function validSave(s){
     const obj = v => !!v && typeof v === "object" && !Array.isArray(v);
     if (!obj(s) || typeof s.player !== "string" || !obj(s.countries) || !obj(s.countries[s.player])) return false;
+    if(typeof Unrest!=='undefined'&&!Unrest.valid(s))return false;
     if (!Array.isArray(s.provinces) || !s.provinces.length || !Array.isArray(s.adj) ||
         !Array.isArray(s.coastal) || !Array.isArray(s.seaAdj) ||
         s.adj.length !== s.provinces.length || s.coastal.length !== s.provinces.length || s.seaAdj.length !== s.provinces.length) return false;
@@ -2246,8 +2283,8 @@ const Game = (function(){
     })))return false;
     if(s.diplomaticResponse!==undefined&&s.diplomaticResponse!==null){
       const response=s.diplomaticResponse;
-      if(!obj(response)||!['annex','puppet','release','submit'].includes(response.action)||!Object.hasOwn(s.countries,response.target)||
-        !['annexed','puppeted','refused','released'].includes(response.outcome)||typeof response.reason!=='string'||response.reason.length>1000||
+      if(!obj(response)||!['annex','puppet','release','submit','ally','surrender'].includes(response.action)||!Object.hasOwn(s.countries,response.target)||
+        !['annexed','puppeted','refused','released','allied'].includes(response.outcome)||typeof response.reason!=='string'||response.reason.length>1000||
         !obj(response.costs)||!Number.isFinite(response.costs.pp)||response.costs.pp<0||!Number.isFinite(response.costs.stability)||response.costs.stability<0||
         !Number.isSafeInteger(response.day)||response.day<0||response.day>(s.daysElapsed||0)||
         ['subject','overlord'].some(key=>response[key]!==undefined&&!Object.hasOwn(s.countries,response[key])))return false;
@@ -2490,7 +2527,7 @@ const Game = (function(){
     buildUnit:command(buildUnit), unitAvailability, landCount, formationScale, formationTotal, makeDivision, aiUnitTargets, fortBonusOf, bombingAvailability, navalStrength,
     buildFactory:command(buildFactory), buildProvince:command(buildProvince), trade:command(trade), bombProvince:command(bombProvince),
     assignResearch:command(assignResearch), cancelResearch, doFocus:command(doFocus), doAssault:command(doAssault,owner=>owner===state?.player),
-    diploAction:command(diploAction), diplomacyAvailability, subjectStatus, sovereigntyResponse, callAlly:command(callAlly), setAutoLogistics, autoLogisticsStatus, setAutoRecruitment, autoRecruitmentStatus, setAutoOffensive, autoOffensiveStatus,
+    diploAction:command(diploAction), diplomacyAvailability, subjectStatus, sovereigntyResponse, unrestStatus, unrestAction:command(unrestAction), callAlly:command(callAlly), setAutoLogistics, autoLogisticsStatus, setAutoRecruitment, autoRecruitmentStatus, setAutoOffensive, autoOffensiveStatus,
     moveUnits:command(moveUnits), resolveAttack:command(resolveAttack,owner=>owner===state?.player), amphibious:command(amphibious,(_from,_to,_count,owner)=>!owner||owner===state?.player),
     proposePeace:command(proposePeace), resolveEvent, checkScriptedEvents, battlePreview,
     neighbors, landRoute, landTargets, coastalOf, seaAdj, province, provinceById, country, relation, isAtWar,

@@ -59,6 +59,20 @@ test('British home fit ignores India and region views can reach Asia, America an
   c.map.focusRegion('americas');assert.ok(c.map.isProvinceInView(14));
   c.map.focusRegion('pacific');assert.ok(c.map.isProvinceInView(16));
 });
+test('country focus centres the connected Spanish mainland instead of stretching toward nearby African colonies',()=>{
+  const c=setup(1440,900),cities=[['madrid',-3.7,40.42],['barcelona',2.17,41.39],['seville',-5.98,37.39],['burgos',-3.7,42.34],['valencia',-.38,39.47],['bilbao',-2.94,43.26],['coruna',-8.41,43.36],['sahara',-15.96,23.71]];
+  const first=c.Game.state.provinces.length;
+  for(const [id,lon,lat]of cities)c.Game.state.provinces.push({id,name:id,owner:'esp',shapeOwner:'esp',originalOwner:'esp',lon,lat,x:(lon+180)/360*1000,y:(90-lat)/180*500,isCapital:id==='madrid',terrain:'plain',garrison:[]});
+  c.Game.state.countries.esp={id:'esp',name:'西班牙',color:'#b39b52',capital:'madrid'};
+  c.Game.state.adj=c.Game.state.provinces.map(()=>[]);
+  for(let index=first+1;index<first+7;index++){c.Game.state.adj[first].push(index);c.Game.state.adj[index].push(first);}
+  c.map.focusCountry('esp');assert.ok(c.map.getCamera().scale>10);
+  for(let index=first;index<first+7;index++)assert.equal(c.map.isProvinceInView(index),true,cities[index-first][0]);
+  assert.equal(c.map.isProvinceInView(first+7),false,'a disconnected colony must not determine the home camera');
+  c.Game.state.provinces[first].owner='rebels';c.map.focusCountry('esp');
+  assert.equal(c.map.isProvinceInView(first+1),true,'losing the capital keeps the home front in view');
+  assert.equal(c.map.isProvinceInView(first+7),false);
+});
 test('routine small detachments stay quiet on the regional map and appear when selected or closely zoomed',()=>{
   const c=setup(1400,840);for(const p of c.Game.state.provinces)if(p.owner==='ger')p.garrison.forEach(d=>d.formationPermille=40);
   c.map.focusRegion('europe');assert.equal(c.map.getUnits().filter(u=>c.Game.state.provinces[u.idx].owner==='ger').length,0);

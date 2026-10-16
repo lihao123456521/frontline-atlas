@@ -1240,9 +1240,28 @@ const MapView = (() => {
     const ps=Game.state.provinces.filter(p=>p.owner===cid).map(displayProvince);
     if(!ps.length) return;
     const capital=Game.country ? Game.country(cid)?.capital : null;
-    const cap=ps.find(p=>p.id===capital) || ps.find(p=>p.isCapital) || ps[0];
+    const capitalLocation=Game.state.provinces.find(province=>province.id===capital);
+    const nearCapital=capitalLocation?ps.slice().sort((first,second)=>{
+      const distance=province=>Math.hypot(worldMode?Math.min(Math.abs(province.x-capitalLocation.x),W-Math.abs(province.x-capitalLocation.x)):province.x-capitalLocation.x,province.y-capitalLocation.y);
+      return distance(first)-distance(second);
+    })[0]:null;
+    const cap=ps.find(p=>p.id===capital) || ps.find(p=>p.isCapital) || nearCapital || ps[0];
     // Colonies on other continents must not make a British or French home view global.
-    const local=ps.filter(p=>Math.abs(p.y-cap.y)<65 && Math.min(Math.abs(p.x-cap.x),W-Math.abs(p.x-cap.x))<95);
+    const indices=new Set(Game.state.provinces.map((province,index)=>province.owner===cid?index:-1).filter(index=>index>=0));
+    const capitalIndex=Game.state.provinces.findIndex(province=>province.id===cap.id);let connected=new Set([capitalIndex]);
+    const queue=[capitalIndex];
+    while(queue.length){const index=queue.pop();for(const next of Game.state.adj?.[index]||[])if(indices.has(next)&&!connected.has(next)){connected.add(next);queue.push(next);}}
+    if(capitalLocation?.owner!==cid){
+      const visited=new Set(connected);
+      for(const index of indices){
+        if(visited.has(index))continue;const component=new Set([index]),pending=[index];visited.add(index);
+        while(pending.length){const nextIndex=pending.pop();for(const next of Game.state.adj?.[nextIndex]||[])if(indices.has(next)&&!visited.has(next)){visited.add(next);component.add(next);pending.push(next);}}
+        if(component.size>connected.size)connected=component;
+      }
+    }
+    const hasLandGraph=[...indices].some(index=>Game.state.adj?.[index]?.length);
+    const local=hasLandGraph?ps.filter(province=>connected.has(Game.state.provinces.findIndex(raw=>raw.id===province.id))):
+      ps.filter(p=>Math.abs(p.y-cap.y)<65 && Math.min(Math.abs(p.x-cap.x),W-Math.abs(p.x-cap.x))<95);
     const xs=local.map(p=>worldMode ? p.x+Math.round((cap.x-p.x)/W)*W : p.x),ys=local.map(p=>p.y);
     fitRegion(Math.min(...xs)-12,Math.min(...ys)-10,Math.max(...xs)+12,Math.max(...ys)+10);
     focused = true;

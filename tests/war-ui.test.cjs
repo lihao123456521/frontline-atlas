@@ -28,7 +28,7 @@ function setup(historical=false){
   const document={getElementById:get,createElement:tag=>new Element(tag),body:new Element('body'),querySelectorAll:()=>[],querySelector:()=>null,addEventListener:(name,fn)=>{documentListeners[name]=fn;}};
   const ctx=vm.createContext({window:{},console,document,Math:Object.create(Math),localStorage:{getItem:()=>null,setItem:()=>{}},setTimeout:(fn,ms)=>{ticks.push({fn,ms});return ticks.length;},clearTimeout:()=>{},setInterval:(fn,ms)=>{ticks.push({fn,ms});return ticks.length;},clearInterval:()=>{},confirm:()=>true});
   ctx.Math.random=()=>0.5;
-  const scripts=historical?['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','data_historical_regions.js','historical_regions.js','history.js','world.js','strategic_regions.js','campaign.js','order_of_battle.js','game.js']:['data.js','data_world.js','data_provinces.js','campaign.js','game.js'];
+  const scripts=historical?['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','data_historical_regions.js','historical_regions.js','history.js','world.js','strategic_regions.js','campaign.js','order_of_battle.js','unrest.js','game.js']:['data.js','data_world.js','data_provinces.js','campaign.js','game.js'];
   for(const name of scripts)vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',name),'utf8'),ctx);
   const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard','sandbox36');
   const focuses=[];
@@ -49,7 +49,7 @@ test('military research shows prerequisites, assigns a real slot, supports cance
   UI.navigate('research');assert.match(panel.textContent,/军事科技/);
   buttons('火炮').find(button=>button.textContent==='火炮').click();
   assert.equal(buttons('研发 火炮研发')[0].disabled,true);assert.match(panel.textContent,/先研发 步兵战术 I/);
-  buttons('陆军').find(button=>button.textContent==='陆军').click();
+  buttons('步兵').find(button=>button.textContent==='步兵').click();
   buttons('研发 步兵战术 I')[0].click();assert.equal(Game.state.research.slots[0],'inf1');
   assert.match(panel.textContent,/正在研发/);assert.match(panel.textContent,/预计.*个月/);
   buttons('取消研发')[0].click();assert.equal(Game.state.research.slots[0],null);
@@ -64,7 +64,7 @@ test('future research remains visible and disabled, and locked training leads to
   select.value='mechanized';select.listeners.change();buttons('研发 机械化理论')[0].click();
   assert.match(panel.textContent,/军事科技/);assert.match(panel.textContent,/1940 年开放/);
   assert.equal(buttons('研发 机械化理论')[0].disabled,true);
-  assert.ok(buttons('装甲').some(button=>button.attributes['aria-pressed']==='true'));
+  assert.ok(buttons('坦克').some(button=>button.attributes['aria-pressed']==='true'));
 });
 
 test('large province training batches remain folded behind one queue summary',()=>{
@@ -75,7 +75,7 @@ test('large province training batches remain folded behind one queue summary',()
   assert.match(queue.children[0].textContent,/40 项/);assert.match(queue.textContent,/2\.0 万人/);
 });
 
-test('puppet diplomacy previews costs before confirming and exposes actual integration commands afterwards',()=>{
+test('free puppet proposals preview the reply before confirming and expose actual integration commands afterwards',()=>{
   const {Game,UI,panel,descendants,buttons}=setup(true),c=Game.country('ger');c.pp=500;Game.state.relations['aut|ger']=80;
   UI.navigate('diplo');const select=descendants(panel).find(element=>element.attributes['aria-label']==='选择外交国家');select.value='aut';select.listeners.change();
   const before=Game.save();buttons('扶持傀儡政府…')[0].click();assert.match(panel.textContent,/月收入的10%/);assert.equal(Game.save(),before);
@@ -162,7 +162,8 @@ test('army training uses a persistent grouped selector and selected unit costs; 
   assert.match(panel.textContent,/军队训练/);assert.doesNotMatch(panel.textContent,/工业建设/);
   assert.match(panel.textContent,/1\.0 万人 · 1 个月训练/);assert.match(get('tbMan').textContent,/万人/);
   let select=descendants(panel).find(e=>e.attributes['aria-label']==='选择训练兵种');
-  assert.equal(descendants(select).filter(e=>e.tagName==='option').length,Object.values(types).filter(t=>t.kind==='land').length);
+  assert.equal(descendants(select).filter(e=>e.tagName==='option').length,Object.values(types).length);
+  const variants=descendants(panel).find(e=>e.className==='training-variants');assert.equal(variants.tagName,'details');assert.ok(!variants.open);
   select.listeners.focus();assert.equal(UI.getSpeed(),0);assert.match(get('speedLabel').textContent,/暂停/);
   select.value='armor';select.listeners.change();select=descendants(panel).find(e=>e.attributes['aria-label']==='选择训练兵种');assert.equal(select.value,'armor');
   assert.match(panel.textContent,/装甲/);assert.ok(buttons('训练').some(b=>b.textContent.includes('装甲')));
@@ -173,17 +174,17 @@ test('army training uses a persistent grouped selector and selected unit costs; 
   UI.navigate('logistics');assert.match(panel.textContent,/自动后勤/);assert.match(panel.textContent,/工业建设/);assert.match(panel.textContent,/研究/);assert.match(panel.textContent,/国策/);
 });
 
-test('alliance renders actual availability reasons, allows real alliance and calls each war with an explicit enemy',()=>{
+test('alliance proposals require confirmation, stay free and call each war with an explicit enemy',()=>{
   const {Game,UI,panel,buttons,descendants}=setup();Game.country('ger').pp=100;Game.state.relations['ger|ita']=50;
   UI.navigate('diplo');let country=descendants(panel).find(e=>e.attributes['aria-label']==='选择外交国家');country.value='ita';country.listeners.change();
   assert.equal(descendants(panel).filter(e=>(e.className||'').includes('alliance-card')).length,1);
   assert.equal(Game.isAllied('ger','ita'),false);assert.equal(Game.country('ger').pp,100);
-  const ally=buttons('结盟').find(b=>b.dataset.target==='ita');assert.ok(ally);assert.equal(ally.disabled,false);ally.click();assert.equal(Game.isAllied('ger','ita'),true);assert.equal(Game.country('ger').pp,75);
+  const ally=buttons('结盟').find(b=>b.dataset.target==='ita');assert.ok(ally);assert.equal(ally.disabled,false);ally.click();assert.equal(Game.isAllied('ger','ita'),false);assert.match(panel.textContent,/免费提案/);buttons('确认结盟')[0].click();assert.equal(Game.isAllied('ger','ita'),true);assert.equal(Game.country('ger').pp,100);
   Game.state.wars.push({a:'ger',b:'fra',since:'1936-1'},{a:'ger',b:'pol',since:'1936-1'});UI.navigate('diplo');
   country=descendants(panel).find(e=>e.attributes['aria-label']==='选择外交国家');country.value='ita';country.listeners.change();
   let war=descendants(panel).find(e=>e.attributes['aria-label']==='选择参战战争');assert.ok(war);war.value='pol';war.listeners.change();
   const call=buttons('召集参战').find(b=>b.dataset.target==='ita');assert.equal(call.dataset.enemy,'pol');call.click();assert.equal(Game.isAtWar('ita','pol'),true);
-  Game.country('ger').pp=0;UI.navigate('diplo');country=descendants(panel).find(e=>e.attributes['aria-label']==='选择外交国家');const neutral=country.children.map(o=>o.value).find(id=>!Game.isAllied('ger',id)&&!Game.isAtWar('ger',id));assert.ok(neutral);Game.state.relations['ger|'+neutral]=-20;country.value=neutral;country.listeners.change();const unavailable=buttons('结盟').find(b=>b.dataset.target===neutral);assert.ok(unavailable);assert.equal(unavailable.disabled,true);assert.ok(unavailable.title);
+  Game.country('ger').pp=0;UI.navigate('diplo');country=descendants(panel).find(e=>e.attributes['aria-label']==='选择外交国家');const neutral=country.children.map(o=>o.value).find(id=>!Game.isAllied('ger',id)&&!Game.isAtWar('ger',id));assert.ok(neutral);Game.state.relations['ger|'+neutral]=-20;country.value=neutral;country.listeners.change();const proposal=buttons('结盟').find(b=>b.dataset.target===neutral);assert.ok(proposal);assert.equal(proposal.disabled,false);proposal.click();assert.equal(buttons('确认结盟')[0].disabled,false);
 });
 
 test('diplomacy selections survive refresh and cancelling a peace proposal changes no war state',()=>{
@@ -289,7 +290,34 @@ test('province construction and bombing are advanced, and army training uses one
   UI.navigate('production');assert.equal(buttons('连续训练').length,0);
   const select=descendants(panel).find(e=>e.attributes['aria-label']==='选择训练兵种');
   assert.ok(select.children.every(e=>e.tagName==='optgroup'));assert.ok(descendants(select).filter(e=>e.tagName==='option').length>10);
-  assert.deepEqual(['陆军','海军','空军'].map(name=>buttons(name).filter(b=>b.className.includes('training-branch')).length),[1,1,1]);
+  assert.deepEqual(['步兵','坦克','飞机','海军'].map(name=>buttons(name).filter(b=>b.className.includes('training-branch')).length),[1,1,1,1]);
+});
+
+test('war diplomacy keeps alliance, annexation, puppet and surrender proposals visible without political gates',()=>{
+  const {Game,UI,panel,buttons,descendants}=setup();Game.country('ger').pp=0;Game.state.relations['ger|pol']=-200;Game.state.wars.push({a:'ger',b:'pol',since:'1936-1'});
+  UI.navigate('diplo');const country=descendants(panel).find(e=>e.attributes['aria-label']==='选择外交国家');country.value='pol';country.listeners.change();
+  for(const action of ['ally','annex','puppet','surrender']){const button=descendants(panel).find(e=>e.dataset.proposal===action);assert.ok(button);assert.equal(button.disabled,false);}
+  buttons('劝降…')[0].click();assert.equal(buttons('确认劝降')[0].disabled,false);assert.match(panel.textContent,/继续作战/);assert.doesNotMatch(panel.textContent,/被拒后30天|结盟 25|政治 −/);
+  buttons('取消外交命令')[0].click();assert.equal(Game.isAtWar('ger','pol'),true);assert.equal(Game.country('ger').pp,0);
+});
+
+test('four military branches stay primary while specialist training, support research and administration stay folded',()=>{
+  const {UI,panel,buttons,descendants}=setup();UI.navigate('production');
+  for(const [name,key]of [['坦克','armor'],['飞机','air'],['海军','navy'],['步兵','infantry']]){buttons(name).find(button=>button.className.includes('training-branch')).click();const selector=descendants(panel).find(e=>e.attributes['aria-label']==='选择训练兵种');assert.equal(selector.value,key);}
+  UI.navigate('research');const primary=descendants(panel).find(e=>e.className==='research-branches core-branches');assert.deepEqual(primary.children.map(e=>e.textContent),['步兵','坦克','飞机','海军']);assert.ok(!descendants(panel).find(e=>e.className==='research-support').open);
+  UI.navigate('logistics');assert.ok(!descendants(panel).find(e=>e.className==='rp-section administration-details').open);
+});
+
+test('unrest status offers real free actions without adding a separate administration wall',()=>{
+  const {Game,UI,panel,buttons}=setup();const actions=[];Game.unrestStatus=()=>({pressure:72,level:'civilWar',label:'内战',reason:'战争消耗与低稳定',active:true,canAppease:true,canNegotiate:true,lastResponse:{label:'谈判中',reason:'按当前局势处理'}});Game.unrestAction=action=>{actions.push(action);return true;};
+  UI.navigate('logistics');assert.match(panel.textContent,/国内局势 · 内战/);assert.match(panel.textContent,/地图上指挥作战/);buttons('安抚民众')[0].click();buttons('与叛军谈判')[0].click();assert.deepEqual(actions,['appease','negotiate']);
+});
+
+test('a real domestic ceasefire leaves the negotiation button available for later reunification',()=>{
+  const {Game,UI,panel,buttons}=setup(true),government=Game.country('ger');Game.state.unrest.countries.ger.pressure=100;government.stability=5;
+  Game.advanceDay();const conflict=Game.state.unrest.conflicts.find(item=>item.parent==='ger');assert.ok(conflict);
+  UI.navigate('logistics');buttons('与叛军谈判')[0].click();assert.equal(Game.unrestStatus().lastResponse.outcome,'ceasefire');assert.equal(Game.isAtWar('ger',conflict.rebels),false);assert.ok(buttons('与叛军谈判').length);
+  government.stability=95;UI.refresh();assert.equal(buttons('与叛军谈判')[0].disabled,false);buttons('与叛军谈判')[0].click();assert.equal(Game.country(conflict.rebels).alive,false);assert.equal(Game.unrestStatus().lastResponse.outcome,'reunited');assert.match(panel.textContent,/和平统一/);
 });
 
 test('capturing the final enemy capital still shows latest battle results when the war is over',()=>{

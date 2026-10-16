@@ -23,8 +23,8 @@ const UI = (function(){
   let diploFilter = "";
   let pendingDiplomacy = null;
   let selectedTrainingUnit = "infantry";
-  let selectedTrainingKind = "land";
-  let selectedResearchBranch = '陆军';
+  let selectedTrainingBranch = 'infantry';
+  let selectedResearchBranch = '步兵';
   let startingGame = false;
   let selectedMoveUnitKind = "land";
   let selectedMoveProvince = -1;
@@ -1133,41 +1133,60 @@ const UI = (function(){
     box.appendChild(details);renderNationalReserves(box);rp.appendChild(box);
   }
 
+  function renderUnrestStatus(rp){
+    const status=Game.unrestStatus?.();if(!status)return;
+    const box=el('section','unrest-status '+status.level);box.appendChild(el('h4',null,'国内局势 · '+status.label));
+    box.appendChild(el('p','task-status','稳定 '+Math.round(Game.country(Game.state.player).stability)+'% · 动荡 '+Math.round(status.pressure)+'%'));
+    if(status.active)box.appendChild(el('p','action-reason','叛乱已影响领土与军队，可在地图上指挥作战。'));
+    const actions=el('div','unrest-actions');
+    for(const [action,title,available]of [['appease','安抚民众',status.canAppease],['negotiate','与叛军谈判',status.canNegotiate]]){
+      if(action==='negotiate'&&!status.canNegotiate)continue;
+      const button=commandButton(el('button','rp-btn',title));button.disabled=!available;button.addEventListener('click',()=>{Game.unrestAction(action);refresh();});actions.appendChild(button);
+    }box.appendChild(actions);
+    const details=el('details','unrest-reasons');details.appendChild(el('summary',null,'局势原因与处理结果'));details.appendChild(el('p',null,status.reason));
+    if(status.lastResponse)details.appendChild(el('p','task-status',(status.lastResponse.label||'')+' '+(status.lastResponse.reason||'')));box.appendChild(details);rp.appendChild(box);
+  }
+
   function renderProductionView(rp){
     const s = Game.state;
     const c = Game.country(s.player);
-    const box = el("div","rp-section fade-in");
+    const box = el("div","rp-section fade-in army-overview");
     box.appendChild(el('h3',null,'军队训练'));
     const totals=Game.armyTotals(s.player),baseline=s.orderOfBattle?.countries?.[s.player];
     box.appendChild(el('p','army-personnel',people(totals.landPersonnel)));
     box.appendChild(el('p','task-status',`可战陆军 · 投入战斗 ${people(totals.committedPersonnel)}`));
-    box.appendChild(el('p','army-totals',`陆军 ${totals.land} 师 · 海军 ${totals.naval} 编队 · 空军 ${totals.air} 联队 · 投入战斗 ${totals.engaged} 师`));
-    const explanation=el('details','army-explanation');explanation.appendChild(el('summary',null,'编制口径'));explanation.appendChild(el('p',null,'师级规模近似，人数按实际编制与剩余实力计算。新战役采用游戏增强兵力；驻防拆分本身不增加人数。'+(baseline?' 开局约 '+baseline.land+' 师。':'')));box.appendChild(explanation);
+    const explanation=el('details','army-explanation');explanation.appendChild(el('summary',null,'编制详情'));
+    explanation.appendChild(el('p','army-totals',`陆军 ${totals.land} 师 · 海军 ${totals.naval} 编队 · 空军 ${totals.air} 联队 · 投入战斗 ${totals.engaged} 师`));
+    explanation.appendChild(el('p',null,'师级规模近似，人数按实际编制与剩余实力计算。新战役采用游戏增强兵力；驻防拆分本身不增加人数。'+(baseline?' 开局约 '+baseline.land+' 师。':'')));box.appendChild(explanation);
     rp.appendChild(box);
-    renderRecruitmentControls(rp);
     renderUnitTraining(rp);
+    renderRecruitmentControls(rp);
     renderBuildQueue(rp);
+  }
+
+  function trainingBranch(unit){
+    if(unit.kind!=='land')return unit.kind==='air'?'air':'navy';
+    return ['armor','lightArmor','heavyArmor','mechanized','tankDestroyer'].includes(unit.key)?'armor':'infantry';
   }
 
   function renderUnitTraining(rp,city=false){
     const c=Game.country(Game.state.player),box=el('section','unit-training');
-    const kind=city?'land':selectedTrainingKind;
-    if(!city){
-      const tabs=el('div','training-branches');tabs.setAttribute('role','group');tabs.setAttribute('aria-label','训练军种');
-      for(const [key,name]of [['land','陆军'],['naval','海军'],['air','空军']]){
-        const b=el('button','training-branch'+(kind===key?' on':''),name);b.setAttribute('aria-pressed',String(kind===key));
-        b.addEventListener('click',()=>{selectedTrainingKind=key;pauseForPlanning();refresh();});tabs.appendChild(b);
-      }box.appendChild(tabs);
-    }
-    const types=Object.values(UNIT_TYPES).filter(t=>t.kind===kind),select=el('select','rp-select');select.setAttribute('aria-label','选择训练兵种');
+    if(city&&!['infantry','armor'].includes(selectedTrainingBranch))selectedTrainingBranch='infantry';
+    const branch=selectedTrainingBranch,tabs=el('div','training-branches core-branches');tabs.setAttribute('role','group');tabs.setAttribute('aria-label','训练军种');
+    for(const [key,name]of [['infantry','步兵'],['armor','坦克'],['air','飞机'],['navy','海军']].filter(([key])=>!city||['infantry','armor'].includes(key))){
+      const b=el('button','training-branch'+(branch===key?' on':''),name);b.setAttribute('aria-pressed',String(branch===key));
+      b.addEventListener('click',()=>{selectedTrainingBranch=key;selectedTrainingUnit=key==='navy'?'navy':key==='air'?'air':key;pauseForPlanning();refresh();});tabs.appendChild(b);
+    }box.appendChild(tabs);
+    const types=Object.values(UNIT_TYPES).filter(t=>!city||t.kind==='land'),select=el('select','rp-select');select.setAttribute('aria-label','选择训练兵种');
     const groups={};
     for(const t of types){
-      const family=kind!=='land'?({'naval':'舰艇编队','air':'航空联队'}[kind]):['armor','lightArmor','heavyArmor','mechanized'].includes(t.key)?'装甲突击':['infantry','motorized','cavalry','garrison'].includes(t.key)?'前线与驻防':'特种与支援';
+      const family={infantry:'步兵与支援',armor:'坦克与装甲',air:'飞机',navy:'海军'}[trainingBranch(t)];
       if(!groups[family]){groups[family]=el('optgroup');groups[family].label=family;select.appendChild(groups[family]);}
       const option=el('option',null,t.name);option.value=t.key;groups[family].appendChild(option);
     }
-    if(!types.some(t=>t.key===selectedTrainingUnit))selectedTrainingUnit=types[0]?.key||null;
-    select.value=selectedTrainingUnit;select.addEventListener('focus',()=>pauseForPlanning());select.addEventListener('change',()=>{selectedTrainingUnit=select.value;pauseForPlanning();refresh();});box.appendChild(select);
+    if(!types.some(t=>t.key===selectedTrainingUnit)||trainingBranch(UNIT_TYPES[selectedTrainingUnit])!==branch)selectedTrainingUnit=branch==='navy'?'navy':branch;
+    select.value=selectedTrainingUnit;select.addEventListener('focus',()=>pauseForPlanning());select.addEventListener('change',()=>{selectedTrainingUnit=select.value;selectedTrainingBranch=trainingBranch(UNIT_TYPES[select.value]);pauseForPlanning();refresh();});
+    const variants=el('details','training-variants');variants.appendChild(el('summary',null,'专业兵种与支援装备'));variants.appendChild(select);
     const t=UNIT_TYPES[selectedTrainingUnit];if(!t){rp.appendChild(box);return;}
     box.appendChild(el('h4','training-unit-name',t.name));box.appendChild(el('p','training-role',t.role));
     box.appendChild(el('p','training-duration',people(t.man*1000)+' · '+t.time+' 个月训练'));
@@ -1182,6 +1201,7 @@ const UI = (function(){
       const technology=TECHS.find(tech=>tech.id===t.tech),research=el('button','rp-btn training-research','研发 '+technology.name+' →');
       research.addEventListener('click',()=>{selectedResearchBranch=researchBranch(technology);navigate('research');});box.appendChild(research);
     }
+    box.appendChild(variants);
     rp.appendChild(box);
   }
 
@@ -1195,9 +1215,11 @@ const UI = (function(){
     status.reasons.forEach(text=>{const row=el('div','action-reason');row.textContent=text;box.appendChild(row);});
     box.appendChild(el('p','task-status',`库存：装备 ${Math.round(c.equipment)} · 钢铁 ${Math.round(c.res)} · 油 ${Math.round(c.oil)} · 稀有 ${Math.round(c.rare)} · 预备人力 ${people(c.manpower*1000)}`));
     renderNationalReserves(box);
-    [['research','手动研究'],['focus','国策与决策'],['overview','全国概览']].forEach(([view,title])=>{const b=el('button','rp-btn',title);b.addEventListener('click',()=>navigate(view));box.appendChild(b);});rp.appendChild(box);
-    const fac = el("div","rp-section");
-    fac.innerHTML = `<h4>工业建设</h4>`;
+    const research=el('button','rp-btn primary','军事科技 →');research.addEventListener('click',()=>navigate('research'));box.appendChild(research);
+    renderUnrestStatus(box);rp.appendChild(box);
+    const fac = el('details','rp-section administration-details');
+    fac.appendChild(el('summary',null,'工业建设与国家管理'));
+    [['focus','国策与决策'],['overview','全国概览']].forEach(([view,title])=>{const b=el('button','rp-btn',title);b.addEventListener('click',()=>navigate(view));fac.appendChild(b);});
     const cb = el("button","rp-btn",`⚙ 民用工厂（40 资源，3 月）`);
     commandButton(cb);cb.addEventListener("click",()=>{ Game.buildFactory("civ"); sfx("build"); });
     fac.appendChild(cb);
@@ -1232,9 +1254,9 @@ const UI = (function(){
   }
 
   function researchBranch(technology){
-    if(technology.cat==='装甲'||/^arm|^mob|^mech/.test(technology.id))return '装甲';
+    if(technology.cat==='装甲'||/^arm|^mob|^mech/.test(technology.id))return '坦克';
     if(/^art|^at|^aa/.test(technology.id))return '火炮';
-    return technology.cat;
+    return ({陆军:'步兵',航空:'飞机'})[technology.cat]||technology.cat;
   }
 
   function renderResearchView(rp){
@@ -1259,12 +1281,14 @@ const UI = (function(){
       }
       rp.appendChild(running);
     }
-    const branches=el('div','research-branches');branches.setAttribute('role','group');branches.setAttribute('aria-label','科技分支');
-    for(const name of ['陆军','装甲','火炮','航空','海军','工业']){
+    const branches=el('div','research-branches core-branches');branches.setAttribute('role','group');branches.setAttribute('aria-label','科技分支');
+    for(const name of ['步兵','坦克','飞机','海军']){
       const button=el('button','research-branch'+(selectedResearchBranch===name?' on':''),name);button.setAttribute('aria-pressed',String(selectedResearchBranch===name));
       button.addEventListener('click',()=>{selectedResearchBranch=name;refresh();});branches.appendChild(button);
     }
     rp.appendChild(branches);
+    const support=el('details','research-support');support.open=['火炮','工业'].includes(selectedResearchBranch);support.appendChild(el('summary',null,'支援装备与工业科技'));
+    for(const name of ['火炮','工业']){const button=el('button','research-branch'+(selectedResearchBranch===name?' on':''),name);button.setAttribute('aria-pressed',String(selectedResearchBranch===name));button.addEventListener('click',()=>{selectedResearchBranch=name;refresh();});support.appendChild(button);}rp.appendChild(support);
     const list=el('section','technology-list');list.setAttribute('aria-label',selectedResearchBranch+'科技');
     for(const technology of TECHS.filter(tech=>researchBranch(tech)===selectedResearchBranch)){
       const done=!!c.researched[technology.id],running=active.includes(technology.id),slot=s.research.slots.indexOf(null);
@@ -1280,7 +1304,7 @@ const UI = (function(){
         button.addEventListener('click',()=>{if(Game.assignResearch(technology.id,slot)){sfx('tech');toast('开始研发：'+technology.name,'good');}refresh();});card.appendChild(button);
         if(reason)card.appendChild(el('p','action-reason',reason));
       }else if(done&&units.length){
-        const train=el('button','rp-btn','训练已解锁兵种 →');train.addEventListener('click',()=>{selectedTrainingUnit=units[0].key;selectedTrainingKind=units[0].kind;navigate('production');});card.appendChild(train);
+        const train=el('button','rp-btn','训练已解锁兵种 →');train.addEventListener('click',()=>{selectedTrainingUnit=units[0].key;selectedTrainingBranch=trainingBranch(units[0]);navigate('production');});card.appendChild(train);
       }
       list.appendChild(card);
     }
@@ -1308,16 +1332,15 @@ const UI = (function(){
 
   function renderDiploView(rp){
     const s = Game.state;
-    const c = Game.country(s.player);
     const box = el("div","rp-section fade-in");
     box.innerHTML = `<h3>同盟与外交</h3>
       <div class="rp-row"><span class="k">世界紧张度</span><span class="v" style="color:${s.wt>=50?'#d9534f':'var(--orange)'}">${Math.round(s.wt)}%</span></div>`;
-    box.appendChild(el('p','task-status',`政治权力 ${Math.round(c.pp)} · 结盟 25；改善关系 +15（10）；正当化战争 20。`));
+    box.appendChild(el('p','diplomacy-principle','随时免费提案，由对方根据当前局势回应。'));
     const response=Game.sovereigntyResponse?.();
     if(response){
       const notice=el('section','sovereignty-response');notice.setAttribute('role','status');
-      notice.appendChild(el('h4',null,(Game.country(response.target)?.name||response.target)+' · '+(response.action==='submit'&&response.outcome==='puppeted'?'接受归附':({annexed:'同意吞并',puppeted:'同意成为傀儡国',refused:'拒绝提案',submitted:'接受归附',released:'已恢复独立'}[response.outcome]||'外交回复'))));
-      notice.appendChild(el('p',null,response.reason));notice.appendChild(el('p','task-status','政治 −'+response.costs.pp+' · 稳定 −'+response.costs.stability));box.appendChild(notice);
+      notice.appendChild(el('h4',null,(Game.country(response.target)?.name||response.target)+' · '+(response.action==='submit'&&response.outcome==='puppeted'?'接受归附':({allied:'同意结盟',annexed:response.action==='surrender'?'接受劝降':'同意吞并',puppeted:'同意成为傀儡国',refused:'拒绝提案',submitted:'接受归附',released:'已恢复独立'}[response.outcome]||'外交回复'))));
+      const explanation=el('details','diplomatic-reply-reason');explanation.appendChild(el('summary',null,'查看对方理由'));explanation.appendChild(el('p',null,response.reason));notice.appendChild(explanation);box.appendChild(notice);
     }
     const countries=Object.keys(s.countries).filter(id=>id!==s.player&&s.countries[id].alive);
     function rank(id){return Game.isAllied(s.player,id)?0:Game.isAtWar(s.player,id)?1:Game.diplomacyAvailability('ally',id).available?2:3;}
@@ -1336,65 +1359,68 @@ const UI = (function(){
       const card = el("div","war-card alliance-card");card.dataset.country=cid;
       card.innerHTML = `<div class="war-title">${flagHTML(cid,18)} ${o.name}
         <span style="font-size:11px;color:${atWar?'#ff6060':rel>=50?'#6fbf6f':rel>=0?'var(--muted)':'#d9534f'}">${allied?'盟友':atWar?'交战中':rel>=50?'友好':rel>=0?'中立':'敌对'}</span></div>
-        <div class="rp-row"><span class="k">关系</span><span class="v">${rel}</span></div>`;
+        <div class="diplomatic-situation">关系 ${rel}${atWar?' · 投降进度 '+Game.capitulationProgress(cid)+'%':''}</div>`;
       if(o.subjectOf)card.appendChild(el('p','subject-status','宗主国：'+Game.country(o.subjectOf).name+' · 月收入10%作为贡赋'));
+      const proposals=el('div','diplomacy-proposals');
+      const primary=[['ally',allied?'已结盟':'提出结盟'],['annex',o.subjectOf===s.player?'整合吞并':'提出吞并'],['puppet','扶持傀儡政府']];
+      if(atWar)primary.push(['surrender','劝降']);
+      for(const [action,title]of primary){
+        const available=Game.diplomacyAvailability(action,cid),option=el('div','proposal-option'),button=el('button','rp-btn proposal-button',title+'…');button.dataset.target=cid;button.dataset.proposal=action;
+        if(available.acceptanceLabel)button.appendChild(el('small',null,available.acceptanceLabel));
+        button.addEventListener('click',()=>{pendingDiplomacy={action,target:cid};pauseForPlanning();refresh();$('rightPanel').scrollTop=0;});option.appendChild(button);actionReason(button,available.available?'':available.reasons.join('；'));proposals.appendChild(option);
+      }card.appendChild(proposals);
+      const secondary=el('details','diplomacy-secondary');secondary.appendChild(el('summary',null,'其他外交与战争命令'));
       const actions = el("div","diplomacy-actions");
-      if(!allied&&!atWar){
+      if(!atWar){
         const actionSelect=el('select','rp-select');actionSelect.setAttribute('aria-label','选择外交行动');
-        [['improve','改善关系'],['ally','结盟'],['justify',just>0?`正当化中 · 还需 ${just} 月`:'准备战争 / 正当化'],['declare','宣战']].forEach(([value,label])=>{const op=el('option');op.value=value;op.textContent=label;actionSelect.appendChild(op);});
-        if(!['improve','ally','justify','declare'].includes(selectedDiploAction))selectedDiploAction='ally';actionSelect.value=selectedDiploAction;
-        actionSelect.addEventListener('focus',()=>pauseForPlanning());actionSelect.addEventListener('change',()=>{selectedDiploAction=actionSelect.value;pauseForPlanning();refresh();});card.appendChild(actionSelect);
+        [['improve','改善关系'],['justify',just>0?`正当化中 · 还需 ${just} 月`:'准备战争 / 正当化'],['declare','宣战']].forEach(([value,label])=>{const op=el('option');op.value=value;op.textContent=label;actionSelect.appendChild(op);});
+        if(!['improve','justify','declare'].includes(selectedDiploAction))selectedDiploAction='improve';actionSelect.value=selectedDiploAction;
+        actionSelect.addEventListener('focus',()=>pauseForPlanning());actionSelect.addEventListener('change',()=>{selectedDiploAction=actionSelect.value;pauseForPlanning();refresh();});secondary.appendChild(actionSelect);
         const action=selectedDiploAction,available=Game.diplomacyAvailability(action,cid);
-        const execute=el('button','rp-btn primary',action==='declare'?'宣战…':action==='ally'?'结盟':action==='improve'?'改善关系 +15':just>0?'正当化中':'准备战争');execute.dataset.target=cid;
+        const execute=el('button','rp-btn',action==='declare'?'宣战…':action==='improve'?'改善关系 +15':just>0?'正当化中':'准备战争');execute.dataset.target=cid;
         execute.addEventListener('click',()=>{if(action==='declare'){pendingDiplomacy={action,target:cid};refresh();$('rightPanel').scrollTop=0;}else{Game.diploAction(action,cid);sfx('click');refresh();}});
         if(action!=='declare')commandButton(execute);actions.appendChild(execute);execute.disabled=!available.available&&action!=='declare';actionReason(execute,available.reasons.join('；'));
       }
       if(allied){
-        if(!atWar&&rel<100){const improve=el('button','rp-btn','改善关系 +15');improve.disabled=!Game.diplomacyAvailability('improve',cid).available;improve.addEventListener('click',()=>{Game.diploAction('improve',cid);refresh();});actions.appendChild(improve);}
         const enemies=[...new Set(s.wars.filter(w=>w.active!==false&&(w.a===s.player||w.b===s.player)).map(w=>w.a===s.player?w.b:w.a))];
         if(enemies.length){
           if(!enemies.includes(selectedDiploEnemy))selectedDiploEnemy=enemies[0];
           const enemySelect=el('select','rp-select');enemySelect.setAttribute('aria-label','选择参战战争');
           enemies.forEach(id=>{const op=el('option');op.value=id;op.textContent=Game.country(id).name;enemySelect.appendChild(op);});enemySelect.value=selectedDiploEnemy;
-          enemySelect.addEventListener('focus',()=>pauseForPlanning());enemySelect.addEventListener('change',()=>{selectedDiploEnemy=enemySelect.value;pauseForPlanning();refresh();});card.appendChild(enemySelect);
+          enemySelect.addEventListener('focus',()=>pauseForPlanning());enemySelect.addEventListener('change',()=>{selectedDiploEnemy=enemySelect.value;pauseForPlanning();refresh();});secondary.appendChild(enemySelect);
           const call=el('button','rp-btn primary',`召集参战 · 对 ${Game.country(selectedDiploEnemy).name}`);call.dataset.target=cid;call.dataset.enemy=selectedDiploEnemy;
           const av=Game.diplomacyAvailability('call',cid,selectedDiploEnemy);commandButton(call);call.disabled=!av.available;call.addEventListener('click',()=>{Game.callAlly(cid,selectedDiploEnemy);sfx('click');refresh();});actions.appendChild(call);actionReason(call,av.reasons.join('；'));
         }else actions.appendChild(el('p','task-status','目前没有可召集的战争。'));
       }
-      if(atWar)card.appendChild(el('p','capitulation-status',`投降进度 ${Game.capitulationProgress(cid)}%`));
       if(atWar&&s.pendingPeace?.from===cid){
         const response=el('select','rp-select');response.setAttribute('aria-label','选择求和回应');
         [['accept','接受白和平'],['reject','拒绝求和']].forEach(([value,label])=>{const option=el('option');option.value=value;option.textContent=label;response.appendChild(option);});
-        response.value=selectedPeaceResponse;response.addEventListener('focus',()=>pauseForPlanning());response.addEventListener('change',()=>{selectedPeaceResponse=response.value;pauseForPlanning();refresh();});card.appendChild(response);
+        response.value=selectedPeaceResponse;response.addEventListener('focus',()=>pauseForPlanning());response.addEventListener('change',()=>{selectedPeaceResponse=response.value;pauseForPlanning();refresh();});secondary.appendChild(response);
         const answer=el('button','rp-btn primary',selectedPeaceResponse==='accept'?'接受白和平':'拒绝求和');answer.addEventListener('click',()=>{if(selectedPeaceResponse==='accept'){Game.acceptPeace(cid);sfx('tech');}else{Game.rejectPeace(cid);sfx('click');}refresh();});actions.appendChild(answer);
       }else if(atWar){const peace=el('button','rp-btn','单独议和…');peace.addEventListener('click',()=>{pendingDiplomacy={action:'peace',target:cid};refresh();$('rightPanel').scrollTop=0;});actions.appendChild(peace);actionReason(peace,Game.computeWarscore(cid)<-8?'战争分低于 -8，敌方拒绝和谈':'');}
-      card.appendChild(actions);
-      if(!atWar&&Game.subjectStatus){
-        const sovereignty=el('details','sovereignty-actions');sovereignty.open=cid==='aut'&&s.player==='ger';sovereignty.appendChild(el('summary',null,'吞并与傀儡政府'));
-        const options=o.subjectOf===s.player?[['annex','整合吞并'],['release','放归独立']]:!o.subjectOf?[['annex','提出吞并'],['puppet','扶持傀儡政府'],['submit','成为其傀儡国']]:[];
+      secondary.appendChild(actions);
+      if(Game.subjectStatus){
+        const options=o.subjectOf===s.player?[['release','放归独立']]:!o.subjectOf?[['submit','成为其傀儡国']]:[];
         for(const [action,title]of options){
           const available=Game.diplomacyAvailability(action,cid),button=el('button','rp-btn',title+'…');button.dataset.target=cid;
-          button.addEventListener('click',()=>{pendingDiplomacy={action,target:cid};pauseForPlanning();refresh();$('rightPanel').scrollTop=0;});sovereignty.appendChild(button);
-          sovereignty.appendChild(el('p','task-status','政治 '+available.costs.pp+(available.costs.stability?' · 稳定 −'+available.costs.stability:'')+(available.consequences.worldTension?' · 紧张 +'+available.consequences.worldTension:'')));
-          if(available.acceptanceLabel)sovereignty.appendChild(el('p','acceptance-label',available.acceptanceLabel));
-          if(!available.available)sovereignty.appendChild(el('p','action-reason',available.reasons.join('；')));
+          button.addEventListener('click',()=>{pendingDiplomacy={action,target:cid};pauseForPlanning();refresh();$('rightPanel').scrollTop=0;});secondary.appendChild(button);actionReason(button,available.available?'':available.reasons.join('；'));
         }
-        if(options.length)card.appendChild(sovereignty);
       }
+      card.appendChild(secondary);
       list.appendChild(card);
     }
     if(pendingDiplomacy){
       const {action,target}=pendingDiplomacy,enemy=Game.country(target);
       const confirmCard=el('section','rp-section diplomacy-confirm');
-      const sovereignty=['annex','puppet','release','submit'].includes(action),titles={annex:'吞并',puppet:'扶持傀儡政府',release:'放归独立',submit:'成为其傀儡国'};
-      confirmCard.appendChild(el('h4',null,sovereignty?'确认'+titles[action]+' · '+enemy.name:action==='declare'?`确认向 ${enemy.name} 宣战`:`确认与 ${enemy.name} 单独议和`));
+      const proposal=['ally','annex','puppet','surrender','release','submit'].includes(action),titles={ally:'结盟',annex:'吞并',puppet:'扶持傀儡政府',surrender:'劝降',release:'放归独立',submit:'成为其傀儡国'};
+      confirmCard.appendChild(el('h4',null,proposal?'确认'+titles[action]+' · '+enemy.name:action==='declare'?`确认向 ${enemy.name} 宣战`:`确认与 ${enemy.name} 单独议和`));
       const defense=Object.values(s.countries).filter(o=>o.alive&&o.id!==s.player&&Game.isAllied(target,o.id)).map(o=>o.name);
-      const descriptions={annex:'提出吞并提案。对方可以同意、折中成为傀儡国或拒绝；同意后才将全部领土、军队和库存并入本国。',puppet:'提出扶持政府提案，对方可以拒绝。接受后保留目标领土与军队，建立宗主防御和通行关系；月收入的10%转交宗主国。',release:'保留其领土与军队，解除宗主关系、贡赋与附庸盟约。',submit:'主动请求成为对方的傀儡国。接受后保留本国领土与军队，获得宗主保护，月收入的10%转交对方，不能独立发动战争。'};
-      confirmCard.appendChild(el('p','war-status',sovereignty?descriptions[action]:action==='declare'?`将立即进入战争，世界紧张度 +8。${defense.length?'其防御盟友可能参战：'+defense.join('、')+'。':''}你的进攻盟友需要单独召集参战。`:'白和平保持当前领土；只结束与该国的战争，其他战争继续。'));
-      if(sovereignty){const status=Game.diplomacyAvailability(action,target);confirmCard.appendChild(el('p','sovereignty-cost','本次预计代价：政治 −'+status.costs.pp+' · 稳定 −'+status.costs.stability+' · 世界紧张 +'+status.consequences.worldTension));if(status.acceptanceLabel)confirmCard.appendChild(el('p','acceptance-label',status.acceptanceLabel+' · '+status.responseReason));if(status.refusalCost&&action!=='release')confirmCard.appendChild(el('p','task-status','若拒绝仅消耗 '+status.refusalCost+' 政治；被拒后30天可再次提案。'));}
-      const confirmButton=el('button','rp-btn danger',sovereignty?'确认'+titles[action]:action==='declare'?'确认宣战':'确认单独议和');
+      const descriptions={ally:'提出结盟。对方按关系、共同威胁和当前战局决定是否接受；战时同意将结束双方战争。',annex:'提出吞并提案。对方可以同意、折中成为傀儡国或拒绝；同意后才将全部领土、军队和库存并入本国。',puppet:'提出扶持政府提案，对方可以拒绝。接受后保留目标领土与军队，建立宗主防御和通行关系；月收入的10%转交宗主国。',surrender:'要求对方结束抵抗。对方根据兵力、领土损失和国内局势选择投降、成为傀儡国或继续作战。',release:'保留其领土与军队，解除宗主关系、贡赋与附庸盟约。',submit:'主动请求成为对方的傀儡国。接受后保留本国领土与军队，获得宗主保护，月收入的10%转交对方，不能独立发动战争。'};
+      confirmCard.appendChild(el('p','war-status',proposal?descriptions[action]:action==='declare'?`将立即进入战争，世界紧张度 +8。${defense.length?'其防御盟友可能参战：'+defense.join('、')+'。':''}你的进攻盟友需要单独召集参战。`:'白和平保持当前领土；只结束与该国的战争，其他战争继续。'));
+      if(proposal){const status=Game.diplomacyAvailability(action,target);confirmCard.appendChild(el('p','proposal-free','免费提案 · 不消耗政治点 · 拒绝后仍可再谈'));if(status.acceptanceLabel)confirmCard.appendChild(el('p','acceptance-label',status.acceptanceLabel));if(status.responseReason)confirmCard.appendChild(el('p','proposal-reason',status.responseReason));}
+      const confirmButton=el('button','rp-btn '+(action==='declare'?'danger':'primary'),proposal?'确认'+titles[action]:action==='declare'?'确认宣战':'确认单独议和');
       commandButton(confirmButton);confirmButton.addEventListener('click',()=>{pendingDiplomacy=null;if(action==='peace')Game.proposePeace(target);else Game.diploAction(action,target);refresh();resumePlanning();});confirmCard.appendChild(confirmButton);
-      const reason=sovereignty||action==='declare'?Game.diplomacyAvailability(action,target).reasons.join('；'):!Game.isAtWar(s.player,target)?'已不处于战争状态':Game.computeWarscore(target)<-8?'战争分低于 -8，敌方拒绝和谈':'';actionReason(confirmButton,reason);
+      const reason=proposal||action==='declare'?Game.diplomacyAvailability(action,target).reasons.join('；'):!Game.isAtWar(s.player,target)?'已不处于战争状态':Game.computeWarscore(target)<-8?'战争分低于 -8，敌方拒绝和谈':'';actionReason(confirmButton,reason);
       const cancel=el('button','rp-btn','取消外交命令');cancel.addEventListener('click',()=>{pendingDiplomacy=null;refresh();resumePlanning();});confirmCard.appendChild(cancel);rp.insertBefore(confirmCard,list);
     }
   }
@@ -1614,8 +1640,7 @@ const UI = (function(){
   function showEvent(ev){
     setSpeed(0);
     $("eventTitle").textContent = ev.title;
-    // 加历史背景 (如果 ev.history 存在)
-    const histHtml = ev.history ? `<details class="event-background"><summary>历史背景</summary><p>${ev.history}</p></details>` : "";
+    const histHtml = ev.history ? `<details class="event-background"><summary>局势背景</summary><p>${ev.history}</p></details>` : "";
     $("eventText").innerHTML = `<div>${ev.text}</div>${histHtml}`;
     const ch = $("eventChoices");
     ch.innerHTML = "";

@@ -68,7 +68,7 @@ test('repeated continue, speed changes and stale canceled callbacks cannot dupli
 
 test('a default-logistics month boundary renders one day once, then a required event resumes at the selected pace',()=>{
   const {Game,UI,get,activeTimers,fire,mapRefreshCount}=setup();
-  assert.equal(Game.autoLogisticsStatus().enabled,true);Game.state.wars=[];Game.country('fra').pp=0;Game.state.date={year:1936,month:2,day:29};
+  assert.equal(Game.autoLogisticsStatus().enabled,true);Game.state.wars=[];Game.country('fra').pp=0;Game.country('ger').stability=20;Game.state.date={year:1936,month:2,day:29};
   UI.setSpeed(3);const renders=mapRefreshCount();fire();
   assert.deepEqual({...Game.state.date},{year:1936,month:3,day:1});assert.equal(Game.state.monthsElapsed,1);assert.equal(mapRefreshCount()-renders,1,'month production and automatic logistics share the daily render');
   assert.ok(Game.state.pendingEvent);assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);
@@ -79,7 +79,7 @@ test('a default-logistics month boundary renders one day once, then a required e
 });
 
 test('an event opened while explicitly paused never starts an automatic clock on confirmation',()=>{
-  const {Game,UI,get,activeTimers}=setup();UI.setSpeed(3);UI.togglePause();Game.state.date={year:1936,month:3,day:1};Game.checkScriptedEvents();
+  const {Game,UI,get,activeTimers}=setup();UI.setSpeed(3);UI.togglePause();Game.country('ger').stability=20;Game.checkScriptedEvents();
   assert.ok(Game.state.pendingEvent);assert.equal(UI.getSpeed(),0);const before=Game.state.daysElapsed;
   get('eventChoices').children[0].click();assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);assert.equal(Game.state.daysElapsed,before);
 });
@@ -178,5 +178,5 @@ test('Space pauses or resumes without advancing immediately and respects native 
   ctx.document.activeElement={matches:()=>false,closest:()=>({})};press();assert.equal(UI.getSpeed(),2,'dialog focus never activates a background clock command');
   ctx.document.activeElement=null;ctx.WorldOverview={isOpen:true,refresh(){}};press();assert.equal(UI.getSpeed(),2,'the overview blocks background Space even if focus falls onto body');
   ctx.WorldOverview.isOpen=false;press();assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);press();assert.equal(UI.getSpeed(),2);assert.equal(activeTimers().length,1);
-  Game.state.date={year:1936,month:3,day:1};Game.checkScriptedEvents();assert.equal(get('eventModal').classList.contains('hidden'),false);press();assert.equal(Game.state.daysElapsed,before);assert.equal(activeTimers().length,0,'a real required event blocks the clock');
+  Game.country('ger').stability=20;Game.checkScriptedEvents();assert.equal(get('eventModal').classList.contains('hidden'),false);press();assert.equal(Game.state.daysElapsed,before);assert.equal(activeTimers().length,0,'a real required event blocks the clock');
 });

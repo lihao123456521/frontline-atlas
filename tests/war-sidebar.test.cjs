@@ -150,7 +150,7 @@ test('range keyboard repeats keep the focused node and whole-unit keyboard steps
   emit(current,'pointerup');flush();
 });
 
-test('city recruitment selects a real land role while national training filters sea and air branches',()=>{
+test('city recruitment selects a real land role while four core training branches choose usable defaults',()=>{
   const {Game,UI,panel,button,click,descendants,emit}=setup(),c=Game.country('ger');c.res=c.equipment=c.oil=c.rare=c.manpower=1000;
   UI.selectCity(Game.provinceById('ger_berlin'));click(button('征兵'));
   let select=descendants(panel).find(n=>n.attributes['aria-label']==='选择训练兵种');assert.ok(select);
@@ -158,10 +158,10 @@ test('city recruitment selects a real land role while national training filters 
   select.value='garrison';emit(select,'change');assert.match(panel.textContent,/守备师/);click(button('确认征兵'));
   assert.equal(Game.state.buildQueue[0].unitType,'garrison');assert.equal(c.manpower,992);
   UI.navigate('production');click(button('海军'));select=descendants(panel).find(n=>n.attributes['aria-label']==='选择训练兵种');
-  assert.ok(descendants(select).filter(n=>n.tagName==='option').every(n=>['navy','destroyer','submarine','carrier'].includes(n.value)));
-  click(button('空军'));select=descendants(panel).find(n=>n.attributes['aria-label']==='选择训练兵种');
-  assert.ok(descendants(select).filter(n=>n.tagName==='option').every(n=>['air','cas','tacticalBomber','strategicBomber'].includes(n.value)));
-  click(button('陆军'));select=descendants(panel).find(n=>n.attributes['aria-label']==='选择训练兵种');select.value='heavyArmor';emit(select,'change');
+  assert.equal(select.value,'navy');assert.match(panel.textContent,/主力舰编队/);
+  click(button('飞机'));select=descendants(panel).find(n=>n.attributes['aria-label']==='选择训练兵种');
+  assert.equal(select.value,'air');assert.match(panel.textContent,/战斗机联队/);
+  click(button('坦克'));select=descendants(panel).find(n=>n.attributes['aria-label']==='选择训练兵种');assert.equal(select.value,'armor');select.value='heavyArmor';emit(select,'change');
   assert.equal(button('训练 重装甲战斗群').disabled,true);assert.match(panel.textContent,/1941 年解锁/);
 });
 
@@ -261,7 +261,7 @@ test('ongoing combat makes advanced war information opt-in and chooses an incomi
 test('resolving a real required event keeps the automatic clock paused until the remaining invasion is acknowledged', () => {
   const {Game, UI, events,get,ctx,document,click} = setup(),event=events[0];
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/world-news.js'),'utf8'),ctx);document.body.classList.add('playing');
-  Game.state.date={year:event.year,month:event.month,day:1};
+  Game.country('ger').stability=20;
   const date=JSON.stringify(Game.state.date);
   UI.setSpeed(2);Game.checkScriptedEvents();
   assert.equal(Game.state.pendingEvent,event.id);assert.equal(get('eventModal').classList.contains('hidden'),false);

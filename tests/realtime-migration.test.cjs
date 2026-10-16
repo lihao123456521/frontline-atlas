@@ -94,14 +94,14 @@ test('a legacy 470-province campaign keeps its original indexes and existing tro
   assert.equal(Object.hasOwn(current.state,'turn'),false);assert.equal(current.timeStatus().canAdvance,true);
 });
 
-test('mandatory historical events stay pending through v47 migration and selecting a choice does not advance time',()=>{
+test('mandatory situational events stay pending through v47 migration and selecting a choice does not advance time',()=>{
   const f=setup(),G=f.G;quietWorld(G);
-  const ev=vm.runInContext('SCRIPTED_EVENTS[0]',f.ctx),year=ev.month===1?ev.year-1:ev.year,month=ev.month===1?12:ev.month-1;
-  G.state.date={year,month,day:new Date(Date.UTC(year,month,0)).getUTCDate()};
+  const ev=vm.runInContext('SCRIPTED_EVENTS[0]',f.ctx);G.country('ger').stability=20;
+  G.state.date={year:1936,month:1,day:31};
   assert.equal(G.advanceDay(),true);assert.equal(G.state.pendingEvent,ev.id);assert.equal(G.state.monthsElapsed,1);
   const legacy=JSON.parse(G.save());legacy.turn={number:1,daysPerTurn:7,limit:3,used:3,pendingDays:6};
   const before=exactSnapshot(G);assert.equal(G.load(JSON.stringify(legacy)),true);assert.equal(exactSnapshot(G),before);
-  assert.match(G.timeStatus().blockedReason,/历史事件/);assert.equal(G.timeStatus().canAdvance,false);
+  assert.match(G.timeStatus().blockedReason,/局势事件/);assert.equal(G.timeStatus().canAdvance,false);
   const day=G.state.daysElapsed;assert.equal(G.resolveEvent(ev.id,0),true);assert.equal(G.state.daysElapsed,day);
   assert.equal(G.state.pendingEvent,null);assert.equal(G.timeStatus().canAdvance,true);
   assert.equal(G.advanceDay({automatic:true}),true);assert.equal(G.state.daysElapsed,day+1);assert.equal(G.state.monthsElapsed,1);

@@ -48,6 +48,9 @@ const World = (() => {
   function installStrategicAnchors(){
   if(PROVINCES_DEF.some(p=>p.strategicSourceId))return;
   const worldAnchors=[
+    ['esp_barcelona','巴塞罗那',2.17,41.39,'esp',true],['esp_seville','塞维利亚',-5.98,37.39,'esp',false],
+    ['esp_burgos','布尔戈斯',-3.7,42.34,'esp',false],['esp_valencia','瓦伦西亚',-.38,39.47,'esp',true],
+    ['esp_bilbao','毕尔巴鄂',-2.94,43.26,'esp',true],['esp_coruna','拉科鲁尼亚',-8.41,43.36,'esp',true],
     ['usa_boston','波士顿',-71.06,42.36,'usa',true],['usa_philadelphia','费城',-75.16,39.95,'usa',true],
     ['usa_detroit','底特律',-83.05,42.33,'usa',false],['usa_atlanta','亚特兰大',-84.39,33.75,'usa',false],
     ['usa_neworleans','新奥尔良',-90.07,29.95,'usa',true],['usa_stlouis','圣路易斯',-90.2,38.63,'usa',false],

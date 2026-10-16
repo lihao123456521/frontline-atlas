@@ -31,7 +31,7 @@ function news(){
   }
   const box=new Element(),modal=new Element(),body=new Element();modal.classList.add('hidden');body.classList.add('playing');
   const timers=new Map(),focused=[],selected=[],combats=[];let serial=0,saves=0;
-  const ctx=vm.createContext({document:{body,getElementById:id=>id==='worldNews'?box:modal,createElement:()=>new Element()},
+  const ctx=vm.createContext({document:{body,getElementById:id=>id==='worldNews'?box:id==='eventModal'?modal:null,createElement:()=>new Element()},
     setTimeout:fn=>{timers.set(++serial,fn);return serial;},clearTimeout:id=>timers.delete(id),MapView:{focusProvince:i=>focused.push(i)},
     Game:{autosave:()=>saves++},UI:{focusCombat:id=>{combats.push(id);return true;}}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/world-news.js'),'utf8')+'\nthis.news=WorldNews;',ctx);

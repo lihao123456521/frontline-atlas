@@ -1,0 +1,56 @@
+.core-branches { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 12px 0 16px; }
+.core-branches > button { min-height: 46px; padding: 8px 4px; font-size: 14px; font-weight: 700; border-radius: 8px; }
+#rpContent .army-overview { padding: 16px; margin-bottom: 12px; }
+#rpContent .army-overview h3 { margin: 0 0 8px; font-size: 19px; }
+#rpContent .army-overview .army-personnel { font-size: 28px; margin: 4px 0; }
+#rpContent .army-overview .task-status { margin: 4px 0; font-size: 12px; }
+#rpContent .army-explanation { margin: 8px 0 0; }
+#rpContent .army-explanation > summary { font-size: 12px; min-height: 24px; }
+.training-variants, .research-support, .administration-details, .diplomacy-secondary, .unrest-reasons { border-top: 1px solid #39515b; margin: 14px 0; padding-top: 12px; }
+.training-variants > summary, .research-support > summary, .administration-details > summary, .diplomacy-secondary > summary, .unrest-reasons > summary { min-height: 32px; color: #a9c0c4; font-size: 13px; cursor: pointer; }
+.training-variants > select { margin-top: 10px; }
+.research-support > button { margin: 8px 8px 0 0; min-width: 82px; }
+#rpContent .training-unit-name { font-size: 21px; color: #f2e4c8; margin: 14px 0 8px; }
+.training-role { font-size: 14px; line-height: 1.6; color: #c5d4d3; }
+.training-duration { color: #dfc99d; font-variant-numeric: tabular-nums; }
+.unit-training { padding: 0 0 18px; border-bottom: 1px solid #3c5660; }
+.recruitment-status { margin-top: 16px; }
+.recruitment-status .recruitment-coverage { font-size: 12px; color: #9eb6b8; }
+.diplomacy-principle { color: #a9c2bf; font-size: 13px; line-height: 1.6; margin: 10px 0 16px; }
+.diplomatic-situation { color: #9ab5bc; font-size: 13px; padding: 8px 0 4px; }
+.diplomacy-proposals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
+#rpContent .proposal-button { display: flex; width: 100%; min-height: 78px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 7px; padding: 12px; margin: 0; background: #244451; border: 1px solid #577681; border-radius: 10px; text-align: left; font-size: 14px; color: #e6ddc7; }
+#rpContent .proposal-button:hover:not(:disabled) { border-color: #d9bc83; background: #2b4e58; }
+#rpContent .proposal-button > small { display: block; color: #a8c8c2; font-size: 11px; line-height: 1.4; font-weight: 400; }
+#rpContent .proposal-button:disabled { opacity: .5; }
+.diplomacy-confirm { padding: 16px; border: 1px solid #aa976c; border-radius: 10px; background: #203e48; }
+.diplomacy-confirm > h4 { color: #f0dfb9; font-size: 17px; line-height: 1.5; }
+.proposal-free { font-size: 12px; color: #a4c8b5; line-height: 1.6; }
+.proposal-reason { font-size: 13px; line-height: 1.6; color: #bfd0d0; }
+.diplomatic-reply-reason > summary { min-height: 32px; color: #b8c8bf; font-size: 12px; cursor: pointer; }
+.diplomatic-reply-reason > p { color: #c5d2cc; font-size: 13px; line-height: 1.6; }
+.unrest-status { border: 1px solid #4d6d68; border-radius: 9px; padding: 14px; margin-top: 16px; }
+.unrest-status.critical, .unrest-status.civilWar { border-color: #ac735f; background: #493b35; }
+.unrest-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.unrest-actions > button { flex: 1; min-width: 110px; }
+.unrest-reasons { margin-bottom: 0; }
+.unrest-reasons > p { color: #b7c9c6; font-size: 13px; line-height: 1.6; }
+#commandNav #btnFocus, #commandNav #btnTech, #commandNav #btnDiplo { display: none; }
+.nav-extras { grid-column: 1 / -1; border-top: 1px solid #39515b; margin-top: 6px; padding-top: 6px; }
+.nav-extras > summary { cursor: pointer; color: #a9c0c4; padding: 10px 8px; font-size: 12px; }
+.nav-extra-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.world-unrest { position: absolute; z-index: 13; left: 18px; top: 72px; max-width: min(260px, 56vw); padding: 9px 12px; border: 1px solid #b88067; border-radius: 7px; background: #3c3430eb; color: #f2d4b3; font-size: 13px; box-shadow: 0 4px 12px #07172266; }
+.world-unrest:hover { background: #594439; }
+@media (max-width: 700px) {
+  #commandNav { display: grid; grid-template-columns: .85fr .95fr .85fr 1.25fr .95fr; width: calc(100% - 24px); max-width: 440px; gap: 3px; }
+  #commandNav > .nav-primary { min-width: 0; width: 100%; padding: 6px 3px; font-size: 12px; gap: 3px; }
+  #commandNav .nav-management { min-width: 0; width: 100%; }
+  #commandNav .nav-management > summary { justify-content: center; padding: 10px 2px; font-size: 11px; }
+  .core-branches { gap: 5px; }
+  .core-branches > button { min-height: 44px; font-size: 13px; }
+  #rpContent .proposal-button { min-height: 74px; padding: 10px; }
+  .diplomacy-confirm { padding: 13px; }
+}
+@media (max-width: 440px) {
+  #commandNav > .nav-primary .nav-glyph { display: none; }
+}

@@ -54,6 +54,7 @@ const WorldNews=(()=>{
   function update(state,onSelect){
     if(stateRef!==state)reset(state);
     selectCity=onSelect;
+    updateUnrest(state);
     if(current?.kind==='invasion'&&current.acknowledged===true){current=null;hide();}
     const incoming=(state.worldEvents||[]).filter(e=>serial(e)>cursor);
     incoming.forEach(e=>{cursor=Math.max(cursor,serial(e));if(e.kind!=='invasion'||e.acknowledged!==true)pending.push(e);});
@@ -82,6 +83,19 @@ const WorldNews=(()=>{
       if(box?.classList.contains('hidden'))renderCurrent();
     }
     showNext();
+  }
+  function updateUnrest(state){
+    const button=document.getElementById('worldUnrest');if(!button)return;
+    const conflicts=(state.unrest?.conflicts||[]).filter(conflict=>state.countries[conflict.parent]?.alive&&state.countries[conflict.rebels]?.alive&&
+      state.wars.some(war=>war.a===conflict.parent&&war.b===conflict.rebels||war.b===conflict.parent&&war.a===conflict.rebels));
+    button.classList.toggle('hidden',!conflicts.length);
+    if(!conflicts.length){button.textContent='';return;}
+    const conflict=conflicts.find(item=>item.parent===state.player)||conflicts[0],title=state.countries[conflict.parent].name+(conflict.kind==='civilWar'?'内战':'起义');
+    button.textContent=title+(conflicts.length>1?' · 另'+(conflicts.length-1)+'处':'')+' →';button.setAttribute('aria-label','查看'+title);
+    button.onclick=()=>{
+      const index=state.provinces.findIndex(province=>province.owner===conflict.rebels);if(index<0)return;
+      selectCity?.(index);if(typeof MapView!=='undefined')MapView.focusProvince(index,true);
+    };
   }
   return {reset,update,dismiss};
 })();

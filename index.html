@@ -4,22 +4,23 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>钢铁雄心 · 浏览器版</title>
-<meta name="hoi-version" content="49">
-<link rel="stylesheet" href="css/style.css?v=49">
-<link rel="stylesheet" href="css/command-center.css?v=49">
-<link rel="stylesheet" href="css/historical-map.css?v=49">
-<link rel="stylesheet" href="css/war-command.css?v=49">
-<link rel="stylesheet" href="css/map-fronts.css?v=49">
-<link rel="stylesheet" href="css/map-command.css?v=49">
-<link rel="stylesheet" href="css/start-screen.css?v=49">
-<link rel="stylesheet" href="css/war-focus.css?v=49">
-<link rel="stylesheet" href="css/experience.css?v=49">
-<link rel="stylesheet" href="css/tutorial.css?v=49">
-<link rel="stylesheet" href="css/global-overview.css?v=49">
-<link rel="stylesheet" href="css/military-development.css?v=49">
+<meta name="hoi-version" content="50">
+<link rel="stylesheet" href="css/style.css?v=50">
+<link rel="stylesheet" href="css/command-center.css?v=50">
+<link rel="stylesheet" href="css/historical-map.css?v=50">
+<link rel="stylesheet" href="css/war-command.css?v=50">
+<link rel="stylesheet" href="css/map-fronts.css?v=50">
+<link rel="stylesheet" href="css/map-command.css?v=50">
+<link rel="stylesheet" href="css/start-screen.css?v=50">
+<link rel="stylesheet" href="css/war-focus.css?v=50">
+<link rel="stylesheet" href="css/experience.css?v=50">
+<link rel="stylesheet" href="css/tutorial.css?v=50">
+<link rel="stylesheet" href="css/global-overview.css?v=50">
+<link rel="stylesheet" href="css/military-development.css?v=50">
+<link rel="stylesheet" href="css/core-command.css?v=50">
 </head>
 <body>
-<script src="js/runtime.js?v=49"></script>
+<script src="js/runtime.js?v=50"></script>
 
 <!-- 开始界面 -->
 <div id="startScreen" class="start-screen">
@@ -54,7 +55,7 @@
       </fieldset>
       <button id="btnStart">进入战区 <span aria-hidden="true">→</span></button>
       <button id="btnContinue" class="btn-continue" style="display:none">继续上次战役</button>
-      <p class="setup-footnote">本地存档 <span id="releaseVersion">版本 v49</span></p>
+      <p class="setup-footnote">本地存档 <span id="releaseVersion">版本 v50</span></p>
     </section>
   </div>
 </div>
@@ -84,9 +85,12 @@
   <button id="btnWorldOverview" class="nav-primary"><span class="nav-glyph" aria-hidden="true">◎</span><span>全球总览</span></button>
   <details class="nav-management"><summary>更多 ···</summary><div class="management-options">
     <button data-view="production">军队与训练</button><button data-view="research">军事科技</button><button data-view="logistics">后勤与发展</button><button data-view="news">世界大事</button>
-    <button data-view="campaign">战役任务</button><button data-view="overview">国家详情</button><button data-view="history-sources">历史资料</button><button id="btnOpenLog">战况记录</button>
-    <button id="btnFocus">国策</button><button id="btnTech">科研</button><button id="btnDiplo">外交详情</button>
-    <button id="btnSave">保存战役</button><button id="btnHome">返回主界面</button><button id="hotkeyHelp">操作帮助</button><button id="btnSurrender">投降</button>
+    <button id="btnSave">保存战役</button><button id="btnHome">返回主界面</button>
+    <details class="nav-extras"><summary>资料与其他操作</summary><div class="nav-extra-options">
+      <button data-view="campaign">战役任务</button><button data-view="overview">国家详情</button><button data-view="history-sources">历史资料</button><button id="btnOpenLog">战况记录</button>
+      <button id="btnFocus">国策</button><button id="btnTech">科研</button><button id="btnDiplo">外交详情</button>
+      <button id="hotkeyHelp">操作帮助</button><button id="btnSurrender">投降</button>
+    </div></details>
   </div></details>
 </nav>
 
@@ -103,6 +107,7 @@
   <!-- 顶部目标提示条 -->
   <button id="objectiveBar" class="objective-bar hidden" title="查看战役任务"><span class="obj-icon" aria-hidden="true">◎</span><span class="obj-text">当前任务：<span id="objText">完成战役准备</span></span><span class="obj-progress" id="objProgress">0 / 2</span><span class="obj-arrow" aria-hidden="true">↗</span></button>
   <div id="contextHint" class="context-hint" aria-live="polite">选择地图上的省份，查看详情并下达命令。</div>
+  <button id="worldUnrest" class="world-unrest hidden" aria-live="polite"></button>
   <svg id="mapSvg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
     <defs>
       <radialGradient id="oceanGrad" cx="50%" cy="50%" r="75%">
@@ -213,24 +218,25 @@
 <!-- 提示框 -->
 <div id="tooltip"></div>
 
-<script src="js/data.js?v=49"></script>
-<script src="js/data_world.js?v=49"></script>
-<script src="js/data_provinces.js?v=49"></script>
-<script src="js/data_historical_map.js?v=49"></script>
-<script src="js/data_world_historical.js?v=49"></script>
-<script src="js/data_historical_regions.js?v=49"></script>
-<script src="js/historical_regions.js?v=49"></script>
-<script src="js/history.js?v=49"></script>
-<script src="js/world.js?v=49"></script>
-<script src="js/strategic_regions.js?v=49"></script>
-<script src="js/campaign.js?v=49"></script>
-<script src="js/order_of_battle.js?v=49"></script>
-<script src="js/game.js?v=49"></script>
-<script src="js/map.js?v=49"></script>
-<script src="js/world-news.js?v=49"></script>
-<script src="js/global-overview.js?v=49"></script>
-<script src="js/ui.js?v=49"></script>
-<script src="js/tutorial.js?v=49"></script>
-<script src="js/main.js?v=49"></script>
+<script src="js/data.js?v=50"></script>
+<script src="js/data_world.js?v=50"></script>
+<script src="js/data_provinces.js?v=50"></script>
+<script src="js/data_historical_map.js?v=50"></script>
+<script src="js/data_world_historical.js?v=50"></script>
+<script src="js/data_historical_regions.js?v=50"></script>
+<script src="js/historical_regions.js?v=50"></script>
+<script src="js/history.js?v=50"></script>
+<script src="js/world.js?v=50"></script>
+<script src="js/strategic_regions.js?v=50"></script>
+<script src="js/campaign.js?v=50"></script>
+<script src="js/order_of_battle.js?v=50"></script>
+<script src="js/unrest.js?v=50"></script>
+<script src="js/game.js?v=50"></script>
+<script src="js/map.js?v=50"></script>
+<script src="js/world-news.js?v=50"></script>
+<script src="js/global-overview.js?v=50"></script>
+<script src="js/ui.js?v=50"></script>
+<script src="js/tutorial.js?v=50"></script>
+<script src="js/main.js?v=50"></script>
 </body>
 </html>

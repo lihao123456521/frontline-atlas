@@ -6,15 +6,15 @@ const path=require('node:path');
 
 function setup(){
   class Element{
-    constructor(){this.children=[];this.dataset={};this.attrs={};this.listeners={};this.classes=new Set();this.classList={add:x=>this.classes.add(x),remove:x=>this.classes.delete(x),contains:x=>this.classes.has(x)};}
+    constructor(){this.children=[];this.dataset={};this.attrs={};this.listeners={};this.classes=new Set();this.classList={add:x=>this.classes.add(x),remove:x=>this.classes.delete(x),contains:x=>this.classes.has(x),toggle:(name,force)=>force?this.classes.add(name):this.classes.delete(name)};}
     set innerHTML(v){this.children=[];this.html=v;}
     setAttribute(k,v){this.attrs[k]=v;}
     appendChild(e){this.children.push(e);return e;}
     addEventListener(k,f){this.listeners[k]=f;}
   }
-  const box=new Element(),modal=new Element(),body=new Element();modal.classList.add('hidden');body.classList.add('playing');
+  const box=new Element(),modal=new Element(),body=new Element(),unrest=new Element();modal.classList.add('hidden');body.classList.add('playing');unrest.classList.add('hidden');
   const timers=new Map(),focused=[],selected=[];let serial=0;
-  const ctx=vm.createContext({document:{body,getElementById:id=>id==='worldNews'?box:modal,createElement:()=>new Element()},
+  const ctx=vm.createContext({document:{body,getElementById:id=>id==='worldNews'?box:id==='worldUnrest'?unrest:id==='eventModal'?modal:null,createElement:()=>new Element()},
     setTimeout:fn=>{timers.set(++serial,fn);return serial;},clearTimeout:id=>timers.delete(id),MapView:{focusProvince:i=>focused.push(i)}});
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/world-news.js'),'utf8')+'\nthis.news=WorldNews;',ctx);
   const state={player:'ger',worldEventSerial:0,worldEvents:[]};ctx.news.reset(state);
@@ -22,7 +22,7 @@ function setup(){
   const update=()=>ctx.news.update(state,i=>selected.push(i));
   const close=()=>box.children.find(e=>e.attrs['aria-label']==='关闭重点事件').listeners.click();
   const tick=()=>{const [id,fn]=timers.entries().next().value;timers.delete(id);fn();};
-  return {news:ctx.news,state,box,modal,body,timers,focused,selected,event,update,close,tick,ctx};
+  return {news:ctx.news,state,box,modal,body,unrest,timers,focused,selected,event,update,close,tick,ctx};
 }
 
 test('acknowledging defense alerts clears the card without starting any simulation clock',()=>{
@@ -75,4 +75,13 @@ test('loaded games do not replay old events and returning home clears queued car
   const f=setup();f.event();f.news.reset(f.state);f.update();assert.equal(f.timers.size,0);
   f.event();f.update();assert.equal(f.box.dataset.event,'e2');
   f.news.reset();assert.equal(f.timers.size,0);assert.equal(f.box.children.length,0);assert.equal(f.box.classList.contains('hidden'),true);
+});
+
+test('foreign civil wars remain locatable after the transient news disappears and clear only after actual peace',()=>{
+  const f=setup();Object.assign(f.state,{countries:{esp:{alive:true,name:'西班牙'},rebels:{alive:true,name:'反对派'}},
+    provinces:[{owner:'esp'},{owner:'rebels'}],wars:[{a:'esp',b:'rebels'}],unrest:{conflicts:[{parent:'esp',rebels:'rebels',kind:'civilWar'}]}});
+  f.event('war',['esp','rebels'],3);f.update();assert.equal(f.unrest.classList.contains('hidden'),false);assert.match(f.unrest.textContent,/西班牙内战/);
+  f.tick();assert.equal(f.box.classList.contains('hidden'),true);assert.equal(f.unrest.classList.contains('hidden'),false);
+  f.unrest.onclick();assert.deepEqual(f.focused,[1]);assert.deepEqual(f.selected,[1]);
+  f.state.wars=[];f.update();assert.equal(f.unrest.classList.contains('hidden'),true);assert.equal(f.unrest.textContent,'');
 });
