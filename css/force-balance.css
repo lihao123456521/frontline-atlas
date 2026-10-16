@@ -1,0 +1,56 @@
+.essential-resources { display: flex; flex: 1; justify-content: center; gap: clamp(18px, 3vw, 42px); min-width: 0; }
+.force-chip { flex-direction: column; align-items: flex-start; gap: 2px; }
+.force-chip span { font-size: 11px; letter-spacing: 1px; }
+.force-chip strong { font-size: 20px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.supply-summary { position: relative; flex: none; }
+.supply-summary > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: #b6cbc8; font-size: 12px; }
+.supply-popover { position: absolute; right: 0; top: 100%; min-width: 220px; padding: 16px; background: #193741; border: 1px solid #668580; border-radius: 8px; box-shadow: 0 10px 30px #07172388; display: grid; gap: 14px; }
+.supply-popover .resource-chip { justify-content: space-between; width: 100%; gap: 20px; }
+.supply-popover .resource-chip span { font-size: 12px; }
+.supply-popover .resource-chip strong { font-size: 15px; }
+.force-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.force-metrics:has(> :nth-child(4)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.force-metric { min-width: 0; padding: 10px 8px; border-radius: 6px; background: #112c3570; border-top: 2px solid #a58d61; display: flex; flex-direction: column; gap: 7px; }
+#rpContent .force-metric > span { color: #afc7c5; font-size: 12px; }
+#rpContent .force-metric > strong { color: #f0dfbc; font-size: 18px; font-weight: 650; line-height: 1.3; letter-spacing: -.3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.city-force { display: block; }
+.city-force > span { display: block; margin-top: 9px; }
+.auto-equipment, .occupation-status { padding: 14px; margin: 14px 0; border: 1px solid #4b6c6c; border-radius: 8px; background: #17343b55; }
+.occupation-status.critical { border-color: #b67b60; background: #493b3544; }
+#rpContent .auto-equipment h4, #rpContent .occupation-status h4 { margin: 0 0 10px; font-size: 15px; color: #e4d3b3; }
+.equipment-settings > summary, .occupation-details > summary { min-height: 36px; display: flex; align-items: center; color: #b5ccc8; cursor: pointer; font-size: 12px; }
+.training-output { color: #e7c997; font-size: 15px; font-weight: 650; }
+#rpContent .army-overview { padding: 12px; }
+#rpContent .army-overview .force-metric > strong { font-size: 16px; }
+#rpContent .army-overview { margin-bottom: 8px; }
+#rpContent .army-overview .army-explanation { margin-top: 4px; }
+.unit-training .core-branches { margin: 8px 0; }
+.unit-training .training-role, .unit-training .training-duration, .unit-training .training-output { margin: 6px 0; }
+.unit-training .training-costs { gap: 6px; margin: 10px 0; }
+.unit-training .training-cost { flex-direction: row; align-items: baseline; justify-content: space-between; min-width: 45px; padding: 6px; gap: 4px; border-radius: 6px; }
+.unit-training .training-cost strong { font-size: 16px; }
+.unit-training .training-cost span { font-size: 11px; }
+#rpContent .combat-sides { gap: 10px; }
+#rpContent .combat-side { min-width: 0; }
+#rpContent .combat-side .force-metrics { grid-template-columns: 1fr; gap: 5px; }
+#rpContent .combat-side .force-metric { flex-direction: row; align-items: baseline; justify-content: space-between; padding: 6px; border-top: 0; border-left: 2px solid #a58d61; gap: 4px; }
+#rpContent .combat-side .force-metric > strong { font-size: 16px; }
+@media (max-width: 1050px) {
+  #topbar { gap: 12px; }
+  .essential-resources { gap: 16px; }
+  .force-chip strong { font-size: 16px; }
+}
+@media (max-width: 700px) {
+  #topbar { gap: 5px; }
+  #topBarCountry { max-width: 72px; gap: 5px; }
+  #topBarCountry .name { font-size: 12px; }
+  #topBarCountry .flag { width: 20px; }
+  .essential-resources { gap: 0; justify-content: space-evenly; margin: 0; }
+  .force-chip { gap: 3px; align-items: center; }
+  .force-chip span { font-size: 10px; letter-spacing: 0; }
+  .force-chip strong { font-size: 12px; }
+  .supply-summary > summary { font-size: 11px; min-width: 28px; justify-content: center; }
+  .supply-popover { right: -2px; }
+  #rpContent .force-metric > strong { font-size: 16px; }
+  .force-metric { padding: 8px 6px; }
+}

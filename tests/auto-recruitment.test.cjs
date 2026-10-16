@@ -10,6 +10,7 @@ function setup(player='ger',scenario='sandbox36'){
   for(const file of ['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','history.js','world.js','campaign.js','game.js','order_of_battle.js'])
     vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',file),'utf8'),ctx,{filename:file});
   const Game=vm.runInContext('Game',ctx);Game.init(player,'neu',null,'standard',scenario,{provincialRecruitment:false});
+  Game.setAutoEquipment({enabled:false});
   return {Game,ctx,types:vm.runInContext('UNIT_TYPES',ctx)};
 }
 

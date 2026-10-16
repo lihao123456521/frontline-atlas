@@ -1,4 +1,4 @@
-/* 师级兵力的历史规模近似。只用于新战役；海空编队保留原有抽象。来源与口径见 docs/2026-10-01-army-sources.md。 */
+/* 陆军参考规模及新战役军备游戏配置。历史参考来源见 docs/2026-10-01-army-sources.md；增强配置不是历史统计。 */
 const OrderOfBattle = (() => {
   const sources = Object.freeze({
     ger36: Object.freeze({year:1936,title:'FRUS 1936：德国陆军扩编报告',url:'https://history.state.gov/historicaldocuments/frus1936v01/d276',scope:'1936 年 10 月报告扩编自 24 至 36 师；1 月开局取中间规模近似，非该日逐师战斗序列。'}),
@@ -80,6 +80,49 @@ const OrderOfBattle = (() => {
   const isLand=d=>(d.kind||UNIT_TYPES[d.type]?.kind)==='land';
   const allied=(s,a,b)=>!!s.alliances?.[[a,b].sort().join('|')];
   const atWar=(s,a,b)=>(s.wars||[]).some(w=>(w.a===a&&w.b===b)||(w.b===a&&w.a===b));
+  const equipmentProfiles=Object.freeze({
+    sandbox36:{ger:[1800,2500,40],sov:[10000,7000,80],uk:[1200,2000,200],fra:[3000,2000,100],usa:[1000,3000,180],jpn:[700,2500,160],ita:[1000,1800,80],chn:[200,400,20]},
+    poland39:{ger:[3500,5500,70],sov:[18000,12000,100],uk:[3000,6000,230],fra:[4500,4500,110],usa:[2000,5000,200],jpn:[1800,5000,180],ita:[2000,3500,100],chn:[400,600,15]},
+    barbarossa41:{ger:[6000,10000,90],sov:[20000,18000,120],uk:[6000,12000,250],fra:[200,500,20],usa:[8000,15000,250],jpn:[2500,7000,210],ita:[3000,4500,110],chn:[500,800,10]},
+    pacific42:{ger:[6500,11000,90],sov:[18000,18000,100],uk:[8000,14000,250],fra:[250,600,25],usa:[12000,20000,280],jpn:[3000,8000,230],ita:[3000,4500,110],chn:[600,1000,12]}
+  });
+  function equipmentProfile(scenario,id){
+    const values=equipmentProfiles[scenario]?.[id];
+    return values?{tanks:values[0],aircraft:values[1],ships:values[2],label:'军备游戏配置 · 非历史统计'}:null;
+  }
+  function configureOpeningEquipment(s,report,makeDivision){
+    report.equipment={label:'军备游戏配置 · 非历史统计',countries:{}};
+    const nominal=(unit,key)=>unit['nominal'+key[0].toUpperCase()+key.slice(1)]??(UNIT_TYPES[unit.type][key]||0)*(unit.formationPermille||1000)/1000;
+    for(const id of Object.keys(report.countries)){
+      const owned=s.provinces.filter(p=>p.owner===id),units=owned.flatMap(p=>p.garrison),profile=equipmentProfile(s.scenario,id);
+      if(!units.length)continue;
+      if(profile?.aircraft&&!units.some(unit=>unit.kind==='air')){
+        const air=makeDivision('air'),base=owned.find(p=>p.id===s.countries[id]?.capital)||owned[0];
+        base.garrison.push(air);units.push(air);report.countries[id].air++;report.countries[id].total++;
+      }
+      if(profile?.ships&&!units.some(unit=>unit.kind==='naval')){
+        const base=owned.find(p=>s.coastal?.[s.provinces.indexOf(p)]);
+        if(base){const fleet=makeDivision('navy');base.garrison.push(fleet);units.push(fleet);report.countries[id].naval++;report.countries[id].total++;}
+      }
+      for(const key of ['tanks','aircraft','ships']){
+        let candidates=units.filter(unit=>key==='tanks'?(UNIT_TYPES[unit.type].tanks||0)>0:key==='aircraft'?unit.kind==='air':unit.kind==='naval');
+        if(key==='tanks'&&!candidates.length)candidates=units.filter(unit=>unit.kind==='land');
+        if(!candidates.length||!profile)continue;
+        const entries=candidates.map(unit=>({unit,weight:(key==='tanks'?(UNIT_TYPES[unit.type].tanks||1):UNIT_TYPES[unit.type][key]||1)*(unit.formationPermille||1000)/1000}));
+        const weight=entries.reduce((sum,entry)=>sum+entry.weight,0),readiness=entries.reduce((sum,entry)=>sum+entry.weight*entry.unit.hp/entry.unit.maxHp,0)/weight;
+        for(const unit of units)if(nominal(unit,key))unit['nominal'+key[0].toUpperCase()+key.slice(1)]=0;
+        const total=Math.ceil(profile[key]/Math.max(.01,readiness)-1e-7);
+        for(const entry of weightedAllocation(entries,total))entry.unit['nominal'+key[0].toUpperCase()+key.slice(1)]=entry.count;
+      }
+      if(profile)for(const unit of units.filter(unit=>unit.kind!=='land')){
+        const type=UNIT_TYPES[unit.type],key=unit.kind==='air'?'aircraft':'ships';
+        unit.nominalPersonnel=Math.max(1,Math.round(type.man*1000*nominal(unit,key)/(type[key]||1)));
+      }
+      const summary={};
+      for(const key of ['tanks','aircraft','ships'])summary[key]=units.reduce((sum,unit)=>sum+nominal(unit,key)*unit.hp/unit.maxHp,0);
+      report.equipment.countries[id]={...summary,...(profile?{targets:profile}:{})};
+    }
+  }
   function weightedAllocation(entries,total){
     const sum=entries.reduce((n,e)=>n+e.weight,0);
     if(!sum||!total)return entries.map(e=>({...e,count:0}));
@@ -121,7 +164,7 @@ const OrderOfBattle = (() => {
       result.divisions+=count;result.nominalPersonnel+=nominal;result.personnel+=nominal*Math.max(1,Math.round(t.hp*config.readiness))/t.hp;return result;
     },{divisions:0,nominalPersonnel:0,personnel:0});
     const historical=summarize(config.composition),opening=summarize(composition);
-    return {...opening,historicalDivisions:historical.divisions,historicalPersonnel:historical.personnel,
+    return {...opening,...(reinforced&&equipmentProfile(scenario,id)?equipmentProfile(scenario,id):{}),historicalDivisions:historical.divisions,historicalPersonnel:historical.personnel,
       historicalNominalPersonnel:historical.nominalPersonnel,composition,reinforced,targetMultiplier:plan.targetMultiplier,
       targetPersonnel:reinforced?plan.targetPersonnel:historical.personnel,reinforcementLabel:plan.reinforcementLabel,approximate:true};
   }
@@ -361,7 +404,7 @@ const OrderOfBattle = (() => {
     if(s.orderOfBattleVersion===1)return s.orderOfBattle;
     const table=tables[s.scenario];if(!table)return null;
     const report={version:1,scenario:s.scenario,year:s.date.year,month:s.date.month,approximate:true,
-      unitScale:'陆军按师级等效编制近似；战斗群与驻防分队从既有陆军拆出，可独立调遣但不增加全国人数或历史师数。海军按舰队编队，空军按联队，不能相加当作师数。',countries:{}};
+      unitScale:'陆军按师级等效编制近似；战斗群与驻防分队从既有陆军拆出，可独立调遣但不增加全国人数或历史师数。海空编队用于调遣，军备按实际辆、架、艘另计，不能把联队数当作飞机数。',countries:{}};
     report.configuration=options.reinforcedArmy===true?'reinforced':'historical';
     report.reinforcedArmy={enabled:false};
     if(options.reinforcedArmy===true)report.unitScale='增强开局主要国家陆军按400万至800万现员目标配置，其余陆军通常 ×2；属于游戏配置，不冒称历史人数。'+report.unitScale;
@@ -410,7 +453,11 @@ const OrderOfBattle = (() => {
     if(options.reinforcedArmy===true)reinforceOpeningArmy(s,makeDivision,report);
     fillOpeningCoverage(s,makeDivision,report);
     splitOpeningBattleGroups(s,makeDivision,report);
+    if(options.reinforcedArmy===true){
+      configureOpeningEquipment(s,report,makeDivision);
+      report.unitScale+=' 坦克按辆、飞机按架、舰艇按艘独立配置，随真实单位编制与损失变化，不随陆军人数倍增。';
+    }
     s.orderOfBattleVersion=1;s.orderOfBattle=report;return report;
   }
-  return {apply,tables,sources,preview};
+  return {apply,tables,sources,preview,equipmentProfile};
 })();

@@ -90,7 +90,7 @@ const WorldNews=(()=>{
       state.wars.some(war=>war.a===conflict.parent&&war.b===conflict.rebels||war.b===conflict.parent&&war.a===conflict.rebels));
     button.classList.toggle('hidden',!conflicts.length);
     if(!conflicts.length){button.textContent='';return;}
-    const conflict=conflicts.find(item=>item.parent===state.player)||conflicts[0],title=state.countries[conflict.parent].name+(conflict.kind==='civilWar'?'内战':'起义');
+    const conflict=conflicts.find(item=>item.parent===state.player)||conflicts[0],title=state.countries[conflict.parent].name+(conflict.kind==='civilWar'?'内战':conflict.kind==='occupation'?'占领区起义':'起义');
     button.textContent=title+(conflicts.length>1?' · 另'+(conflicts.length-1)+'处':'')+' →';button.setAttribute('aria-label','查看'+title);
     button.onclick=()=>{
       const index=state.provinces.findIndex(province=>province.owner===conflict.rebels);if(index<0)return;

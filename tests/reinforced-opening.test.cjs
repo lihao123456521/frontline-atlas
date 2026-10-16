@@ -66,7 +66,12 @@ for(const scenario of ['sandbox36','poland39','barbarossa41','pacific42'])test(s
   }
   for(const p of historical.provinces){
     const now=s.provinces.find(q=>q.id===p.id);
-    assert.equal(JSON.stringify(now.garrison.filter(d=>d.kind!=='land')),JSON.stringify(p.garrison.filter(d=>d.kind!=='land')),'enhancement does not alter naval or air objects');
+    for(const previous of p.garrison.filter(d=>d.kind!=='land')){
+      const current=now.garrison.find(unit=>unit.id===previous.id);assert.ok(current,'existing naval and air identities remain');
+      const withoutEquipment={...current};for(const key of ['nominalTanks','nominalAircraft','nominalShips','nominalPersonnel'])delete withoutEquipment[key];
+      assert.equal(JSON.stringify(withoutEquipment),JSON.stringify(previous),'vehicle game profiles preserve health, organization and ownership, with dedicated crew configured separately');
+      assert.ok(current.nominalPersonnel>0,'new equipment has a dedicated naval or aviation workforce');
+    }
   }
   const all=s.provinces.flatMap(p=>p.garrison);assert.equal(new Set(all.map(d=>d.id)).size,all.length);
   assert.ok(all.length<=50000,'million soldier configurations remain within the save validator unit budget');

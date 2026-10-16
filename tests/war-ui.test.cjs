@@ -41,7 +41,7 @@ function setup(historical=false){
   const buttons=(text)=>descendants(panel).filter(e=>e.tagName==='button'&&e.textContent.includes(text));
   const types=vm.runInContext('UNIT_TYPES',ctx);
   const unit=type=>{const t=types[type];return {type,kind:t.kind,atk:t.atk,def:t.def,hp:t.hp,maxHp:t.hp,org:t.org,maxOrg:t.org};};
-  return {Game,UI,panel,buttons,descendants,unit,types,get,documentListeners,ticks,focuses};
+  return {Game,Unrest:historical?vm.runInContext('Unrest',ctx):null,UI,panel,buttons,descendants,unit,types,get,documentListeners,ticks,focuses};
 }
 
 test('military research shows prerequisites, assigns a real slot, supports cancellation and links unlocked artillery training',()=>{
@@ -77,6 +77,7 @@ test('large province training batches remain folded behind one queue summary',()
 
 test('free puppet proposals preview the reply before confirming and expose actual integration commands afterwards',()=>{
   const {Game,UI,panel,descendants,buttons}=setup(true),c=Game.country('ger');c.pp=500;Game.state.relations['aut|ger']=80;
+  const target=Game.country('aut');target.stability=0;target.warSupport=0;target.ideo=c.ideo;c.stability=80;Game.state.unrest.countries.aut.pressure=100;Game.state.relations['aut|ger']=200;
   UI.navigate('diplo');const select=descendants(panel).find(element=>element.attributes['aria-label']==='选择外交国家');select.value='aut';select.listeners.change();
   const before=Game.save();buttons('扶持傀儡政府…')[0].click();assert.match(panel.textContent,/月收入的10%/);assert.equal(Game.save(),before);
   buttons('取消外交命令')[0].click();assert.equal(Game.country('aut').subjectOf,null);
@@ -404,12 +405,29 @@ test('reinforcement sends actual available divisions and retreat is distinct fro
   buttons('撤退').find(b=>b.textContent==='撤退').click();buttons('确认撤退')[0].click();assert.equal(Game.getCombats().length,0);assert.match(panel.textContent,/最新战果/);
 });
 
-test('army overview emphasizes actual personnel while retaining division details and historical context',()=>{
+test('army overview gives personnel tanks and aircraft equal metrics while retaining division details',()=>{
   const fixture=setup(),{Game,UI,panel,descendants}=fixture;startUiCombat(fixture);const totals=Game.armyTotals(Game.state.player);assert.ok(totals.engaged>0);assert.ok(totals.landPersonnel>0);
   UI.navigate('production');assert.ok(panel.textContent.includes(totals.landPersonnel>=10000?(totals.landPersonnel/10000).toFixed(1)+' 万人':totals.landPersonnel.toLocaleString()+' 人'));
-  assert.ok(descendants(panel).some(e=>(e.className||'').includes('army-personnel')));
+  const metrics=descendants(panel).filter(element=>element.className==='force-metric');assert.equal(metrics.length,3);
+  assert.deepEqual(metrics.map(element=>element.dataset.asset),['personnel','tanks','aircraft']);
+  assert.ok(metrics.every(element=>element.children[1].tagName==='strong'));
   assert.match(panel.textContent,new RegExp(totals.land+' 师'));assert.match(panel.textContent,new RegExp('投入战斗 '+totals.engaged+' 师'));
   assert.match(panel.textContent,/师级规模近似/);
+});
+
+test('equipment logistics is on by default and manual training shows real tank and aircraft batch sizes',()=>{
+  const {Game,UI,panel,buttons,descendants}=setup();UI.navigate('production');assert.match(panel.textContent,/装备后勤 · 自动运行/);
+  buttons('坦克').find(button=>button.textContent==='坦克').click();assert.match(panel.textContent,/每批交付 250 辆坦克/);assert.ok(buttons('训练 装甲师').length);
+  buttons('飞机').find(button=>button.textContent==='飞机').click();assert.match(panel.textContent,/每批交付 100 架飞机/);assert.ok(buttons('训练 战斗机联队').length);
+  const toggle=descendants(panel).find(element=>element.attributes['aria-label']==='自动装备补充');assert.equal(toggle.checked,true);toggle.checked=false;toggle.listeners.change();assert.equal(Game.autoEquipmentStatus().enabled,false);
+  const intensity=descendants(panel).find(element=>element.attributes['aria-label']==='装备补充强度');intensity.value='expand';intensity.listeners.change();assert.equal(Game.autoEquipmentStatus().intensity,'expand');
+});
+
+test('selected occupied provinces expose local support resistance and a free daily appeasement command',()=>{
+  const {Game,Unrest,UI,panel,buttons,get}=setup(true),state=Game.state,index=state.provinces.findIndex(province=>province.originalOwner==='aut');
+  state.provinces[index].owner='ger';state.selectedIdx=index;Unrest.observeOccupation(state,index);get('startScreen').classList.add('hidden');UI.mapHandlers().provinceClick(index);
+  assert.match(panel.textContent,/占领区/);assert.match(panel.textContent,/民意/);const before=Game.occupationStatus(index);assert.ok(before);assert.equal(before.canAppease,true);
+  buttons('安抚占领区')[0].click();const after=Game.occupationStatus(index);assert.ok(after.support>before.support);assert.equal(after.canAppease,false);assert.equal(buttons('安抚占领区')[0].disabled,true);
 });
 
 test('unit personnel follows unit manpower and HP ratio',()=>{

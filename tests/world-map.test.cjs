@@ -85,6 +85,18 @@ test('component borders distinguish colonies from disconnected European countrie
  }}
  assert.ok(seen.has(siberia),'European/world seam keeps Soviet land continuous');
 });
+test('Soviet Caspian and Central Asian land survives the European source seam without filling the sea',()=>{
+ for(const [name,lon,lat] of [
+  ['Atyrau',51.92,47.09],['Aktau inland',51.4,43.65],['Ustyurt',57,45],
+  ['western Kazakhstan',54,50],['Aktobe',57.17,50.28],['Makhachkala inland',47.3,42.98],
+  ['Baku',49.87,40.38],['Ashgabat',58.38,37.96],['Tashkent',69.24,41.3]
+ ])assert.ok(contains('sov',lon,lat),name+' is Soviet land');
+ for(const [lon,lat] of [[50,42],[51,41],[52,42],[49.5,45]]){
+  assert.equal(contains('sov',lon,lat),false,'Caspian water '+lon+','+lat);
+ }
+ assert.equal(contains('sov',24.03,49.84),false,'Polish Lwow keeps the European baseline');
+ assert.equal(contains('sov',24.75,59.44),false,'Estonia remains independent in 1936');
+});
 test('port metadata follows physical ocean shores instead of political frontiers',()=>{
  for(const name of ['China','Ethiopia','Uganda','Kenya','Poland','Germany (Prussia)','Mongolia'])assert.equal(data.regions.find(r=>r.name===name).coastal,false,name);
  for(const name of ['Japan','Cuba','Haiti','New Zealand','Malta'])assert.equal(data.regions.find(r=>r.name===name).coastal,true,name);

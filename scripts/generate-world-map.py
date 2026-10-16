@@ -1,10 +1,11 @@
-"""Reproducible offline world snapshot. Python stdlib only; see world-map-sources.md."""
+"""Reproducible offline world snapshot. See world-map-sources.md for geometry tools."""
 import hashlib
 import importlib.util
 import json
 import math
 import pathlib
 import re
+import sys
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -77,6 +78,41 @@ def split_ring(ring, tolerance=.03):
         if cut:
             out.append([[round((x+180)/360*1000,3),round((90-y)/180*500,3)] for x,y in cut])
     return out
+
+def union_rings(primary, supplement, exclusions):
+    tool_path = ROOT / '.check/region-tools'
+    if tool_path.exists():
+        sys.path.insert(0, str(tool_path))
+    from shapely import make_valid, set_precision, union_all
+    from shapely.geometry import GeometryCollection, Polygon
+
+    def polygonal(shape):
+        if shape.geom_type == 'Polygon':
+            return shape
+        if shape.geom_type not in ['MultiPolygon', 'GeometryCollection']:
+            return GeometryCollection()
+        return union_all([polygonal(part) for part in shape.geoms], grid_size=.001)
+
+    def geometry(rings):
+        geometry = GeometryCollection()
+        for ring in rings:
+            polygon = set_precision(polygonal(make_valid(Polygon(ring))), .001)
+            geometry = geometry.symmetric_difference(polygon)
+        return polygonal(geometry)
+
+    reserved = union_all([geometry(rings) for rings in exclusions], grid_size=.001)
+    restored = geometry(supplement).difference(reserved, grid_size=.001)
+    merged = union_all([geometry(primary), restored], grid_size=.001)
+    polygons = [merged] if merged.geom_type == 'Polygon' else list(merged.geoms)
+    output = []
+    for polygon in polygons:
+        if polygon.geom_type != 'Polygon':
+            continue
+        for boundary in [polygon.exterior, *polygon.interiors]:
+            points = [[round(x, 3), round(y, 3)] for x, y in boundary.coords[:-1]]
+            if len(points) >= 3:
+                output.append(points)
+    return output
 
 def land_paths(topology):
     transform=topology['transform']; arcs=[]
@@ -190,7 +226,9 @@ def main():
         combined=european_shapes.setdefault(owner,{'id':owner,'name':s['name'],'rings':[]})
         combined['rings'].extend(s['rings'])
     for owner,s in european_shapes.items():
-        if owner in ['uk','fra','ita','prt','sov','esp','nld','bel']:
+        if owner == 'sov':
+            continue
+        elif owner in ['uk','fra','ita','prt','esp','nld','bel']:
             # Replace only the metropolitan bounding rectangle, never the entire
             # European theatre: doing so would erase French North Africa/Anatolia.
             all_points=[p for r in s['rings'] for p in r]
@@ -210,6 +248,10 @@ def main():
             shape['rings']=s['rings']
     neighbors={tuple(sorted((a,b))) for ids in edges.values() for a in ids for b in ids if a!=b}
     neighbors.update(tuple(sorted(pair)) for pair in baseline['adjacency'] if pair[0] in shapes and pair[1] in shapes)
+    soviet_neighbors = {owner for pair in neighbors if 'sov' in pair for owner in pair if owner != 'sov'}
+    shapes['sov']['rings'] = union_rings(
+        european_shapes['sov']['rings'], shapes['sov']['rings'],
+        [shape['rings'] for owner, shape in shapes.items() if owner in soviet_neighbors])
     for s in shapes.values(): s['d']=europe.path(s['rings'])
     region_contract=[dict(id=re.sub(r'[^a-z0-9]+','_',r['name'].lower()).strip('_'),ownerId=r['owner'],name=r['name'],capital=r['capital'],lon=r['lon'],lat=r['lat'],colonial=r['name'] in COLONIES.get(r['owner'],[])) for r in regions]
     country_names={s['id']:s['name'] for s in shapes.values()}

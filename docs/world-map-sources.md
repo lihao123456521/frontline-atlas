@@ -3,7 +3,7 @@
 地图快照日期为 **1936 年 1 月 1 日**。运行时使用仓库内的 `js/data_world_historical.js`，无需连接地图服务。
 
 - 全球政治边界：[ETH Zürich CShapes 2.0](https://icr.ethz.ch/data/cshapes/)，原始数据 [CShapes-2.0.geojson](https://icr.ethz.ch/data/cshapes/CShapes-2.0.geojson)。按 `gwsyear/gwsmonth/gwsday` 与结束日期选取实体，共 170 个历史实体。
-- 欧洲细节：沿用 [CShapes-Europe.geojson](https://icr.ethz.ch/data/cshapes/CShapes-Europe.geojson) 中的 1936 年国界，针对主国本土包围范围替换全球数据，保留东普鲁士等原细节。土耳其、突尼斯、马耳他使用完整全球源，避免欧洲剧场源遗漏亚洲和非洲领土。
+- 欧洲细节：沿用 [CShapes-Europe.geojson](https://icr.ethz.ch/data/cshapes/CShapes-Europe.geojson) 中的 1936 年国界，针对主国本土包围范围替换全球数据，保留东普鲁士等原细节。土耳其、突尼斯、马耳他使用完整全球源，避免欧洲剧场源遗漏亚洲和非洲领土。苏联不能按欧洲片的包围矩形替换：欧洲片不覆盖完整的里海东岸和中亚，改用全球与欧洲源多边形的精确布尔并集；全球补片先扣除邻国的最终边界，欧洲边界优先，消除重叠环后再导出，保留真实里海水面。
 - 物理陆地：Natural Earth 1:10m，通过 `world-atlas/land-10m.json` 解码。Natural Earth 为公有领域。这仅是岸线背景，不代表政治主张或历史归属。
 
 政治数据遵守 **CC BY-NC-SA 4.0**：[许可文本](https://creativecommons.org/licenses/by-nc-sa/4.0/)。本资产对源数据进行日期选择、殖民控制聚合、地理简化、投影、日界线拆分和欧洲数据合并，属于改编；非商业、署名、相同方式共享要求仍适用。CShapes 数据引用：Schvitz, Guy, Rüegger, Seraina, Girardin, Luc, Cederman, Lars-Erik, Weidmann, Nils B. and Gleditsch, Kristian Skrede (2022), “Mapping The International System, 1886–2019: The CShapes 2.0 Dataset,” *Journal of Conflict Resolution*, 66(1), 144–161。
@@ -18,9 +18,9 @@ CShapes 的 China 边界不是 1936 年实际军事控制线，未单独提供�
 
 ## 再生成与验证
 
-运行 `python scripts/generate-world-map.py`。脚本优先读取 `.check/CShapes-2.0.geojson` 缓存，否则下载官方源；原始文件的 SHA-256 写入资产。全局轮廓采用 0.03° Douglas–Peucker 简化，岸线 0.06°，欧洲已验证细节保持不变。英、法、意、葡、西、荷、比与苏联仅替换欧洲本土范围，海外领土完整保留。资产约 5.85 MB，完整离线使用。
+运行 `python scripts/generate-world-map.py`。苏联源图并集需要 Shapely 2，可用 `python -m pip install --target .check/region-tools shapely` 安装；此工具不参与浏览器运行或发布。脚本优先读取 `.check/CShapes-2.0.geojson` 缓存，否则下载官方源；原始文件的 SHA-256 写入资产。全局轮廓采用 0.03° Douglas–Peucker 简化，岸线 0.06°，布尔运算保留资产原有的 0.001 世界单位精度。英、法、意、葡、西、荷、比仅替换欧洲本土范围，海外领土完整保留；苏联使用完整源多边形并集。资产约 5.92 MB，完整离线使用。
 
-运行 `node --test tests/world-map.test.cjs`，验证全球主要大陆首都落点、1936 控制关系、日界线、有效环、欧洲历史落点和陆地邻接。邻接中的英国／法国可来自殖民地陆地边界，不能直接推断欧洲省份隔海相连。
+运行 `node --test tests/world-map.test.cjs tests/map-caspian.test.cjs`，验证全球主要大陆首都落点、1936 控制关系、日界线、有效环、欧洲历史落点、里海周边陆地与水域、实际新开局的填色／点击／陆地路径。邻接中的英国／法国可来自殖民地陆地边界，不能直接推断欧洲省份隔海相连。
 
 `componentAdjacency` 按最终国家多边形环编号记录共享边界，只有具有两个相隔足够距离的共同边界点，或同国共线重叠切缝段的环才能连接。苏联等跨欧洲数据拼接的同国环需沿邻接图合并，伦敦与巴黎不能因为殖民地接壤形成陆路。
 

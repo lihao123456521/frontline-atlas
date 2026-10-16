@@ -4,23 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>钢铁雄心 · 浏览器版</title>
-<meta name="hoi-version" content="50">
-<link rel="stylesheet" href="css/style.css?v=50">
-<link rel="stylesheet" href="css/command-center.css?v=50">
-<link rel="stylesheet" href="css/historical-map.css?v=50">
-<link rel="stylesheet" href="css/war-command.css?v=50">
-<link rel="stylesheet" href="css/map-fronts.css?v=50">
-<link rel="stylesheet" href="css/map-command.css?v=50">
-<link rel="stylesheet" href="css/start-screen.css?v=50">
-<link rel="stylesheet" href="css/war-focus.css?v=50">
-<link rel="stylesheet" href="css/experience.css?v=50">
-<link rel="stylesheet" href="css/tutorial.css?v=50">
-<link rel="stylesheet" href="css/global-overview.css?v=50">
-<link rel="stylesheet" href="css/military-development.css?v=50">
-<link rel="stylesheet" href="css/core-command.css?v=50">
+<meta name="hoi-version" content="51">
+<link rel="stylesheet" href="css/style.css?v=51">
+<link rel="stylesheet" href="css/command-center.css?v=51">
+<link rel="stylesheet" href="css/historical-map.css?v=51">
+<link rel="stylesheet" href="css/war-command.css?v=51">
+<link rel="stylesheet" href="css/map-fronts.css?v=51">
+<link rel="stylesheet" href="css/map-command.css?v=51">
+<link rel="stylesheet" href="css/start-screen.css?v=51">
+<link rel="stylesheet" href="css/war-focus.css?v=51">
+<link rel="stylesheet" href="css/experience.css?v=51">
+<link rel="stylesheet" href="css/tutorial.css?v=51">
+<link rel="stylesheet" href="css/global-overview.css?v=51">
+<link rel="stylesheet" href="css/military-development.css?v=51">
+<link rel="stylesheet" href="css/core-command.css?v=51">
+<link rel="stylesheet" href="css/force-balance.css?v=51">
 </head>
 <body>
-<script src="js/runtime.js?v=50"></script>
+<script src="js/runtime.js?v=51"></script>
 
 <!-- 开始界面 -->
 <div id="startScreen" class="start-screen">
@@ -55,7 +56,7 @@
       </fieldset>
       <button id="btnStart">进入战区 <span aria-hidden="true">→</span></button>
       <button id="btnContinue" class="btn-continue" style="display:none">继续上次战役</button>
-      <p class="setup-footnote">本地存档 <span id="releaseVersion">版本 v50</span></p>
+      <p class="setup-footnote">本地存档 <span id="releaseVersion">版本 v51</span></p>
     </section>
   </div>
 </div>
@@ -64,10 +65,16 @@
 <header id="topbar" class="hidden">
   <div id="topBarCountry"><div class="flag" id="topBarFlag"></div><div class="name" id="topBarName"></div></div>
   <div class="essential-resources">
-    <button class="resource-chip" id="btnCities" title="查看我方领土"><span>领土</span><strong id="tbCities">0</strong></button>
-    <div class="resource-chip" title="用于征兵和补员的装备"><span>装备</span><strong id="tbEquip">0</strong></div>
-    <div class="resource-chip reserve-chip" title="可征召的预备兵员"><span>预备</span><strong id="tbMan">0</strong></div>
+    <div class="resource-chip force-chip"><span>兵员</span><strong id="tbPersonnel">0</strong></div>
+    <div class="resource-chip force-chip"><span>坦克</span><strong id="tbTanks">0</strong></div>
+    <div class="resource-chip force-chip"><span>飞机</span><strong id="tbAircraft">0</strong></div>
+    <div class="resource-chip force-chip"><span>舰艇</span><strong id="tbShips">0</strong></div>
   </div>
+  <details class="supply-summary"><summary aria-label="查看领土与后备库存">后备</summary><div class="supply-popover">
+    <button class="resource-chip" id="btnCities" title="查看我方领土"><span>领土</span><strong id="tbCities">0</strong></button>
+    <div class="resource-chip"><span>通用装备</span><strong id="tbEquip">0</strong></div>
+    <div class="resource-chip"><span>预备兵员</span><strong id="tbMan">0</strong></div>
+  </div></details>
   <div class="clock-controls">
     <div id="topBarDate"></div>
     <button id="btnPause" title="Space 暂停或继续">Ⅱ 暂停指挥</button>
@@ -218,25 +225,25 @@
 <!-- 提示框 -->
 <div id="tooltip"></div>
 
-<script src="js/data.js?v=50"></script>
-<script src="js/data_world.js?v=50"></script>
-<script src="js/data_provinces.js?v=50"></script>
-<script src="js/data_historical_map.js?v=50"></script>
-<script src="js/data_world_historical.js?v=50"></script>
-<script src="js/data_historical_regions.js?v=50"></script>
-<script src="js/historical_regions.js?v=50"></script>
-<script src="js/history.js?v=50"></script>
-<script src="js/world.js?v=50"></script>
-<script src="js/strategic_regions.js?v=50"></script>
-<script src="js/campaign.js?v=50"></script>
-<script src="js/order_of_battle.js?v=50"></script>
-<script src="js/unrest.js?v=50"></script>
-<script src="js/game.js?v=50"></script>
-<script src="js/map.js?v=50"></script>
-<script src="js/world-news.js?v=50"></script>
-<script src="js/global-overview.js?v=50"></script>
-<script src="js/ui.js?v=50"></script>
-<script src="js/tutorial.js?v=50"></script>
-<script src="js/main.js?v=50"></script>
+<script src="js/data.js?v=51"></script>
+<script src="js/data_world.js?v=51"></script>
+<script src="js/data_provinces.js?v=51"></script>
+<script src="js/data_historical_map.js?v=51"></script>
+<script src="js/data_world_historical.js?v=51"></script>
+<script src="js/data_historical_regions.js?v=51"></script>
+<script src="js/historical_regions.js?v=51"></script>
+<script src="js/history.js?v=51"></script>
+<script src="js/world.js?v=51"></script>
+<script src="js/strategic_regions.js?v=51"></script>
+<script src="js/campaign.js?v=51"></script>
+<script src="js/order_of_battle.js?v=51"></script>
+<script src="js/unrest.js?v=51"></script>
+<script src="js/game.js?v=51"></script>
+<script src="js/map.js?v=51"></script>
+<script src="js/world-news.js?v=51"></script>
+<script src="js/global-overview.js?v=51"></script>
+<script src="js/ui.js?v=51"></script>
+<script src="js/tutorial.js?v=51"></script>
+<script src="js/main.js?v=51"></script>
 </body>
 </html>

@@ -16,7 +16,7 @@ function setup(player='ger'){
 }
 function units(Game){return Game.state.provinces.flatMap(p=>p.garrison).concat(Game.state.activeCombats.flatMap(combat=>combat.attackers.map(entry=>entry.unit)));}
 function readiness(Game){return units(Game).map(unit=>({id:unit.id,hp:unit.hp,org:unit.org,formationPermille:unit.formationPermille,nominalPersonnel:unit.nominalPersonnel})).sort((first,second)=>first.id.localeCompare(second.id));}
-function context(Game){return {doAssault:(...args)=>Game.doAssault(...args),log:()=>{},recordWorldEvent:()=>{}};}
+function context(Game){return {doAssault:(...args)=>Game.doAssault(...args),makeDivision:(...args)=>Game.makeDivision(...args),log:()=>{},recordWorldEvent:()=>{}};}
 function nextDay(Game,Unrest){Game.state.daysElapsed++;return Unrest.tick(Game.state,context(Game));}
 function outbreak(Game,Unrest,id){Game.state.unrest.countries[id].pressure=100;return nextDay(Game,Unrest).started.find(item=>item.parent===id);}
 test('unchanged 1936 Spain develops an actual mainland civil war from pressure, with legal marching battles instead of a calendar popup',()=>{
@@ -162,6 +162,7 @@ test('submitting to a rebel faction through real diplomacy before reunification 
     if(appeal<3)assert.equal(Game.advanceDay(),true);
   }
   assert.ok(Game.country('esp').stability>=95);
+  assert.equal(Game.proposePeace(conflict.rebels),true,'a ceasefire precedes a negotiated alliance');
   for(let proposal=0;proposal<20;proposal++)assert.equal(Game.diploAction('improve',conflict.rebels),true);
   assert.equal(Game.diploAction('ally',conflict.rebels),true);assert.equal(Game.isAllied('esp',conflict.rebels),true);
   assert.equal(Game.diploAction('submit',conflict.rebels),true);assert.equal(Game.country('esp').subjectOf,conflict.rebels);
@@ -184,6 +185,7 @@ test('rebel subjects transfer to the existing sovereign instead of creating a ne
   const {Game}=setup('esp');Game.state.unrest.countries.esp.pressure=100;assert.equal(Game.advanceDay(),true);
   const conflict=Game.state.unrest.conflicts.find(item=>item.parent==='esp');assert.ok(conflict);
   Game.state.player='ger';
+  Game.country('esp').stability=0;Game.country('esp').warSupport=0;Game.country('esp').ideo=Game.country('ger').ideo;Game.state.unrest.countries.esp.pressure=100;
   for(let proposal=0;proposal<20;proposal++)assert.equal(Game.diploAction('improve','esp'),true);
   assert.equal(Game.diploAction('puppet','esp'),true);assert.equal(Game.country('esp').subjectOf,'ger');
   Game.state.player='prt';
@@ -200,6 +202,7 @@ test('reunification ends only new sovereign-group wars after called rebel subjec
     const conflict=Game.state.unrest.conflicts.find(item=>item.parent==='esp');assert.ok(conflict);
     if(protectedBy){
       Game.state.player=protectedBy;
+      Game.country('esp').stability=0;Game.country('esp').warSupport=0;Game.country('esp').ideo=Game.country(protectedBy).ideo;Game.state.unrest.countries.esp.pressure=100;
       for(let proposal=0;proposal<20;proposal++)assert.equal(Game.diploAction('improve','esp'),true);
       assert.equal(Game.diploAction('puppet','esp'),true);assert.equal(Game.country('esp').subjectOf,protectedBy);
     }
@@ -245,5 +248,79 @@ test('unrest state validation rejects corrupt pressure, foreign conflict pointer
   for(const mutate of [state=>state.unrest.countries.ger.pressure=-1,state=>state.unrest.countries.ger.lastDay=10000,
     state=>state.unrest.countries.ger.division=Infinity,state=>state.unrest.conflicts.push({id:'u1',parent:'ger',rebels:'missing',kind:'civilWar',startedDay:0,status:'war',provinceIds:[]})]){
     const bad=JSON.parse(Game.save());mutate(bad);assert.equal(Unrest.valid(bad),false);
+  }
+});
+function occupyWithSmallRealGuard(Game,Unrest){
+  const index=Game.state.provinces.findIndex((province,index)=>province.owner==='fra'&&province.originalOwner==='fra'&&!province.isCapital&&
+    Game.neighbors(index).some(next=>Game.province(next).owner==='fra')&&Game.neighbors(index).some(next=>Game.province(next).owner==='ger'));
+  assert.ok(index>=0);const province=Game.province(index),home=Game.neighbors(index).find(next=>Game.province(next).owner==='fra');
+  Game.province(home).garrison.push(...province.garrison);province.garrison=[];
+  const guards=Game.state.provinces.filter(land=>land.owner==='ger').flatMap(land=>land.garrison.filter(unit=>unit.kind==='land').map(unit=>({land,unit})))
+    .sort((first,second)=>Game.unitPersonnel(first.unit)-Game.unitPersonnel(second.unit));
+  const guard=guards[0];assert.ok(guard);assert.ok(Game.unitPersonnel(guard.unit)>=50);
+  guard.land.garrison=guard.land.garrison.filter(unit=>unit!==guard.unit);province.garrison.push(guard.unit);guard.unit.owner='ger';province.owner='ger';
+  const record=Unrest.observeOccupation(Game.state,index);assert.ok(record);assert.ok(record.reserve>=200);
+  record.support=0;record.resistance=100;
+  return {index,province,record,guard:guard.unit};
+}
+test('occupied provinces retain a finite local population pool, visible public support and repeat-safe free local appeasement',()=>{
+  const {Game,Unrest}=setup(),origin=Game.country('fra'),before={...origin.mobilization};
+  const {index,record}=occupyWithSmallRealGuard(Game,Unrest);
+  assert.ok(record.reserve>0);assert.ok(Math.abs(origin.mobilization.reserve+record.reserve/1000-before.reserve)<1e-7);
+  assert.ok(Math.abs(origin.mobilization.capacity+record.capacity/1000-before.capacity)<1e-7);assert.equal(origin.mobilization.consumed,before.consumed);
+  const state=Unrest.provinceStatus(Game.state,index);assert.equal(state.support,0);assert.equal(state.resistance,100);assert.equal(state.garrisonSuppressed,false);
+  assert.equal(Unrest.appeaseProvince(Game.state,index,'fra'),false);const pp=Game.country('ger').pp;
+  assert.equal(Game.appeaseOccupation(index),true);assert.equal(Game.country('ger').pp,pp);assert.equal(record.support,18);assert.equal(record.resistance,78);
+  assert.equal(Game.appeaseOccupation(index),false);assert.equal(Game.occupationStatus(index).canAppease,false);
+  assert.equal(Unrest.valid(Game.state),true);assert.equal(Game.load(Game.save()),true);
+});
+test('a real small occupation guard takes sustained resistance losses before a local finite uprising establishes and fights a front',()=>{
+  const {Game,Unrest}=setup(),{index,province,record,guard}=occupyWithSmallRealGuard(Game,Unrest),guardId=guard.id,originalHp=guard.hp;
+  const originalIds=new Set(units(Game).map(unit=>unit.id)),people=Game.unitPersonnel(guard),reserve=record.reserve;
+  Game.country('ger').stability=20;Game.country('ger').res=0;Game.country('ger').equipment=0;
+  let conflict;
+  for(let day=0;day<90&&!conflict;day++){
+    const result=nextDay(Game,Unrest);conflict=result.started.find(conflict=>conflict.kind==='occupation'&&conflict.provinceIds.includes(province.id));
+    if(day===0){assert.equal(province.owner,'ger');assert.ok(guard.hp<originalHp,'an occupied province with a real guard cannot be recolored without fighting');}
+  }
+  assert.ok(conflict,'a permanently tiny guard must not veto an uprising indefinitely');
+  const rebels=Game.country(conflict.rebels);assert.ok(rebels.alive);assert.equal(province.owner,rebels.id);assert.equal(province.originalOwner,'fra');
+  assert.equal(units(Game).filter(unit=>unit.id===guardId).length,0,'the original guard is defeated, not duplicated or turned into rebels');
+  const newUnits=units(Game).filter(unit=>!originalIds.has(unit.id));assert.equal(newUnits.length,2);
+  assert.ok(newUnits.every(unit=>unit.owner===rebels.id&&unit.type==='infantry'));
+  assert.ok(record.reserve+record.consumed<=reserve+1e-7);assert.ok(Math.abs(record.losses-people)<1e-6);
+  assert.ok(Game.armyTotals(rebels.id).landPersonnel<=record.consumed+1e-7,'fighters come only from the local finite pool');
+  const battle=Game.state.activeCombats.find(combat=>combat.attacker===rebels.id);assert.ok(battle);assert.equal(battle.from,index);assert.equal(battle.phase,'preparation');
+  assert.equal(Game.province(battle.to).owner,'ger');assert.ok(Game.neighbors(index).includes(battle.to));
+  assert.equal(Unrest.valid(Game.state),true);assert.equal(Game.load(Game.save()),true);
+});
+test('substantial occupation reinforcements suppress active resistance without spending an unlimited local rebel reserve',()=>{
+  const {Game,Unrest}=setup(),{index,record,province}=occupyWithSmallRealGuard(Game,Unrest);
+  const troops=Game.state.provinces.filter(land=>land.owner==='ger'&&land!==province).flatMap(land=>land.garrison.filter(unit=>unit.kind==='land').map(unit=>({land,unit})))
+    .sort((first,second)=>Game.unitPersonnel(second.unit)-Game.unitPersonnel(first.unit));
+  for(const {land,unit} of troops.slice(0,2)){land.garrison=land.garrison.filter(troop=>troop!==unit);unit.owner='ger';province.garrison.push(unit);}
+  const hp=province.garrison.map(unit=>unit.hp),reserve=record.reserve;
+  for(let day=0;day<20;day++)nextDay(Game,Unrest);
+  assert.equal(province.owner,'ger');assert.equal(Unrest.provinceStatus(Game.state,index).garrisonSuppressed,true);
+  assert.deepEqual(province.garrison.map(unit=>unit.hp),hp);assert.equal(record.reserve,reserve);assert.ok(record.resistance<100);
+});
+
+test('aircraft and ships alone cannot suppress occupied people and evacuate without duplication or capture',()=>{
+  for(const kind of ['air','naval']){
+    const {Game,Unrest}=setup(),state=Game.state;
+    const index=state.provinces.findIndex((land,index)=>land.owner&&land.owner!=='ger'&&land.owner===land.originalOwner&&!land.isCapital&&
+      (kind==='naval'?Game.coastalOf(index)&&Game.seaAdj(index).some(next=>Game.province(next).owner==='ger'&&Game.coastalOf(next)):
+        land.originalOwner==='fra'&&Game.neighbors(index).some(next=>Game.province(next).owner==='ger')));
+    assert.ok(index>=0,kind+' legal evacuation fixture');const province=Game.province(index);
+    const nationality=province.originalOwner,originalHome=state.provinces.find(land=>land.owner===nationality&&land!==province);assert.ok(originalHome);originalHome.garrison.push(...province.garrison);province.garrison=[];province.owner='ger';
+    const source=state.provinces.find(land=>land.owner==='ger'&&land.garrison.some(unit=>unit.kind===kind)),unit=source.garrison.find(unit=>unit.kind===kind);
+    source.garrison=source.garrison.filter(troop=>troop!==unit);unit.owner='ger';province.garrison.push(unit);
+    const before={id:unit.id,hp:unit.hp,org:unit.org};const record=Unrest.observeOccupation(state,index);record.support=0;record.resistance=100;
+    assert.equal(Game.occupationStatus(index).garrison,0);assert.equal(Game.occupationStatus(index).garrisonSuppressed,false);
+    assert.equal(Game.advanceDay(),true);const conflict=state.unrest.conflicts.find(conflict=>conflict.kind==='occupation'&&conflict.provinceIds.includes(province.id));assert.ok(conflict,kind+' must not veto uprising');
+    const evacuated=units(Game).filter(troop=>troop.id===before.id);assert.equal(evacuated.length,1);assert.equal(evacuated[0].owner,'ger');assert.equal(evacuated[0].hp,before.hp);
+    const destination=state.provinces.find(land=>land.garrison.some(troop=>troop.id===before.id));assert.equal(destination.owner,'ger');if(kind==='naval')assert.equal(Game.coastalOf(state.provinces.indexOf(destination)),true);
+    assert.equal(Game.capitulationProgress(conflict.rebels),0,'the original occupied nationality is not the rebel homeland identity');assert.equal(province.originalOwner,nationality);
+    assert.equal(Game.load(Game.save()),true);
   }
 });

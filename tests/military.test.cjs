@@ -8,6 +8,7 @@ function setup(){
   ctx.Math.random=()=>0.5;
   for(const name of ['data.js','data_world.js','data_provinces.js','campaign.js','game.js']) vm.runInContext(fs.readFileSync(path.join(__dirname,'../js',name),'utf8'),ctx);
   const Game=vm.runInContext('Game',ctx); Game.init('ger','fas',null,'standard','sandbox36');
+  Game.setAutoEquipment({enabled:false});
   const types=vm.runInContext('UNIT_TYPES',ctx);
   const unit=key=>{const t=types[key];return {type:key,kind:t.kind,atk:t.atk,def:t.def,hp:t.hp,maxHp:t.hp,org:t.org,maxOrg:t.org};};
   const own=Game.provinceById('ger_rhine');

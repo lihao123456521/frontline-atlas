@@ -21,7 +21,7 @@ test('alliance proposals are free, reject invalid governments and may end an exi
   Game.diploAction('ally','fra');assert.equal(c.pp,100);
   for(const target of ['ger','missing'])assert.equal(Game.diplomacyAvailability('ally',target).available,false);
   Game.country('uk').alive=false;assert.equal(Game.diplomacyAvailability('improve','uk').available,false);
-  Game.state.wars.push({a:'ger',b:'ita'});Game.state.relations[key('ger','ita')]=100;
+  Game.state.wars.push({a:'ger',b:'ita'});Game.state.relations[key('ger','ita')]=200;
   assert.equal(Game.diplomacyAvailability('ally','ita').available,true);
   const pp=c.pp;assert.equal(Game.diploAction('ally','ita'),true);assert.equal(c.pp,pp);
   assert.equal(Game.isAllied('ger','ita'),true);assert.equal(Game.isAtWar('ger','ita'),false);
@@ -35,7 +35,8 @@ test('zero political power and low relations never block a proposal while a host
   assert.equal(Game.diploAction('ally','fra'),true);assert.equal(c.pp,0);assert.equal(Game.isAllied('ger','fra'),false);assert.equal(Game.sovereigntyResponse().outcome,'refused');
   assert.equal(Game.diplomacyAvailability('ally','fra').available,true);
   assert.equal(Game.diploAction('improve','fra'),true);assert.equal(c.pp,0);assert.equal(Game.relation('ger','fra'),-85);
-  Game.state.relations[key('ger','fra')]=0;assert.equal(Game.diploAction('ally','fra'),true);assert.equal(Game.isAllied('ger','fra'),true);
+  Game.state.relations[key('ger','fra')]=0;assert.equal(Game.diploAction('ally','fra'),true);assert.equal(Game.isAllied('ger','fra'),false);
+  Game.state.relations[key('ger','fra')]=200;assert.equal(Game.diploAction('ally','fra'),true);assert.equal(Game.isAllied('ger','fra'),true);
 });
 
 test('allies cannot be declared on or damaged by land or amphibious combat',()=>{

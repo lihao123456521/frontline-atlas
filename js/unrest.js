@@ -19,6 +19,7 @@ const Unrest=(()=>{
   }
   function initialize(state){
     if(!state.unrest)state.unrest={serial:0,countries:{},conflicts:[],lastResponses:{}};
+    if(!state.unrest.occupations)state.unrest.occupations={};
     for(const country of Object.values(state.countries)){
       if(state.unrest.countries[country.id])continue;
       const spanishDivision=country.id==='esp'&&state.date.year<=1937&&!country.rebellionOf;
@@ -27,6 +28,98 @@ const Unrest=(()=>{
         baselinePersonnel:people,previousPersonnel:people,lastDay:state.daysElapsed||0,warDays:0,lastAppeaseDay:null,lastRevoltDay:null};
     }
     return state.unrest;
+  }
+  function observeOccupation(state,index,options={}){
+    const province=state.provinces[index],controller=state.countries[province?.owner],origin=state.countries[province?.originalOwner];
+    if(!province||!controller||!origin)return null;
+    initialize(state);const records=state.unrest.occupations,previous=records[province.id];
+    if(province.owner===province.originalOwner){
+      if(previous?.reserve&&origin.mobilization){origin.mobilization.reserve+=previous.reserve/1000;origin.mobilization.capacity+=previous.reserve/1000;previous.capacity-=previous.reserve;previous.reserve=0;}
+      if(previous)previous.controller=province.owner;
+      return null;
+    }
+    if(controller.rebellionKind==='occupation')return previous||null;
+    if(previous&&previous.controller===province.owner)return previous;
+    const total=state.provinces.filter(land=>land.originalOwner===origin.id).reduce((sum,land)=>sum+weight(land),0);
+    const requested=Math.max(600,Math.round((origin.mobilization?.capacity||0)*1000*weight(province)/Math.max(.001,total)*.06));
+    const reserve=previous?previous.reserve:Math.min((origin.mobilization?.reserve||0)*1000,requested);
+    if(!previous&&origin.mobilization){origin.mobilization.reserve=Math.max(0,origin.mobilization.reserve-reserve/1000);origin.mobilization.capacity-=reserve/1000;}
+    const consent=Number.isFinite(options.consent)?options.consent:0;
+    return records[province.id]={origin:origin.id,controller:province.owner,support:limit(28+(controller.stability-origin.stability)*.12+consent*.5,10,80),
+      resistance:limit(48-consent*.35,10,65),reserve,capacity:previous?.capacity||reserve,consumed:previous?.consumed||0,
+      lastDay:state.daysElapsed||0,lastAppeaseDay:null,lastRevoltDay:previous?.lastRevoltDay??null,losses:previous?.losses||0};
+  }
+  function provinceStatus(state,index){
+    const province=state?.provinces?.[index],record=state?.unrest?.occupations?.[province?.id];
+    if(!province||!record||province.owner===province.originalOwner||state.countries[province.owner]?.rebellionKind==='occupation')return null;
+    const garrison=province.garrison.filter(unit=>unit.kind==='land'&&unit.hp>0).reduce((sum,unit)=>sum+personnel(unit),0);
+    const required=Math.max(1000,record.capacity*.45),suppression=garrison/required;
+    return {support:Math.round(record.support),resistance:Math.round(record.resistance),reserve:Math.round(record.reserve),
+      label:record.resistance>=75?'抵抗高涨':record.resistance>=45?'民意不稳':'逐渐安定',garrison:Math.round(garrison),required:Math.ceil(required),
+      garrisonSuppressed:suppression>=1,losses:Math.round(record.losses),origin:record.origin,
+      canAppease:province.owner===state.player&&record.lastAppeaseDay!==(state.daysElapsed||0)};
+  }
+  function appeaseProvince(state,index,controller=state?.player){
+    const province=state?.provinces?.[index];if(!province||province.owner!==controller||state.over)return false;
+    const record=observeOccupation(state,index);if(!record||record.lastAppeaseDay===(state.daysElapsed||0))return false;
+    record.support=limit(record.support+18,0,100);record.resistance=limit(record.resistance-22,0,100);record.lastAppeaseDay=state.daysElapsed||0;
+    return true;
+  }
+  function occupationOutbreak(state,index,record,context){
+    const province=state.provinces[index],government=state.countries[province.owner];
+    if(!context.makeDivision||province.garrison.some(unit=>unit.kind==='land'&&unit.hp>0)||
+      province.garrison.some(unit=>unit.hp>0)&&!context.returnTroop||(state.activeCombats||[]).some(combat=>combat.to===index||combat.from===index)||
+      record.reserve<200||state.unrest.conflicts.length>=64)return null;
+    const serial=++state.unrest.serial,rebelsId=record.origin+'_resistance_'+serial,rebels=JSON.parse(JSON.stringify(government));
+    Object.assign(rebels,{id:rebelsId,name:state.countries[record.origin].name+'抵抗军',color:'#bd743b',ideo:'neu',capital:province.id,capitalIdx:index,
+      alive:true,subjectOf:null,rebellionOf:government.id,rebellionKind:'occupation',stability:45,warSupport:75,aiWarDay:state.daysElapsed||0,researchProgress:0});
+    for(const field of stockFields)rebels[field]=0;
+    rebels.mobilization={...government.mobilization,capacity:0,reserve:0,consumed:0,taxDay:null,mobilizeDay:null};
+    state.countries[rebelsId]=rebels;
+    if(context.declareWar&&!context.declareWar(rebelsId,government.id)){delete state.countries[rebelsId];state.unrest.serial--;return null;}
+    const definition=UNIT_TYPES.infantry,budget=Math.min(3200,record.reserve),scale=Math.min(1000,Math.floor(budget/(definition.man*2)));
+    const troops=[context.makeDivision('infantry',scale),context.makeDivision('infantry',scale)];
+    const spent=troops.reduce((sum,unit)=>sum+personnel(unit),0);record.reserve=Math.max(0,record.reserve-spent);record.consumed+=spent;
+    for(const unit of troops){unit.owner=rebelsId;unit.org*=.65;}
+    const displaced=province.garrison;province.garrison=[];
+    for(const unit of displaced)context.returnTroop?.(unit,unit.owner||government.id,index,index);
+    province.owner=rebelsId;province.garrison.push(...troops);province.isCapital=true;
+    rebels.initialVictoryWeight=victoryWeight(province);rebels.initialLandDivisions=troops.reduce((sum,unit)=>sum+(unit.formationPermille??1000)/1000,0);
+    state.relations[pair(government.id,rebelsId)]=-200;state.intel[pair(government.id,rebelsId)]=100;
+    if(!context.declareWar)state.wars.push({a:rebelsId,b:government.id});
+    const conflict={id:'revolt_'+serial,parent:government.id,rebels:rebelsId,kind:'occupation',startedDay:state.daysElapsed||0,status:'war',provinceIds:[province.id]};
+    state.unrest.conflicts.push(conflict);record.lastRevoltDay=state.daysElapsed||0;initialize(state);
+    context.log?.(province.name+'爆发占领区起义，当地有限后备组成抵抗军，原占领守军未被复制或倒戈。','war');
+    context.recordWorldEvent?.('war',province.name+'爆发占领区起义','民意恶化与守备不足使抵抗军建立根据地；邻省归属仍由实际战斗决定。',index,[government.id,rebelsId],3);
+    const to=(state.adj[index]||[]).find(neighbor=>state.provinces[neighbor].owner===government.id);
+    if(to!==undefined&&context.doAssault)context.doAssault(rebelsId,index,to,0,1,true);
+    return conflict;
+  }
+  function tickOccupation(state,context){
+    const day=state.daysElapsed||0,started=[];
+    for(let index=0;index<state.provinces.length;index++){
+      const province=state.provinces[index],record=observeOccupation(state,index);if(!record||record.lastDay===day||state.countries[province.owner]?.rebellionKind==='occupation')continue;
+      const controller=state.countries[province.owner];record.lastDay=day;
+      const status=provinceStatus(state,index),suppression=status.garrison/Math.max(1,status.required);
+      const shortage=(controller.res<10||controller.equipment<10)?1:0,war=state.wars.some(war=>war.a===controller.id||war.b===controller.id);
+      record.support=limit(record.support+(controller.stability-55)*.008+Math.min(1,suppression)*.2+(record.lastAppeaseDay===day?.4:0)-shortage*.15-(war?.08:0),0,100);
+      record.resistance=limit(record.resistance+(50-record.support)*.035+shortage*.25+(war?.15:0)-Math.min(3,suppression)*1.2,0,100);
+      if(record.resistance>=75&&suppression<1&&record.reserve>0){
+        const guards=province.garrison.filter(unit=>unit.kind==='land'&&unit.hp>0&&!unit.combatId);
+        const people=guards.reduce((sum,unit)=>sum+personnel(unit),0),loss=Math.min(people,Math.max(8,people*.12)*(1-suppression),record.reserve*.15);
+        if(people&&loss>0){
+          for(const unit of guards)unit.hp=Math.max(0,unit.hp-unit.maxHp*(loss/people)*(unit.hp/unit.maxHp));
+          record.losses+=loss;const exhausted=Math.min(record.reserve,Math.max(1,loss*.35));record.reserve-=exhausted;record.consumed+=exhausted;
+          for(const unit of guards)if(unit.hp<=unit.maxHp*.01){record.losses+=personnel(unit);unit.hp=0;}
+          province.garrison=province.garrison.filter(unit=>unit.hp>unit.maxHp*.01||unit.kind!=='land'||unit.combatId);
+          if(Math.floor(record.losses/100)!==Math.floor((record.losses-loss)/100))context.log?.(province.name+'抵抗活动持续损耗小股守军；增援或安抚可降低风险。','war');
+        }
+      }
+      if(record.resistance>=95&&record.support<30&&(record.lastRevoltDay===null||day-record.lastRevoltDay>=120)){
+        const conflict=occupationOutbreak(state,index,record,context);if(conflict)started.push(conflict);
+      }
+    }
+    return started;
   }
   function conflictsFor(state,id){
     return (state.unrest?.conflicts||[]).filter(conflict=>conflict.parent===id&&state.countries[conflict.rebels]?.alive);
@@ -63,7 +156,9 @@ const Unrest=(()=>{
     const pressure=Math.round(record.pressure),level=active?'civilWar':divided?'ceasefire':pressure>=75?'critical':pressure>=40?'tense':'calm';
     const reasons=situation(state,id,record).reasons;
     if(divided)reasons.unshift('停火并非统一，反对派仍控制地区，可继续谈判');
+    const occupied=state.provinces.map((province,index)=>province.owner===id?provinceStatus(state,index):null).filter(Boolean);
     return {pressure,level,label:active?'内乱交战':divided?'停火分治':pressure>=75?'起义临近':pressure>=40?'局势紧张':'平稳',reason:reasons.join('、'),reasons,active,
+      occupiedCount:occupied.length,resistingCount:occupied.filter(province=>province.resistance>=75).length,maxResistance:Math.max(0,...occupied.map(province=>province.resistance)),
       rebels:conflicts.map(conflict=>({id:conflict.rebels,name:state.countries[conflict.rebels].name,
         provinceCount:state.provinces.filter(province=>province.owner===conflict.rebels).length})),
       canAppease:country.alive&&!state.over&&record.lastAppeaseDay!==(state.daysElapsed||0),
@@ -216,7 +311,8 @@ const Unrest=(()=>{
     for(const conflict of conflicts){
       const rebels=state.countries[conflict.rebels],relative=forces(state,id)/Math.max(1,forces(state,rebels.id));
       const lost=conflict.provinceIds.filter(provinceId=>state.provinces.find(province=>province.id===provinceId)?.owner!==rebels.id).length/Math.max(1,conflict.provinceIds.length);
-      const score=country.stability*.7+Math.min(25,relative*8)+lost*35;
+      const support=conflict.kind==='occupation'?conflict.provinceIds.reduce((sum,provinceId)=>sum+(state.unrest.occupations[provinceId]?.support||0),0)/conflict.provinceIds.length:country.stability;
+      const score=support*.7+Math.min(25,relative*8)+lost*35;
       if(score>=60){if(!reunite(state,conflict,context))return false;}
       else{
         if(!stopFighting(state,rebels.id,context))return false;
@@ -232,7 +328,7 @@ const Unrest=(()=>{
   }
   function tick(state,context={}){
     if(!state||state.over)return {changed:false,started:[]};initialize(state);
-    const day=state.daysElapsed||0,started=[];let changed=false;
+    const day=state.daysElapsed||0,started=tickOccupation(state,context);let changed=false;
     for(const country of Object.values(state.countries)){
       if(!country.alive||country.rebellionOf)continue;
       const record=state.unrest.countries[country.id];if(record.lastDay===day)continue;
@@ -254,7 +350,14 @@ const Unrest=(()=>{
     if(state.unrest===undefined)return true;
     const value=state.unrest,object=input=>!!input&&typeof input==='object'&&!Array.isArray(input),day=state.daysElapsed||0;
     const validDay=input=>input===null||Number.isSafeInteger(input)&&input>=0&&input<=day;
-    if(!object(value)||!Number.isSafeInteger(value.serial)||value.serial<0||!object(value.countries)||!Array.isArray(value.conflicts)||value.conflicts.length>64||!object(value.lastResponses))return false;
+    if(!object(value)||!Number.isSafeInteger(value.serial)||value.serial<0||!object(value.countries)||!Array.isArray(value.conflicts)||value.conflicts.length>64||!object(value.lastResponses)||
+      value.occupations!==undefined&&!object(value.occupations))return false;
+    for(const [id,record] of Object.entries(value.occupations||{})){
+      if(!state.provinces.some(province=>province.id===id)||!object(record)||!Object.hasOwn(state.countries,record.origin)||!Object.hasOwn(state.countries,record.controller)||
+        ['support','resistance'].some(field=>!Number.isFinite(record[field])||record[field]<0||record[field]>100)||
+        ['reserve','capacity','consumed','losses'].some(field=>!Number.isFinite(record[field])||record[field]<0)||
+        record.reserve+record.consumed>record.capacity+1e-7||!validDay(record.lastDay)||record.lastDay===null||!validDay(record.lastAppeaseDay)||!validDay(record.lastRevoltDay))return false;
+    }
     for(const [id,record] of Object.entries(value.countries)){
       if(!Object.hasOwn(state.countries,id)||!object(record)||!Number.isFinite(record.pressure)||record.pressure<0||record.pressure>100||
         !Number.isFinite(record.division)||record.division<0||record.division>1||
@@ -265,7 +368,7 @@ const Unrest=(()=>{
     for(const conflict of value.conflicts){
       if(!object(conflict)||typeof conflict.id!=='string'||!/^revolt_[1-9]\d*$/.test(conflict.id)||ids.has(conflict.id)||Number(conflict.id.slice(7))>value.serial||
         !Object.hasOwn(state.countries,conflict.parent)||!Object.hasOwn(state.countries,conflict.rebels)||conflict.parent===conflict.rebels||
-        state.countries[conflict.rebels].rebellionOf!==conflict.parent||!['civilWar','peasant'].includes(conflict.kind)||
+        state.countries[conflict.rebels].rebellionOf!==conflict.parent||!['civilWar','peasant','occupation'].includes(conflict.kind)||
         !['war','ceasefire','reunited','ended'].includes(conflict.status)||!validDay(conflict.startedDay)||conflict.startedDay===null||
         !Array.isArray(conflict.provinceIds)||!conflict.provinceIds.length||new Set(conflict.provinceIds).size!==conflict.provinceIds.length||
         conflict.provinceIds.some(id=>!state.provinces.some(province=>province.id===id)))return false;
@@ -276,5 +379,5 @@ const Unrest=(()=>{
       typeof response.label!=='string'||response.label.length>100||typeof response.reason!=='string'||response.reason.length>500||!validDay(response.day)||response.day===null)return false;
     return true;
   }
-  return {initialize,tick,status,respond,valid};
+  return {initialize,tick,status,respond,valid,observeOccupation,provinceStatus,appeaseProvince};
 })();

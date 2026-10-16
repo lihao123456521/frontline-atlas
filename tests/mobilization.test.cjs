@@ -83,6 +83,7 @@ test('470 province detail cannot inflate the national manpower budget or emergen
 });
 test('repeated real orders and mobilizations preserve the next automatic recruit budget and cooldown recovery',()=>{
   const {Game}=setup(),c=Game.country('ger');c.res=c.equipment=10000;
+  Game.setAutoEquipment({enabled:false});
   const initialArmy=Game.armyTotals('ger').land;
   while(Game.buildUnit('infantry',true)){}
   for(let month=0;month<3;month++){
