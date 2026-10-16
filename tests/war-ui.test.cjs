@@ -411,6 +411,7 @@ test('army overview gives personnel tanks and aircraft equal metrics while retai
   const metrics=descendants(panel).filter(element=>element.className==='force-metric');assert.equal(metrics.length,3);
   assert.deepEqual(metrics.map(element=>element.dataset.asset),['personnel','tanks','aircraft']);
   assert.ok(metrics.every(element=>element.children[1].tagName==='strong'));
+  assert.ok(panel.children.findIndex(element=>element.className==='unit-training')<panel.children.findIndex(element=>element.className==='army-explanation'),'manual training stays above optional compilation details');
   assert.match(panel.textContent,new RegExp(totals.land+' 师'));assert.match(panel.textContent,new RegExp('投入战斗 '+totals.engaged+' 师'));
   assert.match(panel.textContent,/师级规模近似/);
 });

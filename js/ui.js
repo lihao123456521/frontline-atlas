@@ -1176,9 +1176,10 @@ const UI = (function(){
     box.appendChild(el('p','task-status',`舰艇 ${assetCount(totals.ships,'艘')} · 投入陆战 ${people(totals.committedPersonnel)}`));
     const explanation=el('details','army-explanation');explanation.appendChild(el('summary',null,'编制详情'));
     explanation.appendChild(el('p','army-totals',`陆军 ${totals.land} 师 · 海军 ${totals.naval} 编队 · 空军 ${totals.air} 联队 · 投入战斗 ${totals.engaged} 师`));
-    explanation.appendChild(el('p',null,'师级规模近似，人数按实际编制与剩余实力计算。新战役采用游戏增强兵力；驻防拆分本身不增加人数。'+(baseline?' 开局约 '+baseline.land+' 师。':'')));box.appendChild(explanation);
+    explanation.appendChild(el('p',null,'师级规模近似，人数按实际编制与剩余实力计算。新战役采用游戏增强兵力；驻防拆分本身不增加人数。'+(baseline?' 开局约 '+baseline.land+' 师。':'')));
     rp.appendChild(box);
     renderUnitTraining(rp);
+    rp.appendChild(explanation);
     renderAutoEquipment(rp);
     renderRecruitmentControls(rp);
     renderBuildQueue(rp);

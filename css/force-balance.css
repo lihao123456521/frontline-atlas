@@ -22,6 +22,9 @@
 .training-output { color: #e7c997; font-size: 15px; font-weight: 650; }
 #rpContent .army-overview { padding: 12px; }
 #rpContent .army-overview .force-metric > strong { font-size: 16px; }
+#rpContent .army-overview .force-metric { padding: 8px 6px; gap: 5px; }
+#rpContent .army-overview h3 { margin-bottom: 6px; }
+#rpContent .unit-training .training-unit-name { margin: 8px 0 6px; }
 #rpContent .army-overview { margin-bottom: 8px; }
 #rpContent .army-overview .army-explanation { margin-top: 4px; }
 .unit-training .core-branches { margin: 8px 0; }
