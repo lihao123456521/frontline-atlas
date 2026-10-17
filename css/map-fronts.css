@@ -1,4 +1,7 @@
 #mapSvg .combat-front{pointer-events:none}
+#mapWrap[data-map-mode="political"]::after{background:none}
+#mapSvg[data-map-mode="political"] .historical-cell-selected,#mapSvg[data-map-mode="political"] .historical-cell-hover{fill:none}
+#mapSvg[data-map-mode="political"] .historical-control,#mapSvg[data-map-mode="political"] .territory{transition:none}
 #mapSvg .combat-front-fill{opacity:.28;stroke:none}
 #mapSvg .combat-front-line{fill:none;stroke:#f5dfb0;stroke-width:calc(2px / var(--map-zoom, 1));stroke-linecap:round;vector-effect:non-scaling-stroke}
 #mapSvg .combat-march-leg{fill:none;stroke:#e9c271;stroke-opacity:.6;stroke-width:calc(1.5px / var(--map-zoom, 1));stroke-dasharray:calc(5px / var(--map-zoom, 1)) calc(4px / var(--map-zoom, 1));vector-effect:non-scaling-stroke}

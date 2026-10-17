@@ -243,6 +243,7 @@ test('unmodified 1939 world opens a second declared-war offensive within 60 auto
   const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard','poland39');
   Game.setAutoOffensive(true);
   const initialArmy=Game.armyTotals('ger').land,seen=new Set(),orders=[];
+  const originalOwners=new Map(Game.state.provinces.flatMap(province=>province.garrison.map(unit=>[unit.id,unit.owner||province.owner])));
   assert.equal(initialArmy,103);
   for(let day=0;day<60&&!Game.state.over;day++){
     Game.advanceDay({automatic:true});
@@ -258,6 +259,10 @@ test('unmodified 1939 world opens a second declared-war offensive within 60 auto
   assert.ok(captures.length>=2,JSON.stringify({orders,captures:captures.map(r=>Game.province(r.to).id)}));
   assert.ok(orders.length>=2,JSON.stringify({orders,status:Game.autoOffensiveStatus()}));
   assert.ok(orders.some(o=>o.day>=16),JSON.stringify(orders));
-  assert.ok(Game.armyTotals('ger').land<=initialArmy+2);
+  const allUnits=Game.state.provinces.flatMap(province=>province.garrison).concat(Game.state.activeCombats.flatMap(combat=>combat.attackers.map(entry=>entry.unit)));
+  const inherited=allUnits.filter(unit=>unit.owner==='ger'&&unit.kind==='land'&&originalOwners.has(unit.id)&&originalOwners.get(unit.id)!=='ger')
+    .reduce((sum,unit)=>sum+(unit.formationPermille??1000)/1000,0);
+  assert.ok(Game.armyTotals('ger').land<=initialArmy+inherited+2,'only existing surrendered formations and paid production can increase the army');
+  assert.equal(new Set(allUnits.map(unit=>unit.id)).size,allUnits.length,'surrender cannot duplicate existing units');
   assert.equal(Game.load(Game.save()),true);
 });

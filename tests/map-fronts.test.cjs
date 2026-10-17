@@ -151,8 +151,8 @@ test('two countries advance independently across target cells without changing o
   assert.equal(east.attrs['data-combat-id'],'east-fight');
   assert.equal(west.attrs['clip-path'],'url(#clipT-west)');
   assert.equal(east.attrs['clip-path'],'url(#clipT-east)');
-  assert.equal(west.children[0].attrs.fill,'#bd4335');
-  assert.equal(east.children[0].attrs.fill,'#58a065');
+  assert.equal(west.children[0].attrs.fill,'none','political advance is an outline rather than occupation color');
+  assert.equal(east.children[0].attrs.fill,'none');
   assert.equal(west.children[1].attrs.class,'combat-front-line');
   const before=polygon(west.children[0].attrs.d),beforeArea=area(before);
   state.activeCombats[0].progress=75;c.map.renderFronts();

@@ -156,10 +156,6 @@ const MapView = (() => {
     const c = hexToRgb(hex);
     return `rgb(${Math.max(0,c.r-amt)},${Math.max(0,c.g-amt)},${Math.max(0,c.b-amt)})`;
   }
-  function blend(h1, h2, t){
-    const a = hexToRgb(h1), b = hexToRgb(h2);
-    return `rgb(${Math.round(a.r+(b.r-a.r)*t)},${Math.round(a.g+(b.g-a.g)*t)},${Math.round(a.b+(b.b-a.b)*t)})`;
-  }
   const colorCache = {};   // 提亮后的国家色缓存
 
   function relationTo(cid){
@@ -292,7 +288,7 @@ const MapView = (() => {
         const controller=majorityOwner(provs);
         const path=document.createElementNS(NS,"path");
         path.setAttribute("d",shape.d); path.setAttribute("fill-rule","evenodd");
-        const fill=mapMode==="political" && controller ? blend(countryColor(controller),"#869082",.34) : "#5b665d";
+        const fill=mapMode==="political" && controller ? countryColor(controller) : "#5b665d";
         path.setAttribute("fill",fill); path.setAttribute("class","historical-country");
         L.countryFills.appendChild(path);
       });
@@ -323,9 +319,8 @@ const MapView = (() => {
           } else if (mapMode === "diplomatic"){
             fill = "#3a3f44";   // 外交模式：底图中性，阵营色由版图层表现
           } else {
-            // 政治模式：国家身份色去饱和做稳定地理底色（控制权由版图层逐省表现）
             const owner = majorityOwner(provs);
-            fill = owner ? blend(countryColor(owner), "#2a3846", 0.45) : "#4a4f55";
+            fill = owner ? countryColor(owner) : "#4a4f55";
           }
         }
         const path = document.createElementNS(NS,"path");
@@ -333,11 +328,13 @@ const MapView = (() => {
         path.setAttribute("fill", fill);
         path.setAttribute("class", "country-fill" + (mapMode === "political" && majorityOwner(provByGame[gid]||[]) === Game.state.player ? " player-country" : ""));
         L.countryFills.appendChild(path);
-        const sheen = document.createElementNS(NS,"path");
-        sheen.setAttribute("d", dF);
-        sheen.setAttribute("fill","url(#countrySheen)");
-        sheen.setAttribute("pointer-events","none");
-        L.countryFills.appendChild(sheen);
+        if(mapMode!=="political"){
+          const sheen = document.createElementNS(NS,"path");
+          sheen.setAttribute("d", dF);
+          sheen.setAttribute("fill","url(#countrySheen)");
+          sheen.setAttribute("pointer-events","none");
+          L.countryFills.appendChild(sheen);
+        }
       });
       return;
     }
@@ -642,7 +639,7 @@ const MapView = (() => {
         op = 0.6;
       } else {
         fill = p.owner ? countryColor(p.owner) : "#6a6f75";
-        op = historicalMap ? 1 : 0.5;
+        op = 1;
       }
       const cid = historicalMap ? geometryCountry(p) : p.originalOwner;
       ensureClip(cid);
@@ -799,7 +796,7 @@ const MapView = (() => {
   function renderFronts(){
     const state=Game.state, active=state?.activeCombats || [];
     if(historicalMap && active.length) controlCells();
-    const signature=cellSignature+":"+visibleAnchor().k+":"+active.map(c=>`${c.id}:${c.from}:${c.to}:${(c.routePath||[]).join(",")}:${c.attacker}:${c.defender}:${c.phase}:${c.days}:${c.preparationDays}:${c.progress}:${state.provinces[c.to]?.owner}:${countryColor(c.attacker)}`).join("|");
+    const signature=cellSignature+":"+mapMode+":"+visibleAnchor().k+":"+active.map(c=>`${c.id}:${c.from}:${c.to}:${(c.routePath||[]).join(",")}:${c.attacker}:${c.defender}:${c.phase}:${c.days}:${c.preparationDays}:${c.progress}:${state.provinces[c.to]?.owner}:${countryColor(c.attacker)}`).join("|");
     if(signature===frontSignature) return;
     frontSignature=signature;
     L.fronts.innerHTML="";
@@ -846,7 +843,7 @@ const MapView = (() => {
         if(covered.length){
           const fill=document.createElementNS(NS,"path");
           fill.setAttribute("d",covered.map(polygonPath).join(" "));fill.setAttribute("fill-rule","evenodd");
-          fill.setAttribute("fill",countryColor(combat.attacker));fill.setAttribute("class","combat-front-fill");
+          fill.setAttribute("fill",mapMode==="political"?"none":countryColor(combat.attacker));fill.setAttribute("class","combat-front-fill");
           if(region.id)fill.setAttribute("data-region",region.id);group.appendChild(fill);
         }
         const crossings=[];
@@ -1103,6 +1100,7 @@ const MapView = (() => {
       [curSel,hoverIdx].forEach((idx,k)=>{
         if(idx<0 || !cells[idx] || (k===1 && idx===curSel)) return;
         const path=provinceCellNode(idx,k?"historical-cell-hover":"historical-cell-selected"), p=Game.state.provinces[idx];
+        if(mapMode==="political")path.setAttribute("fill","none");
         path.setAttribute("clip-path",`url(#${clipIdFor(geometryCountry(p))})`);
         path.setAttribute("vector-effect","non-scaling-stroke"); L.hilight.appendChild(path);
       });
@@ -1191,6 +1189,8 @@ const MapView = (() => {
   let seaLinksDrawn = false;
   function render(){
     if(!Game.state) return;
+    svg.setAttribute("data-map-mode",mapMode);
+    document.getElementById("mapWrap")?.setAttribute("data-map-mode",mapMode);
     if(historicalMap && !historicalLandReady) renderLand();
     animFrame++;
     if(!seaLinksDrawn){ renderSeaLinks(); seaLinksDrawn = true; }

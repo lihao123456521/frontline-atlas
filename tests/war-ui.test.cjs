@@ -33,7 +33,7 @@ function setup(historical=false){
   const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard','sandbox36');
   const focuses=[];
   ctx.MapView={setSelect:()=>{},isProvinceInView:()=>true,focusProvince:idx=>focuses.push(idx),showBattlePlan:()=>{},showAttackable:()=>{},clearAttackable:()=>{}};
-  const source=fs.readFileSync(path.join(__dirname,'../js/ui.js'),'utf8').replace('return { init, refresh,','return { mapHandlers, navigate, renderRightPanel, advanceClock, init, refresh,');vm.runInContext(source,ctx);
+  const source=fs.readFileSync(path.join(__dirname,'../js/ui.js'),'utf8').replace('return { init, refresh,','return { availableTroops, mapHandlers, navigate, renderRightPanel, advanceClock, init, refresh,');vm.runInContext(source,ctx);
   const UI=vm.runInContext('UI',ctx),panel=get('rpContent');
   get('eventModal').classList.add('hidden');
   ctx.window.UI=UI;
@@ -56,6 +56,35 @@ test('military research shows prerequisites, assigns a real slot, supports cance
   const c=Game.country('ger');c.researched.inf1=c.researched.art1=true;UI.refresh();
   buttons('火炮').find(button=>button.textContent==='火炮').click();assert.match(panel.textContent,/牵引炮兵团/);
   buttons('训练已解锁兵种')[0].click();assert.match(panel.textContent,/训练 牵引炮兵团/);
+});
+
+test('a new diplomatic confirmation hides the previous reply without discarding its actual result',()=>{
+  const {Game,UI,panel,buttons}=setup();Game.state.relations['fra|ger']=200;
+  assert.equal(Game.diploAction('ally','fra'),true);UI.navigate('diplo');assert.match(panel.textContent,/同意结盟/);
+  buttons('提出吞并…')[0].click();assert.doesNotMatch(panel.textContent,/同意结盟/);assert.ok(buttons('确认吞并').length);
+  buttons('取消外交命令')[0].click();assert.match(panel.textContent,/同意结盟/);assert.equal(Game.sovereigntyResponse().outcome,'allied');
+});
+
+test('composition selectors cannot count or dispatch foreign units left in a newly controlled province',()=>{
+  const {Game,UI}=setup(),index=Game.state.provinces.findIndex(province=>province.owner==='ger');
+  const foreign=Game.makeDivision('infantry');foreign.owner='uk';Game.province(index).garrison=[foreign];
+  assert.equal(UI.availableTroops(index).length,0);
+  foreign.owner='ger';assert.equal(UI.availableTroops(index).length,1);
+});
+
+test('ship training and paid production show matching daily construction deadlines',()=>{
+  const {Game,UI,panel,buttons,descendants}=setup();
+  for(const field of ['equipment','res','oil','rare','manpower'])Game.country('ger')[field]=10000;
+  Game.setAutoEquipment({enabled:false});UI.navigate('production');
+  buttons('海军').find(button=>button.textContent==='海军').click();
+  assert.match(panel.textContent,/24 天建造/);assert.doesNotMatch(panel.textContent,/4 个月训练/);
+  const select=descendants(panel).find(element=>element.attributes['aria-label']==='选择训练兵种');
+  select.value='destroyer';select.listeners.change();assert.match(panel.textContent,/12 天建造/);
+  buttons('训练 驱逐舰队')[0].click();assert.match(panel.textContent,/还需 12 天/);
+  assert.equal(Game.state.buildQueue.at(-1).completionDay,Game.state.daysElapsed+12);
+  Game.advanceDay();assert.match(panel.textContent,/还需 11 天/);
+  Game.state.selectedIdx=Game.state.buildQueue.at(-1).provinceIdx;UI.navigate('province');
+  assert.match(panel.textContent,/11 天/);assert.doesNotMatch(panel.textContent,/驱逐舰队[^/]*2 月/);
 });
 
 test('future research remains visible and disabled, and locked training leads to the matching research branch',()=>{
@@ -405,7 +434,7 @@ test('a real domestic ceasefire leaves the negotiation button available for late
 
 test('capturing the final enemy capital still shows latest battle results when the war is over',()=>{
   const fixture=setup(),{Game,UI,panel,buttons}=fixture;crowdedWar(fixture);UI.renderRightPanel();const attack=buttons('进攻目标')[0];
-  const name=attack.textContent.split(' · ')[1];Game.state.provinces.forEach(p=>{p.originalOwner='ger';if(p.owner==='pol'&&p.name!==name)p.owner='fra';});const target=Game.state.provinces.find(p=>p.name===name);target.isCapital=true;target.originalOwner='pol';Game.country('pol').initialVictoryWeight=5;
+  const name=attack.textContent.split(' · ')[1];Game.state.provinces.forEach(p=>{p.originalOwner='ger';if(p.owner==='pol'&&p.name!==name)p.owner='fra';});const target=Game.state.provinces.find(p=>p.name===name);target.isCapital=true;target.originalOwner='pol';Game.country('pol').capitalIdx=Game.state.provinces.indexOf(target);Game.country('pol').initialVictoryWeight=5;
   UI.renderRightPanel();buttons('进攻目标').find(b=>b.textContent.includes(name)).click();buttons('确认进攻')[0].click();
   assert.equal(Game.country('pol').alive,true);assert.equal(Game.getCombats().length,1);
   for(let day=0;day<120&&Game.getCombats().length;day++)UI.advanceClock();

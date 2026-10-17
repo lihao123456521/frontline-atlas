@@ -40,7 +40,10 @@ test('a genuine popular sovereignty crisis can accept peaceful unification with 
   assert.equal(Game.diploAction('annex','aut'),true);assert.equal(c.pp,pp-status.cost);assert.equal(Game.state.wt,Math.min(100,wt+10));
   assert.equal(target.alive,false);assert.ok(land.every(id=>Game.province(Game.provinceById(id)).owner==='ger'));
   assert.equal(units(Game).some(unit=>unit.owner==='aut'),false);assert.equal(JSON.stringify(readiness(Game)),beforeUnits);
-  for(const field of Object.keys(sum)){assert.equal(c[field],sum[field]);assert.equal(target[field],0);}
+  for(const field of Object.keys(sum)){
+    const local=['res','equipment'].includes(field)?Object.values(Game.state.unrest.occupations).reduce((total,record)=>total+(record[field]||0),0):0;
+    assert.equal(c[field]+local,sum[field],field);assert.equal(target[field],0,field);
+  }
   for(const field of Object.keys(pool)){
     const local=Object.values(Game.state.unrest.occupations).reduce((sum,record)=>sum+record[field]/1000,0);
     assert.ok(Math.abs(c.mobilization[field]+local-pool[field])<1e-7,field);assert.equal(target.mobilization[field],0);
@@ -144,7 +147,7 @@ test('generic sovereign proposals can annex, compromise on a puppet, or refuse w
     const {Game,key}=setup();Game.state.player='ita';const c=Game.country('ita'),target=Game.country(targetId);c.pp=200;c.stability=80;
     if(outcome!=='refused')popularConsent(Game,key,targetId);
     Game.state.relations[key('ita',targetId)]=relations;target.stability=stability;
-    if(outcome==='puppeted'){Game.state.unrest.countries[targetId].pressure=0;target.warSupport=100;target.stability=75;Game.state.relations[key('ger',targetId)]=50;}
+    if(outcome==='puppeted'){Game.state.unrest.countries[targetId].pressure=45;target.warSupport=80;target.stability=55;Game.state.relations[key('ger',targetId)]=50;}
     const status=Game.diplomacyAvailability('annex',targetId),before=JSON.stringify(Game.state.provinces.map(p=>({owner:p.owner,garrison:p.garrison}))),pp=c.pp,wt=Game.state.wt;
     assert.equal(status.available,true,status.reasons.join(';'));assert.equal(status.predictedOutcome,outcome,status.responseReason);
     assert.match(status.responseReason,/综合军力比/);assert.match(status.responseReason,/民意/);assert.ok(status.responseLikelihood>=0&&status.responseLikelihood<=100);
