@@ -1,5 +1,6 @@
 #mapSvg .combat-front{pointer-events:none}
 #mapWrap[data-map-mode="political"]::after{background:none}
+#mapSvg[data-map-mode="political"] #layerTerritory{filter:none}
 #mapSvg[data-map-mode="political"] .historical-cell-selected,#mapSvg[data-map-mode="political"] .historical-cell-hover{fill:none}
 #mapSvg[data-map-mode="political"] .historical-control,#mapSvg[data-map-mode="political"] .territory{transition:none}
 #mapSvg .combat-front-fill{opacity:.28;stroke:none}

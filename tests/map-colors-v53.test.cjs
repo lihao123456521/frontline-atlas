@@ -85,6 +85,7 @@ test('political rendering disables screen-position tint while terrain and diplom
   assert.equal(context.layers.get('mapWrap').attrs['data-map-mode'],'political');
   const css=fs.readFileSync(path.join(__dirname,'../css/map-fronts.css'),'utf8');
   assert.match(css,/#mapWrap\[data-map-mode=["']political["']\]::after\s*\{[^}]*background\s*:\s*none/);
+  assert.match(css,/#mapSvg\[data-map-mode=["']political["']\] #layerTerritory\s*\{[^}]*filter\s*:\s*none/);
   assert.match(css,/#mapSvg\[data-map-mode=["']political["']\] \.historical-cell-selected[^}]*fill\s*:\s*none/);
   assert.match(css,/#mapSvg\[data-map-mode=["']political["']\] \.historical-cell-hover[^}]*fill\s*:\s*none/);
   context.map.setMapMode('terrain');
