@@ -68,10 +68,12 @@ test('selection and hover outline land without tinting the controlled country',(
   }
 });
 
-test('political battle progress retains a moving boundary but does not recolor unoccupied land',()=>{
+test('political battle progress adds a directional local gradient without changing controlled land or ownership',()=>{
   const context=setup();context.map.renderTerritory();context.map.renderFronts();
   const before=context.layers.get('layerFronts').children[0];
-  assert.equal(before.children.find(child=>child.attrs.class==='combat-front-fill').attrs.fill,'none');
+  assert.match(before.children.find(child=>child.attrs.class==='combat-front-fill').attrs.fill,/^url\(#combat-progress-/);
+  assert.equal(context.layers.get('layerTerritory').children[3].attrs.fill,'#d58a38');
+  assert.equal(context.layers.get('layerTerritory').children[3].attrs.opacity,'1');
   const beforeBoundary=before.children.find(child=>child.attrs.class==='combat-front-line').attrs.d;
   context.state.activeCombats[0].progress=65;context.map.renderFronts();
   const after=context.layers.get('layerFronts').children[0];
@@ -92,10 +94,10 @@ test('political rendering disables screen-position tint while terrain and diplom
   assert.equal(context.layers.get('mapWrap').attrs['data-map-mode'],'terrain');
   assert.equal(context.layers.get('layerTerritory').children[2].attrs.fill,'#ff00aa');
   assert.equal(context.layers.get('layerTerritory').children[2].attrs.opacity,'0.62');
-  assert.equal(context.layers.get('layerFronts').children[0].children.find(child=>child.attrs.class==='combat-front-fill').attrs.fill,'#305ca8');
+  assert.match(context.layers.get('layerFronts').children[0].children.find(child=>child.attrs.class==='combat-front-fill').attrs.fill,/^url\(#combat-progress-/);
   context.map.setMapMode('diplomatic');
   assert.equal(context.layers.get('layerTerritory').children[2].attrs.fill,'#3f8fd6');
   assert.equal(context.layers.get('layerTerritory').children[3].attrs.fill,'#8a2020');
   context.map.setMapMode('political');
-  assert.equal(context.layers.get('layerFronts').children[0].children.find(child=>child.attrs.class==='combat-front-fill').attrs.fill,'none');
+  assert.match(context.layers.get('layerFronts').children[0].children.find(child=>child.attrs.class==='combat-front-fill').attrs.fill,/^url\(#combat-progress-/);
 });

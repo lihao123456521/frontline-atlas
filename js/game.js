@@ -674,20 +674,16 @@ const Game = (function(){
     },0);
   }
   function assaultStrength(attackerId,fromIdx,toIdx,sending,navBonus,airCombat){
-    const target=province(toIdx),amount=formationTotal(sending),width=frontage(target),defenders=combatFront(landUnits(target),width),ae=country(attackerId).eff,de=target.owner?country(target.owner).eff:emptyEff();
+    const target=province(toIdx),amount=formationTotal(sending),width=frontage(target),defending=landUnits(target);
+    const defenders=combatFront(defending,width,isIsolatedDefender({defender:target.owner,to:toIdx},defending));
     sending=combatFront(sending,width);
     if(!airCombat){
       const previewAircraft={[attackerId]:previewAirAllocation(attackerId,sending,target)};
       if(target.owner)previewAircraft[target.owner]=previewAirAllocation(target.owner,defenders,target);
       airCombat={previewAircraft};
     }
-    const terrain=TERRAIN[target.terrain].def,amphib=navBonus!==undefined && navBonus!==null && navBonus!==0;
-    const fleet=province(fromIdx).garrison;
-    const interdiction=amphib?Math.max(.5,1-Math.max(0,target.garrison.filter(d=>d.type==='submarine').length-fleet.filter(d=>d.type==='destroyer').length)*.12):1;
-    return {
-      aStr:landStrength(sending,'atk',target.terrain,defenders,amphib,attackerId)*armorMultiplier(sending,defenders,target.terrain,'atk')*armorControlMultiplier(sending,defenders)*interdiction*(1+ae.landAtk)*(1+(navBonus||0))/(1+(terrain-1)*.5)*airSupport(attackerId,target,defenders,undefined,airCombat)*supplyAt(attackerId,fromIdx,toIdx,amount,amphib)/100,
-      dStr:landStrength(defenders,'def',target.terrain,sending,false,target.owner)*armorMultiplier(defenders,sending,target.terrain,'def')*armorControlMultiplier(defenders,sending)*(1+de.landDef)*terrain*fortBonusOf(target,sending)*airSupport(target.owner,target,sending,attackerId,airCombat),
-    };
+    const amphib=navBonus!==undefined && navBonus!==null && navBonus!==0;
+    return landBattleStrength({...airCombat,attacker:attackerId,defender:target.owner,from:fromIdx,to:toIdx,kind:amphib?'amphib':'land',navBonus:navBonus||0},sending,defenders,supplyAt(attackerId,fromIdx,toIdx,amount,amphib));
   }
   // 空军支援：本省及相邻本省内的空军数量 -> 攻防乘数
   function airCount(ownerId, idx){
@@ -834,7 +830,7 @@ const Game = (function(){
       aEquipmentLoss:c.aEquipmentLoss||{tanks:0,aircraft:0,ships:0},dEquipmentLoss:c.dEquipmentLoss||{tanks:0,aircraft:0,ships:0},
       aCasualties:casualties(c,'a'),dCasualties:casualties(c,'d'),alliedAttackers:[...new Set(c.attackers.map(entry=>entry.owner).filter(owner=>owner!==c.attacker))],
       phase:c.phase,days:c.days,preparationDays:c.preparationDays||2,routeKm:c.routeKm||0,progress:Math.round(c.progress),tactics:side==='attack'?c.tactics:c.defenderTactics,
-      playerSide:side,attackers:a.length,defenders:d.length,
+      playerSide:side,attackers:a.length,defenders:d.length,holdout:c.phase==='engagement'&&hasHoldoutForce(c,d)&&(c.progress>=80||percent(d,'org','maxOrg')<10),
       incomingAttackers:a.length-arrivedUnits(a).length,incomingDefenders:d.length-arrivedUnits(d).length,
       incomingAttackPersonnel:personnelOf(a.filter(unit=>unit.arrivalDay>state.daysElapsed)),incomingDefensePersonnel:personnelOf(d.filter(unit=>unit.arrivalDay>state.daysElapsed)),
       aFront:formationTotal(combatFront(a,frontage(target))),aReserve:Math.max(0,formationTotal(arrivedUnits(a))-formationTotal(combatFront(a,frontage(target)))),dFront:formationTotal(combatFront(d,frontage(target),isIsolatedDefender(c,d))),dReserve:Math.max(0,formationTotal(arrivedUnits(d))-formationTotal(combatFront(d,frontage(target),isIsolatedDefender(c,d)))),
@@ -843,7 +839,7 @@ const Game = (function(){
       aPersonnel,dPersonnel,aInitialPersonnel:Number.isFinite(c.aInitialPersonnel)?c.aInitialPersonnel:aPersonnel+aPersonnelLoss,
       dInitialPersonnel:Number.isFinite(c.dInitialPersonnel)?c.dInitialPersonnel:dPersonnel+dPersonnelLoss,aPersonnelLoss,dPersonnelLoss,
       supply:combatSupply(c),airSupport:Math.round((airSupport(c.attacker,target,d,c.defender,c)-1)*100),
-      canRetreat:side==='attack'||(!c.defenderWithdrawn&&(neighbors(c.to).some(i=>province(i).owner===state.player)||hasNavalEvacuationRoute(c.defender,c.to,d))),
+      canRetreat:side==='attack'||(!c.defenderWithdrawn&&(d.some(unit=>safeDestination(unit.owner||c.defender,c.to,'land',c.to)>=0)||hasNavalEvacuationRoute(c.defender,c.to,d))),
       allies:supportOptions(c),events:c.events.slice(-4)};
   }
   function getCombats(){return state?state.activeCombats.map(describeCombat).filter(Boolean):[];}
@@ -914,7 +910,7 @@ const Game = (function(){
     const home=province(from),homeValid=from!==exclude&&home&&home.owner===owner&&(kind!=='naval'||coastalOf(from));
     const threatened=i=>state.activeCombats.some(c=>c.to===i);
     if(homeValid&&!threatened(from))return from;
-    const near=(kind==='naval'?seaAdj(from):neighbors(from)).filter(i=>i!==exclude&&province(i).owner===owner&&(kind!=='naval'||coastalOf(i)));
+    const near=(kind==='naval'?seaAdj(from):neighbors(from)).filter(i=>i!==exclude&&(kind==='land'?routeFriendly(state,owner,i):province(i).owner===owner)&&(kind!=='naval'||coastalOf(i)));
     const safe=near.find(i=>!threatened(i));if(safe!==undefined)return safe;
     // 无安全通道时只能退入仍归己方的本地交战区；无己方邻点则投降，绝不跳过图上的路线。
     if(homeValid)return from;
@@ -1041,7 +1037,7 @@ const Game = (function(){
     if(summary.playerSide==='attack')finishCombat(c,false,'主动撤退');
     else {
       const target=province(c.to),troops=defendersOf(c),withdrawn=troops.filter(d=>safeDestination(d.owner||c.defender,c.to,'land',c.to)>=0),isolated=troops.filter(d=>!withdrawn.includes(d));
-      let naval=[];for(let count=isolated.length;count>0;count--){if(startNavalEvacuation(c.defender,c.to,isolated.slice(0,count))){naval=isolated.slice(0,count);break;}}
+      const naval=evacuateHoldout(c,isolated);
       const moved=new Set([...withdrawn,...naval]);target.garrison=target.garrison.filter(d=>!withdrawn.includes(d));
       withdrawn.forEach(d=>returnTroop(d,d.owner||c.defender,c.to,c.to));
       c.defenderWithdrawn=moved.size===troops.length;c.events.push(c.defenderWithdrawn?'守军撤出阵地，敌军仍需完成占领推进':'部分守军撤出，剩余部队继续抵抗');
@@ -1051,6 +1047,7 @@ const Game = (function(){
   }
   function finishCombat(c,won,reason){
     const target=province(c.to),a=attackersOf(c),d=defendersOf(c);
+    if(won&&hasHoldoutForce(c,d)){c.progress=Math.min(c.progress,95);return;}
     const strengths=combatStrength(c),previous=target.owner;
     if(won){
       // 防守者撤向相邻己方阵地；没有退路的包围部队投降。飞机和舰艇也不被占领军带走。
@@ -1065,7 +1062,7 @@ const Game = (function(){
         .forEach(unit=>{const owner=unit.owner||c.defender;if(!isolatedByOwner.has(owner))isolatedByOwner.set(owner,[]);isolatedByOwner.get(owner).push(unit);});
       for(const [owner,units] of isolatedByOwner){
         let evacuated=0;for(let count=units.length;count>0;count--)if(startNavalEvacuation(owner,c.to,units.slice(0,count))){evacuated=count;break;}
-        units.slice(evacuated).forEach(unit=>{delete unit.combatId;delete unit.returnFrom;delete unit.arrivalDay;delete unit.routePath;});
+        units.slice(evacuated).forEach(unit=>{if(unit.hp>0&&unit.kind==='land'){country(owner).capturedPersonnel=(country(owner).capturedPersonnel||0)+unitPersonnel(unit);unit.rescueCaptured=true;}delete unit.combatId;delete unit.returnFrom;delete unit.arrivalDay;delete unit.routePath;});
       }
       target.garrison=target.garrison.filter(unit=>!retreatingFleet.includes(unit));
       retreatingFleet.forEach(unit=>evacuateCombatShip(unit,unit.owner||c.defender,c.to,c.to));
@@ -1095,7 +1092,7 @@ const Game = (function(){
       aCasualties:casualties(c,'a'),dCasualties:casualties(c,'d'),
       alliedAttackers:[...new Set(c.attackers.map(entry=>entry.owner).filter(owner=>owner!==c.attacker))],endedDay:state.daysElapsed,
       aEvacuatedPersonnel:a.filter(unit=>unit.rescueArrivalDay!==undefined).reduce((sum,unit)=>sum+unitPersonnel(unit),0),
-      dEvacuatedPersonnel:d.filter(unit=>unit.rescueArrivalDay!==undefined).reduce((sum,unit)=>sum+unitPersonnel(unit),0),
+      dEvacuatedPersonnel:(c.dEvacuatedPersonnel||0)+d.filter(unit=>unit.rescueArrivalDay!==undefined).reduce((sum,unit)=>sum+unitPersonnel(unit),0),
       aCapturedPersonnel:a.filter(unit=>unit.rescueCaptured||unit.hp>0&&unit.rescueArrivalDay===undefined&&!state.provinces.some(p=>p.garrison.includes(unit))).reduce((sum,unit)=>sum+unitPersonnel(unit),0),
       dCapturedPersonnel:d.filter(unit=>unit.rescueCaptured||unit.hp>0&&unit.rescueArrivalDay===undefined&&!state.provinces.some(p=>p.garrison.includes(unit))).reduce((sum,unit)=>sum+unitPersonnel(unit),0),
       days:c.days,progress:c.progress,aOrg:percent(a,'org','maxOrg'),dOrg:percent(d,'org','maxOrg'),reason};
@@ -1180,9 +1177,24 @@ const Game = (function(){
   function arrivedUnits(units){return units.filter(d=>d.arrivalDay===undefined||d.arrivalDay<=state.daysElapsed);}
   function isIsolatedDefender(c,units=defendersOf(c)){
     if(!units.length||!c.defender)return false;
-    const land=neighbors(c.to).some(index=>province(index).owner===c.defender&&!state.activeCombats.some(combat=>combat.to===index));
-    const rescue=navalRescuePlan(c.defender,c.to,units),completeRescue=rescue&&rescue.capacity>=rescue.personnel;
-    return !land&&!completeRescue;
+    return arrivedUnits(units).some(unit=>safeDestination(unit.owner||c.defender,c.to,'land',c.to)<0);
+  }
+  function hasHoldoutForce(combat,units=defendersOf(combat)){
+    const isolated=arrivedUnits(units).filter(unit=>safeDestination(unit.owner||combat.defender,combat.to,'land',combat.to)<0);
+    return personnelOf(isolated)>Math.min(200,(combat.dInitialPersonnel||personnelOf(units))*.01);
+  }
+  function evacuateHoldout(combat,units=defendersOf(combat)){
+    const byOwner=new Map(),evacuated=[];
+    for(const unit of arrivedUnits(units)){
+      const owner=unit.owner||combat.defender;
+      if(safeDestination(owner,combat.to,'land',combat.to)>=0)continue;
+      if(!byOwner.has(owner))byOwner.set(owner,[]);byOwner.get(owner).push(unit);
+    }
+    for(const [owner,troops] of byOwner)for(let count=troops.length;count>0;count--){
+      const moving=troops.slice(0,count),personnel=personnelOf(moving);
+      if(startNavalEvacuation(owner,combat.to,moving)){combat.dEvacuatedPersonnel=(combat.dEvacuatedPersonnel||0)+personnel;evacuated.push(...moving);break;}
+    }
+    return evacuated;
   }
   function combatFront(units,width,holdout=false){
     const front=[],pool=arrivedUnits(units).filter(d=>d.hp>0&&(holdout||d.org>0)).sort((a,b)=>formationPermille(b)-formationPermille(a)||b.org/b.maxOrg-a.org/a.maxOrg);
@@ -1197,13 +1209,21 @@ const Game = (function(){
     for(const d of pool)if(!front.includes(d)&&formationPermille(d)<=remaining){front.push(d);remaining-=formationPermille(d);}
     return front;
   }
+  function landBattleStrength(combat,attackers,defenders,supply){
+    const target=province(combat.to),attackerEff=country(combat.attacker).eff,defenderEff=combat.defender?country(combat.defender).eff:emptyEff();
+    const fleet=province(combat.from).garrison,sub=target.garrison.filter(unit=>unit.type==='submarine').length,escorts=fleet.filter(unit=>unit.type==='destroyer').length;
+    const interdiction=combat.kind==='amphib'?Math.max(.5,1-Math.max(0,sub-escorts)*.12):1;
+    const aAir=airSupport(combat.attacker,target,defenders,combat.defender,combat),dAir=airSupport(combat.defender,target,attackers,combat.attacker,combat);
+    const position=1+(TERRAIN[target.terrain].def-1)*.55+Math.min(.45,(fortBonusOf(target,attackers)-1)*.6);
+    const aFire=landStrength(attackers,'atk',target.terrain,defenders,combat.kind==='amphib',combat.attacker)*armorMultiplier(attackers,defenders,target.terrain,'atk')*armorControlMultiplier(attackers,defenders)*(1+attackerEff.landAtk)*(1+combat.navBonus)*aAir*interdiction*supply/100;
+    const dFire=landStrength(defenders,'atk',target.terrain,attackers,false,combat.defender)*armorMultiplier(defenders,attackers,target.terrain,'atk')*armorControlMultiplier(defenders,attackers)*(1+defenderEff.landAtk)*dAir;
+    const aGuard=landStrength(attackers,'def',target.terrain,defenders,false,combat.attacker)*armorMultiplier(attackers,defenders,target.terrain,'def')*armorControlMultiplier(attackers,defenders)*(1+attackerEff.landDef)*aAir*supply/100;
+    const dGuard=landStrength(defenders,'def',target.terrain,attackers,false,combat.defender)*armorMultiplier(defenders,attackers,target.terrain,'def')*armorControlMultiplier(defenders,attackers)*(1+defenderEff.landDef)*position*dAir;
+    return {a:attackers,d:defenders,aStr:aFire,dStr:dGuard,aFire,dFire,aGuard,dGuard};
+  }
   function combatStrength(c){
     const target=province(c.to),dAll=defendersOf(c),a=combatFront(attackersOf(c),frontage(target)),d=combatFront(dAll,frontage(target),isIsolatedDefender(c,dAll));
-    const ae=country(c.attacker).eff,de=c.defender?country(c.defender).eff:emptyEff(),terrain=TERRAIN[target.terrain].def;
-    const fleet=province(c.from).garrison,sub=target.garrison.filter(d=>d.type==='submarine').length,escorts=fleet.filter(d=>d.type==='destroyer').length;
-    const interdiction=c.kind==='amphib'?Math.max(.5,1-Math.max(0,sub-escorts)*.12):1;
-    return {a,d,aStr:landStrength(a,'atk',target.terrain,d,c.kind==='amphib',c.attacker)*armorMultiplier(a,d,target.terrain,'atk')*armorControlMultiplier(a,d)*(1+ae.landAtk)*(1+c.navBonus)/(1+(terrain-1)*.5)*airSupport(c.attacker,target,d,c.defender,c)*interdiction*combatSupply(c)/100,
-      dStr:landStrength(d,'def',target.terrain,a,false,c.defender)*armorMultiplier(d,a,target.terrain,'def')*armorControlMultiplier(d,a)*(1+de.landDef)*terrain*fortBonusOf(target,a)*airSupport(c.defender,target,a,c.attacker,c)};
+    return landBattleStrength(c,a,d,combatSupply(c));
   }
   function casualties(c,side){
     const total=c[side+'PersonnelLoss']||0,killed=total*.25;
@@ -1213,9 +1233,9 @@ const Game = (function(){
     let loss=0;
     for(const unit of units){
       const hp=unit.hp,assets=unitAssets(unit),protection=tankProtection(unit);
-      unit.hp=Math.max(0,unit.hp-unit.maxHp*hpRate*protection);
+      unit.hp=Math.max(0,unit.hp-unit.hp*hpRate*protection);
       unit.org=Math.max(0,unit.org-unit.maxOrg*orgRate);
-      if(assets.tanks>0){unit.equipmentCondition=unit.equipmentCondition||{};const tankExposure=enemyTanks/(enemyTanks+250);unit.equipmentCondition.tanks=Math.max(0,(unit.equipmentCondition.tanks??1)*(1-hpRate*1.6-.012*tankExposure));}
+      if(assets.tanks>0){unit.equipmentCondition=unit.equipmentCondition||{};const tankExposure=enemyTanks/(enemyTanks+250);unit.equipmentCondition.tanks=Math.max(0,(unit.equipmentCondition.tanks??1)*(1-hpRate*1.6-Math.min(.012,hpRate*.8)*tankExposure));}
       loss+=hp-unit.hp;
     }
     return loss;
@@ -1272,30 +1292,34 @@ const Game = (function(){
       }
       c.phase='engagement';
       const aAll=attackersOf(c),dAll=defendersOf(c);
+      if(isIsolatedDefender(c,dAll)&&(c.progress>=80||percent(dAll,'org','maxOrg')<10))evacuateHoldout(c,dAll);
+      if(hasHoldoutForce(c))c.progress=Math.min(c.progress,95);
       if(!aAll.length){finishCombat(c,false,'进攻部队损失殆尽');continue;}
       if(!arrivedUnits(aAll).length)continue;
-      if(!arrivedUnits(dAll).length){c.progress=100;finishCombat(c,true,'守军撤出或阵地空虚');continue;}
-      const {a,d,aStr,dStr}=combatStrength(c);
+      if(!arrivedUnits(defendersOf(c)).length){c.progress=100;finishCombat(c,true,'守军撤出或阵地空虚');continue;}
+      const {a,d,aStr,dStr,aFire,dFire,aGuard,dGuard}=combatStrength(c);
       const am=tacticModes[c.tactics]||tacticModes.balanced,dm=tacticModes[c.defenderTactics]||tacticModes.balanced,ratio=aStr*am.power/Math.max(1e-9,dStr*dm.power);
       const supplyCost=1+(100-combatSupply(c))/100;
       const aPeopleBefore=personnelOf(a),dPeopleBefore=personnelOf(d),aBefore=assetsOf(a),dBefore=assetsOf(d);
       c.aEquipmentLoss=c.aEquipmentLoss||{tanks:0,aircraft:0,ships:0};c.dEquipmentLoss=c.dEquipmentLoss||{tanks:0,aircraft:0,ships:0};
       c.aEquipmentLoss.aircraft+=airSortieLosses(c.attacker,target,c.defender,d,airSorties,c)||0;
       c.dEquipmentLoss.aircraft+=airSortieLosses(c.defender,target,c.attacker,a,airSorties,c)||0;
-      const pressure=Math.sqrt(Math.max(.25,Math.min(4,ratio))),baseAttrition=.0035;
-      c.aLoss+=damageLand(a,Math.max(.0015,Math.min(.008,baseAttrition/pressure))*am.loss*supplyCost,(.025+Math.min(.09,.035/Math.max(.3,ratio)))*am.org*supplyCost,dBefore.tanks);
-      c.dLoss+=damageLand(d,Math.max(.0015,Math.min(.008,baseAttrition*pressure))*dm.loss,(.025+Math.min(.1,.04*ratio))*dm.org,aBefore.tanks);
+      const aExposure=dFire*dm.power/Math.max(1e-9,aGuard),dExposure=aFire*am.power/Math.max(1e-9,dGuard),baseAttrition=.0035;
+      c.aLoss+=damageLand(a,Math.min(1,baseAttrition*aExposure)*am.loss*supplyCost,Math.min(.15,.045*Math.sqrt(aExposure))*am.org*supplyCost,dBefore.tanks);
+      c.dLoss+=damageLand(d,Math.min(1,baseAttrition*dExposure)*dm.loss,Math.min(.15,.045*Math.sqrt(dExposure))*dm.org,aBefore.tanks);
       c.aEquipmentLoss.tanks+=Math.max(0,aBefore.tanks-assetsOf(a).tanks);c.dEquipmentLoss.tanks+=Math.max(0,dBefore.tanks-assetsOf(d).tanks);
       c.aPersonnelLoss=(c.aPersonnelLoss||0)+Math.max(0,aPeopleBefore-personnelOf(a));
       c.dPersonnelLoss=(c.dPersonnelLoss||0)+Math.max(0,dPeopleBefore-personnelOf(d));
-      c.progress=clamp(c.progress+clamp(4+(ratio-1)*7,-5,15)*am.pace,0,100);
+      c.progress=clamp(c.progress+clamp((ratio-1)*8,-7,15)*am.pace,0,hasHoldoutForce(c)?95:100);
       c.attackers=c.attackers.filter(e=>e.unit.hp>0);pruneDead(target);
       const aOrg=percent(attackersOf(c),'org','maxOrg'),dOrg=percent(defendersOf(c),'org','maxOrg');
       if(c.days%3===0)c.events.push('第 '+c.days+' 天：推进 '+Math.round(c.progress)+'%，组织度 '+aOrg+' / '+dOrg);
       if(c.events.length>8)c.events=c.events.slice(-8);
-      const remainingDefenders=defendersOf(c),canWithdraw=remainingDefenders.length&&!isIsolatedDefender(c,remainingDefenders);
-      if(c.progress>=100 || !remainingDefenders.length || (dOrg<10&&canWithdraw)){finishCombat(c,true,'防线崩溃');continue;}
-      if(aOrg<10 || !attackersOf(c).length || c.days>=90){finishCombat(c,false,c.days>=90?'进攻受阻，停止消耗':'组织度耗尽');continue;}
+      const remainingDefenders=defendersOf(c),holdout=hasHoldoutForce(c,remainingDefenders),canWithdraw=remainingDefenders.length&&!isIsolatedDefender(c,remainingDefenders);
+      if(aOrg<10 || !attackersOf(c).length){finishCombat(c,false,'组织度耗尽');continue;}
+      const defenseExhausted=c.dInitialPersonnel>0&&(c.dPersonnelLoss||0)>c.dInitialPersonnel*.55;
+      if(!holdout&&(c.progress>=100 || !remainingDefenders.length || (canWithdraw&&(dOrg<10||defenseExhausted)))){finishCombat(c,true,'防线崩溃');continue;}
+      if(c.days>=90){finishCombat(c,false,'进攻受阻，停止消耗');continue;}
     }
   }
   function restDaily(){
@@ -1395,10 +1419,6 @@ const Game = (function(){
     const plan=selectedAssault(fromIdx,toIdx,sendCount,options),sending=plan.sending;
     if (!sending.length) return { aStr:0, dStr:0, win:0 };
     const atkEff = country(state.player).eff;
-    const defEff = toP.owner ? country(toP.owner).eff : emptyEff();
-    const tDef = TERRAIN[toP.terrain].def;
-    const atkMod = 1 / (1 + (tDef - 1) * 0.5);
-    const fB = fortBonusOf(toP);
     const bonus=amphib?Math.max(.01,atkEff.navBonus+navalFormation(fromIdx)+navalSupport(fromIdx,toIdx)) : 0;
     const previewAircraft={[state.player]:plan.missions};
     if(toP.owner)previewAircraft[toP.owner]=previewAirAllocation(toP.owner,landUnits(toP),toP);
@@ -2890,7 +2910,7 @@ const Game = (function(){
           (c.preparationDays!==undefined&&(!Number.isInteger(c.preparationDays)||c.preparationDays<2||c.preparationDays>365))||
           (c.routeKm!==undefined&&(!Number.isFinite(c.routeKm)||c.routeKm<0||c.routeKm>50000))||
           ['progress','aLoss','dLoss','navBonus'].some(k=>!Number.isFinite(c[k])||c[k]<0)||c.progress>100||
-          ['aInitialPersonnel','dInitialPersonnel','aPersonnelLoss','dPersonnelLoss'].some(k=>c[k]!==undefined&&(!Number.isFinite(c[k])||c[k]<0))||
+          ['aInitialPersonnel','dInitialPersonnel','aPersonnelLoss','dPersonnelLoss','dEvacuatedPersonnel'].some(k=>c[k]!==undefined&&(!Number.isFinite(c[k])||c[k]<0))||
           !Array.isArray(c.events)||c.events.some(e=>typeof e!=='string')||!Array.isArray(c.attackers)||!c.attackers.length||c.attackers.length>50000||
           !Array.isArray(c.defenderIds)||c.defenderIds.some(id=>typeof id!=='string'))return false;
         if(s.provinces[c.to].owner!==c.defender||s.provinces[c.from].owner!==c.attacker||

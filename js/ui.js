@@ -1560,11 +1560,12 @@ const UI = (function(){
       if(i===2)step.appendChild(el('small',null,'尚未占领'));stages.appendChild(step);
     });
     const marchDays=Math.max(1,(b.preparationDays||2)-(b.days||0));
-    box.appendChild(el('p','combat-phase',marching?(b.phase==='naval'?'争夺海路 · 陆军尚未登陆':b.playerSide==='defend'?`敌军接近 · 预计 ${marchDays} 天后交战`:`正在行军 · 预计 ${marchDays} 天后接敌`):b.playerSide==='defend'?'守城交战':'正在攻城'));
+    box.appendChild(el('p','combat-phase',marching?(b.phase==='naval'?'争夺海路 · 陆军尚未登陆':b.playerSide==='defend'?`敌军接近 · 预计 ${marchDays} 天后交战`:`正在行军 · 预计 ${marchDays} 天后接敌`):b.holdout?'包围坚守':b.playerSide==='defend'?'守城交战':'正在攻城'));
     if(!marching){
       const progress=el('progress','combat-progress');progress.max=100;progress.value=b.progress;progress.setAttribute('aria-label','攻击方突破进度');box.appendChild(progress);
       box.appendChild(el('p','combat-breakthrough',`${b.playerSide==='defend'?'敌军突破':'突破'} ${Math.round(b.progress)}%`));
     }
+    if(b.holdout)box.appendChild(el('p','combat-status',b.playerSide==='defend'?'无陆路退路，持续抵抗；有舰队时可尝试海运撤离':'守军仍在抵抗，尚未占领'));
     const details=el('details','combat-details');details.open=combatDetailsOpen;
     details.appendChild(el('summary',null,'详细战况'));
     details.addEventListener('toggle',()=>{if(details.isConnected===false||activeCombatId!==b.id||combatDetailsOpen===details.open)return;combatDetailsOpen=details.open;if(details.open)pauseForPlanning();});

@@ -15,8 +15,9 @@ function setup(historical=false){
   }
   const Game=vm.runInContext('Game',ctx);Game.init('ger','fas',null,'standard','sandbox36');
   const from=Game.provinceById('ger_rhine'),to=Game.state.provinces.findIndex(p=>p.owner==='fra');
+  const defenderRear=Game.neighbors(to).find(index=>Game.province(index).owner==='fra'&&Game.neighbors(index).includes(to));
   if(!historical){Game.state.adj[from]=[to];Game.state.adj[to]=[from];}Game.setAutoRecruitment({enabled:false});
-  return {Game,from,to};
+  return {Game,from,to,defenderRear};
 }
 
 test('split formations preserve integer nominal divisions, people, health and object command counts',()=>{
@@ -52,7 +53,9 @@ test('small units have proportional real strength and width never displaces a fu
 
 test('equally scaled opposing formations retain preview odds and the same daily battle progression and outcome',()=>{
   const run=permille=>{
-    const {Game,from,to}=setup();Game.setAutoLogistics(false);Game.setAutoOffensive(false);
+    const {Game,from,to,defenderRear}=setup();Game.setAutoLogistics(false);Game.setAutoOffensive(false);
+    assert.ok(Number.isInteger(defenderRear),'the regular scale-invariance battle retains a real French land retreat');
+    Game.state.adj[to].push(defenderRear);Game.state.adj[defenderRear]=[to];
     Game.state.provinces.forEach(p=>{p.garrison=[];});
     for(const c of Object.values(Game.state.countries)){
       c.alive=['ger','fra'].includes(c.id);c.eff.landAtk=0;c.eff.landDef=0;c.eff.airBonus=0;

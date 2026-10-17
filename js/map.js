@@ -828,6 +828,7 @@ const MapView = (() => {
       const ux=dx/length,uy=dy/length,positions=points.map(p=>ux*p[0]+uy*p[1]);
       const low=Math.min(...positions),high=Math.max(...positions);
       const cut=low+(high-low)*clamp(combat.progress/100,0,1);
+      const gradientId="combat-progress-"+active.indexOf(combat);
       const cid=geometryCountry(target);
       ensureClip(cid);
       const group=document.createElementNS(NS,"g");
@@ -843,7 +844,7 @@ const MapView = (() => {
         if(covered.length){
           const fill=document.createElementNS(NS,"path");
           fill.setAttribute("d",covered.map(polygonPath).join(" "));fill.setAttribute("fill-rule","evenodd");
-          fill.setAttribute("fill",mapMode==="political"?"none":countryColor(combat.attacker));fill.setAttribute("class","combat-front-fill");
+          fill.setAttribute("fill",`url(#${gradientId})`);fill.setAttribute("class","combat-front-fill");
           if(region.id)fill.setAttribute("data-region",region.id);group.appendChild(fill);
         }
         const crossings=[];
@@ -881,6 +882,17 @@ const MapView = (() => {
         path.setAttribute("d",region.rings.map(polygonPath).join(" "));path.setAttribute("clip-rule","evenodd");clip.appendChild(path);}
       for(const child of group.children)child.setAttribute("clip-path",`url(#${clipId})`);
       group.appendChild(clip);
+      const definitions=document.createElementNS(NS,"defs"),gradient=document.createElementNS(NS,"linearGradient");
+      gradient.setAttribute("id",gradientId);gradient.setAttribute("gradientUnits","userSpaceOnUse");
+      gradient.setAttribute("x1",ux*low);gradient.setAttribute("y1",uy*low);
+      gradient.setAttribute("x2",ux*cut);gradient.setAttribute("y2",uy*cut);
+      const feather=Math.min(cut-low,(high-low)*.18,(high-cut)*1.5);
+      for(const [offset,opacity]of [[0,1],[1-feather/Math.max(1e-6,cut-low),1],[1,0]]){
+        const stop=document.createElementNS(NS,"stop");stop.setAttribute("offset",offset);
+        stop.setAttribute("stop-color",countryColor(combat.attacker));stop.setAttribute("stop-opacity",opacity);
+        gradient.appendChild(stop);
+      }
+      definitions.appendChild(gradient);group.appendChild(definitions);
       L.fronts.appendChild(group);
     }
   }

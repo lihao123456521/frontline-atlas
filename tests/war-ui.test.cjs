@@ -533,6 +533,16 @@ test('battle details distinguish estimated killed and wounded from vehicle and a
   assert.match(fixture.panel.textContent,/估算阵亡/);assert.match(fixture.panel.textContent,/负伤/);assert.match(fixture.panel.textContent,/坦克损失/);assert.match(fixture.panel.textContent,/飞机损失/);
 });
 
+test('encircled holdout explains why breakthrough has not yet changed control',()=>{
+  const fixture=setup(),{Game,UI,panel,buttons,descendants}=fixture,combat=startUiCombat(fixture);
+  Game.getCombats=()=>[{...combat,phase:'engagement',progress:95,holdout:true}];UI.refresh();
+  assert.match(panel.textContent,/包围坚守/);assert.match(panel.textContent,/守军仍在抵抗，尚未占领/);
+  assert.ok(buttons('增援').some(button=>button.textContent==='增援'));
+  assert.ok(descendants(panel).find(element=>element.className==='combat-progress'&&element.value===95));
+  Game.getCombats=()=>[{...combat,phase:'engagement',progress:95,holdout:true,playerSide:'defend'}];UI.refresh();
+  assert.match(panel.textContent,/包围坚守/);assert.match(panel.textContent,/无陆路退路，持续抵抗；有舰队时可尝试海运撤离/);
+});
+
 test('army overview gives personnel tanks and aircraft equal metrics while retaining division details',()=>{
   const fixture=setup(),{Game,UI,panel,descendants}=fixture;startUiCombat(fixture);const totals=Game.armyTotals(Game.state.player);assert.ok(totals.engaged>0);assert.ok(totals.landPersonnel>0);
   UI.navigate('production');assert.ok(panel.textContent.includes(totals.landPersonnel>=10000?(totals.landPersonnel/10000).toFixed(1)+' 万人':totals.landPersonnel.toLocaleString()+' 人'));

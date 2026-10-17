@@ -57,6 +57,9 @@ function contains(points,x,y){
   }
   return hit;
 }
+function progressGradient(group){
+  return group.children.flatMap(child=>child.children).find(child=>child.attrs.gradientUnits==='userSpaceOnUse');
+}
 
 test('neighbor cells share exactly the same curved edge, including endpoints',()=>{
   const {map}=setup();
@@ -151,8 +154,13 @@ test('two countries advance independently across target cells without changing o
   assert.equal(east.attrs['data-combat-id'],'east-fight');
   assert.equal(west.attrs['clip-path'],'url(#clipT-west)');
   assert.equal(east.attrs['clip-path'],'url(#clipT-east)');
-  assert.equal(west.children[0].attrs.fill,'none','political advance is an outline rather than occupation color');
-  assert.equal(east.children[0].attrs.fill,'none');
+  const westGradient=progressGradient(west),eastGradient=progressGradient(east);
+  assert.ok(westGradient,'political advance must use a visible directional gradient');
+  assert.ok(eastGradient);assert.notEqual(westGradient.attrs.id,eastGradient.attrs.id);
+  assert.equal(west.children[0].attrs.fill,`url(#${westGradient.attrs.id})`);
+  assert.equal(east.children[0].attrs.fill,`url(#${eastGradient.attrs.id})`);
+  assert.ok(westGradient.children.every(stop=>stop.attrs['stop-color']==='#bd4335'));
+  assert.ok(eastGradient.children.every(stop=>stop.attrs['stop-color']==='#58a065'));
   assert.equal(west.children[1].attrs.class,'combat-front-line');
   const before=polygon(west.children[0].attrs.d),beforeArea=area(before);
   state.activeCombats[0].progress=75;c.map.renderFronts();
@@ -189,6 +197,13 @@ test('fronts advance from all four geographic sides and diagonals rather than a 
     assert.ok(direction.every((v,i)=>Math.abs(v-expected[i])<1e-8));
     const project=p=>direction[0]*p[0]+direction[1]*p[1];
     const before=polygon(group.children[0].attrs.d),cutBefore=Math.max(...before.map(project));
+    const gradient=progressGradient(group);assert.ok(gradient);
+    const gradientStart=[Number(gradient.attrs.x1),Number(gradient.attrs.y1)];
+    const gradientEnd=[Number(gradient.attrs.x2),Number(gradient.attrs.y2)];
+    assert.ok(Math.abs(project(gradientStart)-Math.min(...before.map(project)))<.01);
+    assert.ok(Math.abs(project(gradientEnd)-cutBefore)<.01);
+    const gradientLength=Math.hypot(gradientEnd[0]-gradientStart[0],gradientEnd[1]-gradientStart[1]);
+    assert.ok(gradientEnd.every((value,index)=>Math.abs((value-gradientStart[index])/gradientLength-direction[index])<1e-8));
     combat.progress=75;c.map.renderFronts();
     const next=c.layers.get('layerFronts').children[0],after=polygon(next.children[0].attrs.d);
     assert.ok(Math.max(...after.map(project))>cutBefore,`advances toward target from ${x},${y}`);
@@ -197,6 +212,31 @@ test('fronts advance from all four geographic sides and diagonals rather than a 
     assert.ok(arrow);assert.ok(arrow.attrs.transform.includes(`rotate(${Math.atan2(50-y,50-x)*180/Math.PI})`));
     assert.equal(c.Game.state.provinces[1].owner,'b');
   }
+});
+
+test('progress tint fades only at the real moving front and converges toward the attacker color before capture',()=>{
+  const context=setup(),combat=context.Game.state.activeCombats[0];context.Game.state.activeCombats=[combat];
+  const snapshots=[];
+  for(const progress of [15,50,95,99]){
+    combat.progress=progress;context.map.renderFronts();
+    const group=context.layers.get('layerFronts').children[0],gradient=progressGradient(group);
+    assert.ok(gradient);assert.equal(gradient.children.length,3);
+    const [rear,fade,edge]=gradient.children;
+    assert.equal(rear.attrs.offset,'0');assert.equal(rear.attrs['stop-opacity'],'1');
+    assert.equal(fade.attrs['stop-opacity'],'1');assert.equal(edge.attrs.offset,'1');
+    assert.equal(edge.attrs['stop-opacity'],'0');
+    assert.ok(Number(fade.attrs.offset)>=0&&Number(fade.attrs.offset)<1);
+    assert.equal(group.children[0].attrs['fill-rule'],'evenodd');
+    assert.match(group.children[0].attrs['clip-path'],/^url\(#combat-cell-/);
+    snapshots.push(Number(fade.attrs.offset));
+    assert.equal(context.Game.state.provinces[1].owner,'b');
+  }
+  assert.ok(snapshots[3]>.98,'almost all advanced ground already has the attacker color before capture');
+  assert.ok(snapshots[3]>snapshots[2]&&snapshots[2]>snapshots[1]);
+  context.Game.state.activeCombats=[];context.map.renderFronts();
+  assert.equal(context.layers.get('layerFronts').children.length,0,'ending battles removes their paint definitions');
+  const css=fs.readFileSync(path.join(__dirname,'../css/map-fronts.css'),'utf8');
+  assert.match(css,/\.combat-front-fill\s*\{[^}]*opacity\s*:\s*1(?:\s*;|\s*\})/,'a global translucent layer must not dilute the rear gradient');
 });
 
 test('multi-leg march changes position and direction each day without filling or occupying the destination',()=>{

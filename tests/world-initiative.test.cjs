@@ -9,7 +9,7 @@ function setup(scenario,player='ger'){
 }
 const units=G=>G.state.provinces.flatMap(p=>p.garrison).concat(G.state.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)));
 for(const scenario of ['sandbox36','poland39','barbarossa41'])test(scenario+' sustains independent AI wars without any player offensive',()=>{
-  const G=setup(scenario),seen=new Set(),operations=[],initialOwners=G.state.provinces.map(province=>province.owner),days=scenario==='sandbox36'?180:scenario==='barbarossa41'?14:90;assert.equal(G.state.provinces.length,418);
+  const G=setup(scenario),seen=new Set(),operations=[],initialOwners=G.state.provinces.map(province=>province.owner),days=scenario==='sandbox36'?180:scenario==='barbarossa41'?30:90;assert.equal(G.state.provinces.length,418);
   let diplomacyDay=-3;const warDays={};
   for(let day=1;day<=days;day++){
     G.advanceDay();const ids=units(G).map(u=>u.id);assert.equal(new Set(ids).size,ids.length,'real recruitment keeps unit identities unique');
@@ -24,6 +24,10 @@ for(const scenario of ['sandbox36','poland39','barbarossa41'])test(scenario+' su
         assert.ok(G.neighbors(c.routePath[k-1]).includes(c.routePath[k]));
         if(k<c.routePath.length-1){const owner=G.province(c.routePath[k]).owner;assert.ok(owner===c.attacker||G.isAllied(owner,c.attacker),'no hostile intermediate territory');}
       }
+    }
+    if(scenario==='barbarossa41'&&day===14){
+      assert.ok(operations.filter(combat=>combat.attacker!==G.state.player&&combat.defender!==G.state.player).length>=2,'independent armies are already marching within fourteen days');
+      assert.ok(G.state.activeCombats.some(combat=>combat.attacker!==G.state.player&&combat.defender!==G.state.player&&combat.phase==='engagement'&&(combat.progress>0||combat.aPersonnelLoss>0||combat.dPersonnelLoss>0))||G.state.recentBattles.some(battle=>battle.attacker!==G.state.player&&battle.defender!==G.state.player),'the early audit requires actual fighting, not only declarations');
     }
   }
   const independentWars=new Set(G.state.wars.filter(war=>war.a!==G.state.player&&war.b!==G.state.player).map(war=>[war.a,war.b].sort().join('|')));

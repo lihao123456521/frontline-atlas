@@ -175,7 +175,11 @@ test('compound-region combat fronts preserve holes and take their entry directio
   const source=f.regions.regionsFor('p0');
   assert.deepEqual(clip.children.map(n=>n.attrs.d),Array.from(source,r=>r.rings.map(ringPath).join(' ')));
   assert.ok(clip.children.every(n=>n.attrs['clip-rule']==='evenodd'));
-  assert.ok(group.children.filter(n=>n!==clip).every(n=>n.attrs['clip-path']==='url(#'+clip.attrs.id+')'),
+  const definitions=group.children.find(n=>n.tagName==='defs');assert.ok(definitions);
+  const gradient=definitions.children.find(n=>n.tagName==='linearGradient');assert.ok(gradient);
+  assert.equal(gradient.attrs.gradientUnits,'userSpaceOnUse');
+  assert.ok(fills.every(n=>n.attrs.fill==='url(#'+gradient.attrs.id+')'));
+  assert.ok(group.children.filter(n=>n!==clip&&n!==definitions).every(n=>n.attrs['clip-path']==='url(#'+clip.attrs.id+')'),
     'fills, front segments and arrow cues are intersected with original holes and disconnected parts');
 });
 
