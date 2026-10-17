@@ -82,7 +82,7 @@ const Game = (function(){
     for(const key of ['tanks','aircraft','ships']){
       const nominalKey='nominal'+key[0].toUpperCase()+key.slice(1);
       const nominal=unit[nominalKey]??(type[key]||0)*formationScale(unit);
-      result[nominalKey]=Math.max(0,nominal);result[key]=result[nominalKey]*health;
+      result[nominalKey]=Math.max(0,nominal);result[key]=result[nominalKey]*health*(unit.equipmentCondition?.[key]??1);
     }
     return result;
   }
@@ -471,7 +471,8 @@ const Game = (function(){
     if(!from || !to || from.owner!==state.player || to.owner!==state.player)return false;
     if(kind==='naval' && (!coastalOf(fromIdx)||!coastalOf(toIdx)||!seaAdj(fromIdx).includes(toIdx)))return false;
     if(kind==='land' && !neighbors(fromIdx).includes(toIdx))return false;
-    const pool=from.garrison.filter(d=>d.kind===kind && !d.combatId && (kind!=='air'||distanceKm(from,to)<=UNIT_TYPES[d.type].range));
+    const pool=from.garrison.filter(d=>d.kind===kind && !d.combatId && !d.airCombatId && (kind!=='air'||distanceKm(from,to)<=UNIT_TYPES[d.type].range) &&
+      (kind!=='land'||d.rescueArrivalDay===undefined&&!d.rescueCaptured) && (kind!=='naval'||!shipReservedForRescue(d)));
     if(!pool.length)return false;
     // 派兵数量：显式 sendCount 优先；否则默认留守 1 支，避免后方空虚被偷袭
     let send = pool.length;
@@ -489,6 +490,15 @@ const Game = (function(){
   }
 
   /* ---------------- 战斗 ---------------- */
+  const tacticModes={
+    careful:{label:'谨慎推进',power:.78,loss:.5,org:.55,pace:.55},
+    balanced:{label:'均衡作战',power:1,loss:1,org:1,pace:1},
+    assault:{label:'强攻突破',power:1.38,loss:2.1,org:1.85,pace:1.65}
+  };
+  function tacticProfile(mode){
+    const profile=tacticModes[mode]||tacticModes.balanced,{label,...multipliers}=profile;
+    return {label,multipliers,summary:'推进 ×'+profile.pace.toFixed(2)+' · 日损耗 ×'+profile.loss.toFixed(2)};
+  }
   function infantryCover(units){return units.some(d=>d.hp>0&&['infantry','motorized','mechanized','mountain','marines','cavalry','garrison'].includes(d.type));}
   function fortBonusOf(p,attackers=[]){
     const reduction=infantryCover(attackers)?Math.min(.4,attackers.reduce((sum,d)=>sum+(UNIT_TYPES[d.type].fortReduction||0)*formationScale(d)*clamp(d.hp/d.maxHp,0,1),0)):0;
@@ -501,7 +511,7 @@ const Game = (function(){
     s *= (rndLo + Math.random() * (rndHi - rndLo));
     return s;
   }
-  function landUnits(p){ return p.garrison.filter(d=>UNIT_TYPES[d.type].kind==="land"); }
+  function landUnits(p){ return p.garrison.filter(d=>UNIT_TYPES[d.type].kind==="land"&&d.rescueArrivalDay===undefined&&!d.rescueCaptured); }
   function landCount(idx){ return availableLand(province(idx)).length; }
   function distanceKm(a,b){
     const rad=Math.PI/180, lat=(b.lat-a.lat)*rad,lon=(b.lon-a.lon)*rad;
@@ -561,21 +571,82 @@ const Game = (function(){
     const routeKm=state.landGraphVersion?distanceKm(province(fromIdx),province(toIdx)):undefined;
     return Number.isFinite(routeKm)?{routeKm,preparationDays:Math.max(2,Math.ceil(routeKm/(amphib?750:250)))}:{routeKm:0,preparationDays:2};
   }
-  function aircraftAt(ownerId,target){
+  function aircraftAt(ownerId,target,combatId){
     const result=[];if(!ownerId)return result;
     state.provinces.forEach(p=>{if(p.owner!==ownerId)return;
-      p.garrison.forEach(d=>{const t=UNIT_TYPES[d.type];if(t.kind==='air'&&d.hp>0&&d.org>=(d.maxOrg||t.org)*.15&&distanceKm(p,target)<=t.range)result.push(d);});
+      p.garrison.forEach(d=>{const t=UNIT_TYPES[d.type];if(t.kind==='air'&&d.hp>0&&!d.combatId&&(!d.airCombatId||d.airCombatId===combatId)&&d.org>=(d.maxOrg||t.org)*.15&&distanceKm(p,target)<=t.range)result.push(d);});
     });return result;
   }
-  function airSupport(ownerId,target,enemyUnits,hostileOwner){
+  function airMissions(c,ownerId){
+    if(c?.previewAircraft)return c.previewAircraft[ownerId]||[];
+    if(!c?.airMissions)return aircraftAt(ownerId,province(c.to),c.id).map(unit=>({unit,count:unitAssets(unit).aircraft}));
+    return c.airMissions.filter(mission=>mission.owner===ownerId).map(mission=>{
+      const base=province(mission.base),unit=base?.owner===ownerId?base.garrison.find(candidate=>candidate.id===mission.unitId&&candidate.airCombatId===c.id):null;
+      return unit&&unit.hp>0&&unit.org>=unit.maxOrg*.15&&distanceKm(base,province(c.to))<=UNIT_TYPES[unit.type].range?
+        {unit,count:Math.min(unitAssets(unit).aircraft,mission.nominalAircraft*unit.hp/unit.maxHp*(unit.equipmentCondition?.aircraft??1))}:null;
+    }).filter(Boolean);
+  }
+  function reserveAircraft(c,ownerId,amount){
+    if(!ownerId||!country(ownerId)?.oil||amount===0)return;
+    const available=aircraftAt(ownerId,province(c.to));
+    let remaining=amount===null||amount===undefined?recommendedAircraft(ownerId===c.attacker?attackersOf(c):defendersOf(c),province(c.to),available.reduce((sum,unit)=>sum+unitAssets(unit).aircraft,0)):amount;
+    for(const unit of available){
+      const count=Math.min(remaining,unitAssets(unit).aircraft);if(count<=0)continue;
+      const base=state.provinces.findIndex(province=>province.garrison.includes(unit));
+      ensureUnit(unit,ownerId);unit.airCombatId=c.id;
+      c.airMissions.push({unitId:unit.id,base,owner:ownerId,nominalAircraft:count/Math.max(1e-9,unit.hp/unit.maxHp*(unit.equipmentCondition?.aircraft??1))});
+      remaining-=count;if(remaining<1e-7)break;
+    }
+  }
+  function missionAssets(c,ownerId){
+    const result=assetsOf([]);
+    for(const mission of airMissions(c,ownerId)){
+      const assets=unitAssets(mission.unit),fraction=assets.aircraft?mission.count/assets.aircraft:0;
+      for(const key of Object.keys(result))result[key]+=assets[key]*fraction;
+    }
+    return result;
+  }
+  function airSupport(ownerId,target,enemyUnits,hostileOwner,combat){
     if(ownerId&&country(ownerId).oil<=0)return 1;
-    const planes=aircraftAt(ownerId,target),enemy=aircraftAt(hostileOwner===undefined?target.owner:hostileOwner,target);
-    const fighter=planes.filter(d=>d.type==='air').reduce((sum,unit)=>sum+unitAssets(unit).aircraft/100,0);
-    const hostile=enemy.filter(d=>d.type==='air').reduce((sum,unit)=>sum+unitAssets(unit).aircraft/100,0);
+    const missions=id=>combat?airMissions(combat,id):aircraftAt(id,target).map(unit=>({unit,count:unitAssets(unit).aircraft}));
+    const planes=missions(ownerId),enemy=missions(hostileOwner===undefined?target.owner:hostileOwner);
+    const fighter=planes.filter(mission=>mission.unit.type==='air').reduce((sum,mission)=>sum+mission.count/100,0);
+    const hostile=enemy.filter(mission=>mission.unit.type==='air').reduce((sum,mission)=>sum+mission.count/100,0);
     const aa=formationTotal(enemyUnits.filter(d=>d.type==='antiAir'));
-    const cas=planes.reduce((sum,unit)=>sum+(unit.type==='cas'?.13:unit.type==='tacticalBomber'?.06:unit.type==='air'?.012:0)*unitAssets(unit).aircraft/100,0);
-    const control=Math.max(.2,Math.min(1.2,1+(fighter-hostile)*.15));
-    return 1+Math.min(.55,cas*control*(1+(ownerId?country(ownerId).eff.airBonus:0))/(1+aa*.6));
+    const cas=planes.reduce((sum,mission)=>sum+(mission.unit.type==='cas'?.18:mission.unit.type==='tacticalBomber'?.09:mission.unit.type==='air'?.035:0)*mission.count/100,0);
+    const control=fighter+hostile?Math.max(.2,Math.min(1.3,.45+1.1*fighter/Math.max(.001,fighter+hostile))):1;
+    return 1+Math.min(.65,cas*control*(1+(ownerId?country(ownerId).eff.airBonus:0))/(1+aa*.6));
+  }
+  function armorMultiplier(units,opposing,terrain,stat){
+    const assets=assetsOf(units),density=assets.tanks/Math.max(1,assets.personnel);
+    const ground=({plain:1,desert:.9,hill:.6,forest:.4,urban:.35,mountain:.2})[terrain]||.6;
+    const counter=formationTotal(opposing.filter(unit=>unit.type==='antiTank'))/Math.max(.001,formationTotal(opposing));
+    return 1+Math.min(.4,density*30)*ground*(stat==='def'?.55:1)/(1+counter*3);
+  }
+  function armorControl(units,opposing){
+    const own=assetsOf(units).tanks,hostile=assetsOf(opposing).tanks;
+    return own+hostile?own/(own+hostile):.5;
+  }
+  function armorControlMultiplier(units,opposing){
+    const own=assetsOf(units).tanks,hostile=assetsOf(opposing).tanks;
+    return own+hostile?Math.max(.72,Math.min(1.28,1+(armorControl(units,opposing)-.5)*.56)):1;
+  }
+  function airControl(c,owner,opponent){
+    const own=missionAssets(c,owner).aircraft,hostile=missionAssets(c,opponent).aircraft;
+    return own+hostile?own/(own+hostile):.5;
+  }
+  function tankProtection(unit){
+    const assets=unitAssets(unit);return 1/(1+Math.min(1.2,assets.tanks/Math.max(1,assets.personnel)*35));
+  }
+  function combatEffects(c,owner,units,opposing,stat){
+    const target=province(c.to),assets=assetsOf(units),personnel=assets.personnel;
+    const enemy=owner===c.attacker?c.defender:c.attacker,armor=armorMultiplier(units,opposing,target.terrain,stat),air=airSupport(owner,target,opposing,enemy,c);
+    const tanks=assets.tanks,enemyTanks=assetsOf(opposing).tanks,armorShare=armorControl(units,opposing),airShare=airControl(c,owner,enemy);
+    const protection=personnel?units.reduce((sum,unit)=>sum+unitPersonnel(unit)*(1-tankProtection(unit)),0)/personnel:0;
+    const armorBonus=Math.round((armor-1)*100),airBonus=Math.round((air-1)*100);
+    return {engagedTanks:assets.tanks,armorMultiplier:armor,airMultiplier:air,armorBonus,airBonus,armorProtectionPercent:Math.round(protection*100),armorControl:armorShare,airControl:airShare,
+      aircraft:missionAssets(c,owner).aircraft,sorties:c[owner===c.attacker?'aSorties':'dSorties']||0,
+      summary:[tanks+enemyTanks?(armorShare>.58?'装甲优势':armorShare<.42?'装甲受压':'装甲均势'):'',airShare>.58?'制空优势':airShare<.42?'制空劣势':airShare!==.5?'争夺制空':'',armorBonus?(stat==='def'?'装甲防御 +':'装甲突破 +')+armorBonus+'%':'',airBonus?'空中支援 +'+airBonus+'%':''].filter(Boolean).join(' · ')};
   }
   function landStrength(units,stat,terrain,opposing,isAmphib,ownerId){
     const baseInf=infantryCover(units);
@@ -591,7 +662,7 @@ const Game = (function(){
       if(d.type==='antiAir')role=baseInf?1:.5;
       if(d.type==='mechanized' && units.some(q=>q.type==='armor'||UNIT_TYPES[q.type].armored))role=1.15;
       const t=UNIT_TYPES[d.type];
-      const assets=unitAssets(d),tankDensity=assets.nominalTanks/(250*Math.max(.001,formationScale(d)));
+      const assets=unitAssets(d),tankDensity=assets.tanks/(250*Math.max(.001,formationScale(d))*Math.max(1e-9,d.hp/d.maxHp));
       if(t.tanks)role*=.65+.35*Math.min(2,tankDensity);
       else if(assets.nominalTanks)role*=1+Math.min(.3,tankDensity*.25);
       if(t.terrainRole)role=t.terrainRole[terrain]||1;
@@ -602,15 +673,20 @@ const Game = (function(){
       return sum+t[stat]*formationScale(d)*d.hp/d.maxHp*(.4+.6*d.org/(d.maxOrg||t.org))*role;
     },0);
   }
-  function assaultStrength(attackerId,fromIdx,toIdx,sending,navBonus){
+  function assaultStrength(attackerId,fromIdx,toIdx,sending,navBonus,airCombat){
     const target=province(toIdx),amount=formationTotal(sending),width=frontage(target),defenders=combatFront(landUnits(target),width),ae=country(attackerId).eff,de=target.owner?country(target.owner).eff:emptyEff();
     sending=combatFront(sending,width);
+    if(!airCombat){
+      const previewAircraft={[attackerId]:previewAirAllocation(attackerId,sending,target)};
+      if(target.owner)previewAircraft[target.owner]=previewAirAllocation(target.owner,defenders,target);
+      airCombat={previewAircraft};
+    }
     const terrain=TERRAIN[target.terrain].def,amphib=navBonus!==undefined && navBonus!==null && navBonus!==0;
     const fleet=province(fromIdx).garrison;
     const interdiction=amphib?Math.max(.5,1-Math.max(0,target.garrison.filter(d=>d.type==='submarine').length-fleet.filter(d=>d.type==='destroyer').length)*.12):1;
     return {
-      aStr:landStrength(sending,'atk',target.terrain,defenders,amphib,attackerId)*interdiction*(1+ae.landAtk)*(1+(navBonus||0))/(1+(terrain-1)*.5)*airSupport(attackerId,target,defenders)*supplyAt(attackerId,fromIdx,toIdx,amount,amphib)/100,
-      dStr:landStrength(defenders,'def',target.terrain,sending,false,target.owner)*(1+de.landDef)*terrain*fortBonusOf(target,sending)*airSupport(target.owner,target,sending,attackerId),
+      aStr:landStrength(sending,'atk',target.terrain,defenders,amphib,attackerId)*armorMultiplier(sending,defenders,target.terrain,'atk')*armorControlMultiplier(sending,defenders)*interdiction*(1+ae.landAtk)*(1+(navBonus||0))/(1+(terrain-1)*.5)*airSupport(attackerId,target,defenders,undefined,airCombat)*supplyAt(attackerId,fromIdx,toIdx,amount,amphib)/100,
+      dStr:landStrength(defenders,'def',target.terrain,sending,false,target.owner)*armorMultiplier(defenders,sending,target.terrain,'def')*armorControlMultiplier(defenders,sending)*(1+de.landDef)*terrain*fortBonusOf(target,sending)*airSupport(target.owner,target,sending,attackerId,airCombat),
     };
   }
   // 空军支援：本省及相邻本省内的空军数量 -> 攻防乘数
@@ -632,7 +708,7 @@ const Game = (function(){
   }
   // 舰船编队协同：同省多支海军获得额外加成（上限 +40%）
   function navalFormation(idx){
-    const n = province(idx).garrison.filter(d=>d.kind==='naval').reduce((sum,unit)=>sum+unitAssets(unit).ships/(UNIT_TYPES[unit.type].ships||1),0);
+    const n = province(idx).garrison.filter(d=>d.kind==='naval'&&!shipReservedForRescue(d)).reduce((sum,unit)=>sum+unitAssets(unit).ships/(UNIT_TYPES[unit.type].ships||1),0);
     return Math.min(0.4, Math.max(0, n-1) * 0.12);
   }
   function airFormation(idx){
@@ -655,18 +731,62 @@ const Game = (function(){
   }
   function availableLand(p){
     if(!p)return [];
-    return landUnits(p).filter(d=>!d.combatId && d.hp>0 && (d.arrivalDay===undefined||d.arrivalDay<=state.daysElapsed) && d.org>=(d.maxOrg||60)*.15);
+    return landUnits(p).filter(d=>!d.combatId && d.hp>0 && d.rescueArrivalDay===undefined && !d.rescueCaptured && (d.arrivalDay===undefined||d.arrivalDay<=state.daysElapsed) && d.org>=(d.maxOrg||60)*.15);
   }
+  function shipReservedForRescue(ship){return state.provinces.some(port=>port.garrison.some(unit=>unit.rescueArrivalDay>state.daysElapsed&&unit.rescueShipIds?.includes(ship.id)));}
   function defaultSend(n){return n>1?n-Math.max(1,Math.ceil(n*.2)):n;}
+  function validAssaultOptions(options){
+    return options===null||options===undefined||typeof options==='object'&&!Array.isArray(options)&&
+      !['tankUnits','aircraftCount'].some(key=>options[key]!==undefined&&options[key]!==null&&(!Number.isFinite(options[key])||options[key]<0))&&
+      (options.tankUnits===undefined||options.tankUnits===null||Number.isInteger(options.tankUnits));
+  }
+  function recommendedAircraft(units,target,maximum){
+    const front=assetsOf(combatFront(units,frontage(target)));
+    return !front.personnel?0:Math.min(maximum,Math.max(60,Math.min(1200,Math.ceil(front.personnel/2000)*30+Math.ceil(front.tanks/5))));
+  }
+  function previewAirAllocation(owner,units,target){
+    const available=country(owner)?.oil>0?aircraftAt(owner,target):[];
+    let remaining=recommendedAircraft(units,target,available.reduce((sum,unit)=>sum+unitAssets(unit).aircraft,0));
+    const missions=[];
+    for(const unit of available){const count=Math.min(remaining,unitAssets(unit).aircraft);if(count>0)missions.push({unit,count});remaining-=count;if(remaining<=0)break;}
+    return missions;
+  }
+  function selectedAssault(fromIdx,toIdx,sendCount,options,owner=state.player){
+    const pool=availableLand(province(fromIdx)),separate=options&&typeof options==='object';
+    const tanks=pool.filter(unit=>UNIT_TYPES[unit.type].tanks>0),infantry=pool.filter(unit=>!tanks.includes(unit));
+    const bounded=(value,maximum)=>value===null||value===undefined?defaultSend(maximum):Math.max(0,Math.min(maximum,Math.floor(value)));
+    const infantryCount=bounded(sendCount,infantry.length),tankCount=bounded(options?.tankUnits,tanks.length);
+    const sending=separate?infantry.slice(0,infantryCount).concat(tanks.slice(0,tankCount)):pool.slice(0,bounded(sendCount,pool.length));
+    const available=country(owner)?.oil>0?aircraftAt(owner,province(toIdx)):[],maxAircraft=available.reduce((sum,unit)=>sum+unitAssets(unit).aircraft,0);
+    let aircraft=options?.aircraftCount===null||options?.aircraftCount===undefined?recommendedAircraft(sending,province(toIdx),maxAircraft):Math.min(maxAircraft,Math.max(0,options.aircraftCount));
+    const missions=[];
+    for(const unit of available){const count=Math.min(aircraft,unitAssets(unit).aircraft);if(count>0)missions.push({unit,count});aircraft-=count;}
+    return {pool,tanks,infantry,sending,missions,maxAircraft,selectedInfantryGroups:separate?infantryCount:sending.filter(unit=>infantry.includes(unit)).length,
+      selectedTankGroups:separate?tankCount:sending.filter(unit=>tanks.includes(unit)).length};
+  }
+  function assaultOptions(fromIdx,toIdx,sendCount,amphib=false,options={}){
+    if(!state||!province(fromIdx)||!province(toIdx))return null;
+    const plan=selectedAssault(fromIdx,toIdx,sendCount,options),sendingAssets=assetsOf(plan.sending),remainingAssets=assetsOf(plan.pool.filter(unit=>!plan.sending.includes(unit)));
+    const selectedAircraft=plan.missions.reduce((sum,mission)=>sum+mission.count,0);
+    sendingAssets.aircraft=selectedAircraft;remainingAssets.aircraft=plan.maxAircraft-selectedAircraft;
+    const tankSteps=[0];for(const unit of plan.tanks)tankSteps.push(tankSteps[tankSteps.length-1]+unitAssets(unit).tanks);
+    const infantrySteps=[0];for(const unit of plan.infantry)infantrySteps.push(infantrySteps[infantrySteps.length-1]+unitPersonnel(unit));
+    return {infantryGroups:plan.infantry.length,tankGroups:plan.tanks.length,maxAircraft:plan.maxAircraft,
+      selectedInfantryGroups:plan.selectedInfantryGroups,selectedTankGroups:plan.selectedTankGroups,totalGroups:plan.sending.length,
+      infantryPersonnel:personnelOf(plan.infantry.slice(0,plan.selectedInfantryGroups)),tanks:sendingAssets.tanks,aircraft:selectedAircraft,
+      attachedInfantryTanks:assetsOf(plan.sending.filter(unit=>plan.infantry.includes(unit))).tanks,
+      sendingPersonnel:sendingAssets.personnel,sendingAssets,remainingAssets,tankSteps,infantrySteps,maxInfantryPersonnel:infantrySteps[infantrySteps.length-1],
+      airBases:plan.missions.map(mission=>({name:state.provinces.find(province=>province.garrison.includes(mission.unit))?.name,aircraft:mission.count}))};
+  }
   function frontage(p){return ({mountain:4,urban:4,forest:5,hill:5,desert:6,plain:8})[p.terrain]||6;}
   function activeCombat(id){return state?.activeCombats?.find(c=>c.id===id);}
-  function defendersOf(c){return province(c.to).garrison.filter(d=>d.combatId===c.id && d.kind==='land' && d.hp>0);}
+  function defendersOf(c){return province(c.to).garrison.filter(d=>d.combatId===c.id && d.kind==='land' && d.hp>0 && d.rescueArrivalDay===undefined && !d.rescueCaptured);}
   function attackersOf(c){return c.attackers.filter(e=>e.unit.hp>0).map(e=>e.unit);}
   function percent(units,key,max){const total=formationTotal(units);return total?clamp(Math.floor(units.reduce((n,d)=>n+d[key]/d[max]*formationScale(d),0)/total*1000)/10,0,100):0;}
   function armyTotals(id){
     const totals={land:0,naval:0,air:0,engaged:0,personnel:0,landPersonnel:0,committedPersonnel:0,tanks:0,aircraft:0,ships:0,nominalTanks:0,nominalAircraft:0,nominalShips:0};if(!state)return totals;
     const add=(d,owner,committed)=>{
-      if((d.owner||owner)!==id||d.hp<=0)return;
+      if((d.owner||owner)!==id||d.hp<=0||d.rescueCaptured)return;
       if(Object.hasOwn(totals,d.kind))totals[d.kind]+=d.kind==='land'?formationPermille(d):1;
       const people=unitPersonnel(d);totals.personnel+=people;
       const assets=unitAssets(d);for(const key of ['tanks','aircraft','ships','nominalTanks','nominalAircraft','nominalShips'])totals[key]+=assets[key];
@@ -690,13 +810,14 @@ const Game = (function(){
     return state.provinces.map((p,i)=>({p,i})).filter(({p,i})=>p.owner===owner &&
       (side==='defend'?!!landRoute(i,c.to,owner):
         i!==c.to&&(c.kind==='amphib'?(i===c.from && coastalOf(i) && seaAdj(i).includes(c.to)):!!landRoute(i,c.to,owner))) && availableLand(p).length)
-      .map(({p,i})=>({from:i,name:p.name,count:availableLand(p).length,owner}));
+      .map(({p,i})=>{const route=landRoute(i,c.to,owner);return {from:i,name:p.name,count:availableLand(p).length,owner,adjacent:neighbors(i).includes(c.to),routeKm:route?.routeKm||0,preparationDays:route?.preparationDays||2};})
+      .sort((a,b)=>Number(b.adjacent)-Number(a.adjacent)||a.preparationDays-b.preparationDays||a.routeKm-b.routeKm||b.count-a.count);
   }
   function supportOptions(c){
     const side=c.attacker===state.player?'attack':'defend',enemy=side==='attack'?c.defender:c.attacker;
     return Object.values(state.countries).filter(a=>a.alive && isAllied(state.player,a.id)).map(a=>{
       const contributed=c.attackers.some(e=>e.owner===a.id)||province(c.to).garrison.some(d=>d.combatId===c.id&&d.owner===a.id);
-      const hasWar=!!enemy&&isAtWar(a.id,enemy),local=combatOrigins(c,a.id,side);
+      const hasWar=!!enemy&&isAtWar(a.id,enemy),local=hasWar&&!contributed?combatOrigins(c,a.id,side):[];
       const available=hasWar && !contributed && local.length>0;
       return {id:a.id,name:a.name,available,reason:contributed?'部队已参战':!hasWar?'先召集盟友加入同一场战争':!local.length?'附近没有可用陆军':'可派附近陆军支援'};
     });
@@ -705,20 +826,24 @@ const Game = (function(){
     if(!c || (c.attacker!==state.player && c.defender!==state.player))return null;
     const a=attackersOf(c),d=defendersOf(c),target=province(c.to),side=c.attacker===state.player?'attack':'defend';
     const aPersonnel=personnelOf(a),dPersonnel=personnelOf(d),aPersonnelLoss=Number.isFinite(c.aPersonnelLoss)?Math.max(0,c.aPersonnelLoss):0,dPersonnelLoss=Number.isFinite(c.dPersonnelLoss)?Math.max(0,c.dPersonnelLoss):0;
+    const aFront=combatFront(a,frontage(target)),dFront=combatFront(d,frontage(target),isIsolatedDefender(c,d));
     return {id:c.id,to:c.to,name:target.name,kind:c.kind,attacker:c.attacker,defender:c.defender,
-      aAssets:assetsOf(a.concat(aircraftAt(c.attacker,target),c.kind==='amphib'?province(c.from).garrison.filter(unit=>unit.kind==='naval'&&unit.combatId===c.id):[])),
-      dAssets:assetsOf(d.concat(aircraftAt(c.defender,target),c.kind==='amphib'?target.garrison.filter(unit=>unit.kind==='naval'&&unit.combatId===c.id):[])),
+      aEffects:combatEffects(c,c.attacker,aFront,dFront,'atk'),dEffects:combatEffects(c,c.defender,dFront,aFront,'def'),tacticProfile:tacticProfile(side==='attack'?c.tactics:c.defenderTactics),
+      aAssets:{...assetsOf(a.concat(c.kind==='amphib'?province(c.from).garrison.filter(unit=>unit.kind==='naval'&&unit.combatId===c.id):[])),aircraft:missionAssets(c,c.attacker).aircraft},
+      dAssets:{...assetsOf(d.concat(c.kind==='amphib'?target.garrison.filter(unit=>unit.kind==='naval'&&unit.combatId===c.id):[])),aircraft:missionAssets(c,c.defender).aircraft},
+      aEquipmentLoss:c.aEquipmentLoss||{tanks:0,aircraft:0,ships:0},dEquipmentLoss:c.dEquipmentLoss||{tanks:0,aircraft:0,ships:0},
+      aCasualties:casualties(c,'a'),dCasualties:casualties(c,'d'),alliedAttackers:[...new Set(c.attackers.map(entry=>entry.owner).filter(owner=>owner!==c.attacker))],
       phase:c.phase,days:c.days,preparationDays:c.preparationDays||2,routeKm:c.routeKm||0,progress:Math.round(c.progress),tactics:side==='attack'?c.tactics:c.defenderTactics,
       playerSide:side,attackers:a.length,defenders:d.length,
       incomingAttackers:a.length-arrivedUnits(a).length,incomingDefenders:d.length-arrivedUnits(d).length,
       incomingAttackPersonnel:personnelOf(a.filter(unit=>unit.arrivalDay>state.daysElapsed)),incomingDefensePersonnel:personnelOf(d.filter(unit=>unit.arrivalDay>state.daysElapsed)),
-      aFront:formationTotal(combatFront(a,frontage(target))),aReserve:Math.max(0,formationTotal(arrivedUnits(a))-formationTotal(combatFront(a,frontage(target)))),dFront:formationTotal(combatFront(d,frontage(target))),dReserve:Math.max(0,formationTotal(arrivedUnits(d))-formationTotal(combatFront(d,frontage(target)))),
+      aFront:formationTotal(combatFront(a,frontage(target))),aReserve:Math.max(0,formationTotal(arrivedUnits(a))-formationTotal(combatFront(a,frontage(target)))),dFront:formationTotal(combatFront(d,frontage(target),isIsolatedDefender(c,d))),dReserve:Math.max(0,formationTotal(arrivedUnits(d))-formationTotal(combatFront(d,frontage(target),isIsolatedDefender(c,d)))),
       aOrg:percent(a,'org','maxOrg'),dOrg:percent(d,'org','maxOrg'),
       aStrength:percent(a,'hp','maxHp'),dStrength:percent(d,'hp','maxHp'),aLoss:Math.round(c.aLoss),dLoss:Math.round(c.dLoss),
       aPersonnel,dPersonnel,aInitialPersonnel:Number.isFinite(c.aInitialPersonnel)?c.aInitialPersonnel:aPersonnel+aPersonnelLoss,
       dInitialPersonnel:Number.isFinite(c.dInitialPersonnel)?c.dInitialPersonnel:dPersonnel+dPersonnelLoss,aPersonnelLoss,dPersonnelLoss,
-      supply:combatSupply(c),airSupport:Math.round((airSupport(c.attacker,target,d,c.defender)-1)*100),
-      canRetreat:side==='attack'||(!c.defenderWithdrawn&&neighbors(c.to).some(i=>province(i).owner===state.player)),
+      supply:combatSupply(c),airSupport:Math.round((airSupport(c.attacker,target,d,c.defender,c)-1)*100),
+      canRetreat:side==='attack'||(!c.defenderWithdrawn&&(neighbors(c.to).some(i=>province(i).owner===state.player)||hasNavalEvacuationRoute(c.defender,c.to,d))),
       allies:supportOptions(c),events:c.events.slice(-4)};
   }
   function getCombats(){return state?state.activeCombats.map(describeCombat).filter(Boolean):[];}
@@ -730,13 +855,15 @@ const Game = (function(){
   function setCombatTactics(id,mode){
     const c=activeCombat(id);if(!describeCombat(c)||!['careful','balanced','assault'].includes(mode))return false;
     if(c.attacker===state.player)c.tactics=mode;else c.defenderTactics=mode;
-    c.events.push('战术调整为'+({careful:'谨慎推进',balanced:'均衡作战',assault:'强攻'})[mode]);
+    c.events.push('战术调整为'+tacticProfile(mode).label);
     autosave();if(window.UI)UI.refresh();return true;
   }
-  function addCombatTroops(c,from,count,owner,side){
+  function addCombatTroops(c,from,count,owner,side,options){
+    if(!validAssaultOptions(options))return false;
     const choice=combatOrigins(c,owner,side).find(p=>p.from===from);
-    if(!choice || !Number.isInteger(count)||count<1||count>choice.count)return false;
-    const origin=province(from),sent=availableLand(origin).slice(0,count);
+    if(!choice || !Number.isInteger(count)||count<(options?0:1)||count>choice.count)return false;
+    const origin=province(from),plan=selectedAssault(from,c.to,count,options,owner),sent=plan.sending;
+    if(!sent.length)return false;
     const route=c.kind==='amphib'&&side==='attack'?null:landRoute(from,c.to,owner),distant=route&&route.path.length>2;
     sent.forEach(d=>{ensureUnit(d,owner);d.owner=owner;d.combatId=c.id;if(distant)d.arrivalDay=state.daysElapsed+route.preparationDays;});
     origin.garrison=origin.garrison.filter(d=>!sent.includes(d));
@@ -744,17 +871,42 @@ const Game = (function(){
     c[field]=(Number.isFinite(c[field])?c[field]:personnelOf(side==='attack'?attackersOf(c):defendersOf(c)))+personnelOf(sent);
     if(side==='attack')c.attackers.push(...sent.map(unit=>({unit,from,owner,...(route?{routePath:route.path.slice()}:{} )})));
     else {sent.forEach(d=>{d.returnFrom=from;if(route)d.routePath=route.path.slice();});province(c.to).garrison.push(...sent);}
+    if(options){c.airMissions=c.airMissions||[];reserveAircraft(c,owner,options.aircraftCount);}
     c.events.push(country(owner).name+' 增援 '+sent.length+' 师'+(distant?'，预计 '+route.preparationDays+' 天后抵达':''));
     return true;
   }
-  function reinforceCombat(id,from,count){
+  function reinforceCombat(id,from,count,options){
     const c=activeCombat(id);if(!describeCombat(c))return false;
-    const ok=addCombatTroops(c,from,count,state.player,c.attacker===state.player?'attack':'defend');
+    const ok=addCombatTroops(c,from,count,state.player,c.attacker===state.player?'attack':'defend',options);
     if(ok){autosave();if(window.UI)UI.refresh();}return ok;
+  }
+  function alliedAttackOptions(targetIdx){
+    const target=province(targetIdx);if(!state||!target?.owner||target.owner===state.player||isAllied(state.player,target.owner)||state.over)return [];
+    return Object.values(state.countries).filter(ally=>ally.alive&&ally.id!==state.player&&isAllied(state.player,ally.id)).flatMap(ally=>{
+      const operation=state.activeCombats.find(combat=>combat.attacker===ally.id&&combat.to===targetIdx);
+      if(operation)return [{allyId:ally.id,name:ally.name,from:operation.from,origin:province(operation.from).name,count:operation.attackers.length,personnel:personnelOf(attackersOf(operation)),joinWar:false,available:false,combatId:operation.id,reason:ally.name+'正在'+(operation.phase==='preparation'?'行军接敌':operation.phase==='naval'?'争夺海路':'攻城交战')+' · 突破 '+Math.round(operation.progress)+'%'}];
+      const sources=state.provinces.map((origin,from)=>({origin,from})).filter(item=>item.origin.owner===ally.id&&neighbors(item.from).includes(targetIdx)).map(item=>({...item,pool:availableLand(item.origin)})).filter(item=>item.pool.length>=2&&!item.origin.garrison.some(unit=>unit.kind==='land'&&unit.combatId));
+      sources.sort((left,right)=>personnelOf(right.pool)-personnelOf(left.pool)||left.from-right.from);const source=sources[0];if(!source)return [];
+      const joinWar=!isAtWar(ally.id,target.owner),reasons=[];
+      if(!isAtWar(state.player,target.owner))reasons.push('先与目标国家进入战争');
+      if(isAllied(ally.id,target.owner))reasons.push('盟友与目标国家已有同盟');
+      if(joinWar)reasons.push(...diplomacyAvailability('call',ally.id,target.owner).reasons);
+      if(state.activeCombats.some(combat=>combat.to===targetIdx))reasons.push('此处已经交战，可在现有战场增援');
+      const count=defaultSend(source.pool.length);
+      return [{allyId:ally.id,name:ally.name,from:source.from,origin:source.origin.name,count,personnel:personnelOf(source.pool.slice(0,count)),joinWar,available:!reasons.length,reason:[...new Set(reasons)].join('；')}];
+    }).sort((left,right)=>Number(right.available)-Number(left.available)||right.personnel-left.personnel||left.allyId.localeCompare(right.allyId));
+  }
+  function requestAlliedAttack(allyId,targetIdx){
+    const option=alliedAttackOptions(targetIdx).find(item=>item.allyId===allyId);if(!option?.available)return false;
+    const target=province(targetIdx);if(option.joinWar&&!callAlly(allyId,target.owner))return false;
+    if(!doAssault(allyId,option.from,targetIdx,0,option.count,true))return false;
+    log(country(allyId).name+' 应邀从 '+option.origin+' 进攻 '+target.name+'，使用盟友自己的部队并保留驻军。','good');
+    recordWorldEvent('war',country(allyId).name+'应邀进攻'+target.name,'盟军从'+option.origin+'沿真实相邻陆路开始行军。',targetIdx,[state.player,allyId,target.owner],2);
+    if(window.UI)UI.refresh();return true;
   }
   function requestCombatSupport(id,allyId){
     const c=activeCombat(id);if(!describeCombat(c)||!supportOptions(c).some(a=>a.id===allyId&&a.available))return false;
-    const side=c.attacker===state.player?'attack':'defend',choice=combatOrigins(c,allyId,side).sort((a,b)=>b.count-a.count)[0];
+    const side=c.attacker===state.player?'attack':'defend',choice=combatOrigins(c,allyId,side)[0];
     const ok=addCombatTroops(c,choice.from,Math.min(frontage(province(c.to)),defaultSend(choice.count)),allyId,side);
     if(ok){autosave();if(window.UI)UI.refresh();}return ok;
   }
@@ -768,21 +920,112 @@ const Game = (function(){
     if(homeValid)return from;
     return near.length?near[0]:-1;
   }
+  function evacuateCombatShip(ship,owner,from,exclude){
+    delete ship.combatId;delete ship.returnFrom;delete ship.arrivalDay;delete ship.routePath;
+    if(ship.hp<=0)return false;
+    const queue=[from],previous=new Map([[from,-1]]);
+    for(let cursor=0;cursor<queue.length;cursor++){
+      const current=queue[cursor];
+      if(current!==from&&current!==exclude&&province(current).owner===owner&&!state.activeCombats.some(combat=>combat.to===current)){
+        state.provinces.forEach(port=>{port.garrison=port.garrison.filter(unit=>unit!==ship);});
+        ship.owner=owner;province(current).garrison.push(ship);return true;
+      }
+      for(const next of seaAdj(current))if(coastalOf(next)&&!previous.has(next)){previous.set(next,current);queue.push(next);}
+    }
+    ship.owner=owner;province(from).garrison.push(ship);return false;
+  }
+  function captureNavalRescue(unit,port){
+    const owner=unit.owner,c=country(owner);
+    port.garrison=port.garrison.filter(candidate=>candidate!==unit);
+    c.capturedPersonnel=(Number.isFinite(c.capturedPersonnel)?c.capturedPersonnel:0)+unitPersonnel(unit);
+    unit.rescueCaptured=true;
+    delete unit.rescueArrivalDay;delete unit.rescueRoute;delete unit.rescueShipIds;delete unit.rescueDestination;delete unit.rescuePersonnel;delete unit.rescueInterceptionRisk;
+  }
+  function navalRescuePlan(owner,from,units,reservedShipIds=[]){
+    const origin=province(from);if(!origin||!coastalOf(from)||!Array.isArray(units)||!units.length||units.some(unit=>unit.kind!=='land'||unit.hp<=0))return null;
+    const queue=[from],previous=new Map([[from,-1]]),reserved=new Set(reservedShipIds);
+    for(let cursor=0;cursor<queue.length;cursor++){
+      const current=queue[cursor],port=province(current);
+      if(current!==from&&port.owner===owner&&!state.activeCombats.some(combat=>combat.to===current)){
+        const ships=origin.garrison.filter(unit=>unit.kind==='naval'&&unit.owner===owner&&unit.hp>0&&!unit.combatId&&!reserved.has(unit.id));
+        const shipIds=new Set(ships.map(ship=>ship.id)),transit=state.provinces.flatMap(port=>port.garrison).filter(unit=>unit.rescueArrivalDay>state.daysElapsed&&unit.rescueShipIds?.some(id=>shipIds.has(id)));
+        const reservedPersonnel=transit.reduce((sum,unit)=>sum+(unit.rescuePersonnel||0),0);
+        const capacity=Math.max(0,ships.reduce((sum,ship)=>sum+unitAssets(ship).ships*(ship.type==='submarine'?0:/carrier|navy/.test(ship.type)?3500:/cruiser/.test(ship.type)?1500:700),0)-reservedPersonnel);
+        const personnel=units.reduce((sum,unit)=>sum+unitPersonnel(unit),0);
+        if(capacity>=personnel){const route=[];for(let at=current;at!==-1;at=previous.get(at))route.push(at);route.reverse();const days=Math.max(1,(route.length-1)*2),escortShips=ships.reduce((sum,ship)=>sum+unitAssets(ship).ships,0),enemyShips=route.reduce((sum,index)=>sum+state.provinces[index].garrison.filter(unit=>unit.kind==='naval'&&unit.owner!==owner&&isAtWar(owner,unit.owner)).reduce((n,unit)=>n+unitAssets(unit).ships,0),0),interceptionRisk=enemyShips?clamp(.05+enemyShips/Math.max(1,escortShips+enemyShips)*.5,.05,.55):0,fuelCost=escortShips*days*.02;
+          if(!Number.isFinite(country(owner).oil)||country(owner).oil<fuelCost)return null;
+          return {route,destination:current,ships,capacity,personnel,reservedShipIds:ships.map(ship=>ship.id),arrivalDay:(state.daysElapsed||0)+days,days,escortShips,interceptionRisk,fuelCost};}
+      }
+      for(const next of seaAdj(current))if(coastalOf(next)&&!previous.has(next)){previous.set(next,current);queue.push(next);}
+    }
+    return null;
+  }
+  function hasNavalEvacuationRoute(owner,from,units){for(let count=units.length;count>0;count--)if(navalRescuePlan(owner,from,units.slice(0,count)))return true;return false;}
+  function startNavalEvacuation(owner,from,units){
+    const plan=navalRescuePlan(owner,from,units);if(!plan)return false;
+    const origin=province(from),destination=province(plan.destination);country(owner).oil=Math.max(0,country(owner).oil-plan.fuelCost);
+    for(const unit of units){delete unit.combatId;delete unit.returnFrom;unit.owner=owner;unit.rescueRoute=plan.route.slice();unit.rescueArrivalDay=plan.arrivalDay;unit.rescueDestination=plan.destination;unit.rescueShipIds=plan.reservedShipIds.slice();unit.rescuePersonnel=unitPersonnel(unit);unit.rescueInterceptionRisk=plan.interceptionRisk;}
+    origin.garrison=origin.garrison.filter(unit=>!units.includes(unit));destination.garrison.push(...units);return true;
+  }
+  function navalRescueStatus(from){
+    const owner=province(from)?.owner,units=province(from)?.garrison.filter(unit=>unit.kind==='land'&&!unit.combatId&&unit.hp>0&&!unit.rescueArrivalDay)||[];
+    let plan=null,count=0;for(let size=units.length;size>0&&!plan;size--){plan=owner&&navalRescuePlan(owner,from,units.slice(0,size));if(plan)count=size;}
+    return {available:!!plan,destination:plan?.destination,destinationName:plan?province(plan.destination).name:undefined,ships:plan?.escortShips||0,capacity:plan?.capacity||0,personnel:plan?.personnel||0,count,days:plan?.days,oil:plan?.fuelCost||0,risk:plan?.interceptionRisk||0,reason:plan?undefined:!coastalOf(from)?'出发省不临海':!units.length?'没有可撤离的陆军':'舰队、燃油、运力或海路不足'};
+  }
+  function evacuateProvince(from){
+    const p=province(from);if(!p||p.owner!==state.player||!coastalOf(from))return false;
+    const units=p.garrison.filter(unit=>unit.kind==='land'&&!unit.combatId&&unit.hp>0&&!unit.rescueArrivalDay);
+    const count=navalRescueStatus(from).count;if(!count)return false;
+    if(!startNavalEvacuation(state.player,from,units.slice(0,count)))return false;
+    log('已从'+p.name+'出发海运撤离 '+count+' 个陆军单位。','war');autosave();if(window.UI)UI.refresh();return true;
+  }
+  function processNavalEvacuations(){
+    const transit=state.provinces.flatMap((port,index)=>port.garrison.filter(unit=>unit.rescueArrivalDay!==undefined).map(unit=>({port,index,unit})));
+    for(const {port,index,unit} of transit){
+      const escorts=state.provinces.flatMap(candidate=>candidate.garrison).filter(ship=>unit.rescueShipIds?.includes(ship.id)&&ship.kind==='naval'&&ship.owner===unit.owner&&ship.hp>0);
+      unit.rescueShipIds=[...new Set(escorts.map(ship=>ship.id))];
+      if(!escorts.length){captureNavalRescue(unit,port);log('护航舰队全损，海运部队被俘。','war');continue;}
+      if(unit.rescueArrivalDay>state.daysElapsed){const enemyShips=(unit.rescueRoute||[]).reduce((sum,at)=>sum+province(at).garrison.filter(ship=>ship.kind==='naval'&&ship.owner!==unit.owner&&isAtWar(unit.owner,ship.owner)).reduce((n,ship)=>n+unitAssets(ship).ships,0),0),escortShips=escorts.reduce((sum,ship)=>sum+unitAssets(ship).ships,0),risk=enemyShips?clamp(.05+enemyShips/Math.max(1,escortShips+enemyShips)*.5,.05,.55):0;
+        unit.rescueInterceptionRisk=risk;
+        if(enemyShips&&Math.random()<risk){unit.hp=Math.max(0,unit.hp*(.92-Math.random()*.12));log('敌舰拦截海运撤离部队，'+province(index).name+' 方向的部队遭受损失。','war');if(unit.hp<=0){port.garrison=port.garrison.filter(candidate=>candidate!==unit);continue;}}continue;}
+      let destination=unit.rescueDestination;
+      if(province(destination)?.owner!==unit.owner||state.activeCombats.some(combat=>combat.to===destination)){
+        const start=(unit.rescueRoute||[]).filter(at=>Number.isInteger(at)&&province(at)&&coastalOf(at)).at(-1);
+        const queue=start===undefined?[]:[start],previous=new Map(start===undefined?[]:[[start,-1]]);let found=-1;
+        for(let cursor=0;cursor<queue.length&&found<0;cursor++){const at=queue[cursor];if(at!==start&&at!==index&&province(at).owner===unit.owner&&!state.activeCombats.some(combat=>combat.to===at)){found=at;break;}for(const next of seaAdj(at))if(coastalOf(next)&&!previous.has(next)){previous.set(next,at);queue.push(next);}}
+        if(found>=0){const route=[];for(let at=found;at!==-1;at=previous.get(at))route.push(at);route.reverse();const days=Math.max(1,(route.length-1)*2),escortShips=state.provinces.flatMap(candidate=>candidate.garrison).filter(ship=>unit.rescueShipIds?.includes(ship.id)&&ship.kind==='naval'&&ship.hp>0).reduce((sum,ship)=>sum+unitAssets(ship).ships,0),shipIds=unit.rescueShipIds.slice().sort(),convoyLoad=state.provinces.flatMap(candidate=>candidate.garrison).filter(passenger=>passenger.rescueArrivalDay!==undefined&&passenger.owner===unit.owner&&passenger.rescueShipIds?.slice().sort().join('|')===shipIds.join('|')).reduce((sum,passenger)=>sum+(passenger.rescuePersonnel||0),0),fuelCost=escortShips*days*.02*(unit.rescuePersonnel/Math.max(unit.rescuePersonnel,convoyLoad));
+          if(Number.isFinite(country(unit.owner)?.oil)&&country(unit.owner).oil>=fuelCost){country(unit.owner).oil=Math.max(0,country(unit.owner).oil-fuelCost);port.garrison=port.garrison.filter(candidate=>candidate!==unit);province(found).garrison.push(unit);unit.rescueRoute=route;unit.rescueDestination=found;unit.rescueArrivalDay=state.daysElapsed+days;log('原定撤离港失守，海运部队改道至'+province(found).name+'。','war');continue;}}
+        captureNavalRescue(unit,port);log('海运撤离路线被切断，部队被俘。','war');continue;
+      }
+      port.garrison=port.garrison.filter(candidate=>candidate!==unit);delete unit.rescueArrivalDay;delete unit.rescueRoute;delete unit.rescueShipIds;delete unit.rescueDestination;delete unit.rescuePersonnel;delete unit.rescueInterceptionRisk;province(destination).garrison.push(unit);
+    }
+  }
   function returnTroop(d,owner,from,exclude){
-    delete d.combatId;delete d.returnFrom;delete d.arrivalDay;delete d.routePath;
-    if(d.hp<=0)return;
+    delete d.combatId;delete d.airCombatId;delete d.returnFrom;delete d.arrivalDay;delete d.routePath;
+    if(d.hp<=0)return false;
     const destination=safeDestination(owner,from,d.kind,exclude);
-    if(destination>=0){d.owner=owner;province(destination).garrison.push(d);}
+    if(destination>=0){d.owner=owner;province(destination).garrison.push(d);return true;}
+    return startNavalEvacuation(owner,from,[d]);
   }
   function unlockCombat(c){
-    state.provinces.forEach(p=>p.garrison.forEach(d=>{if(d.combatId===c.id){delete d.combatId;delete d.returnFrom;delete d.arrivalDay;delete d.routePath;}}));
+    state.provinces.forEach(p=>p.garrison.forEach(d=>{if(d.airCombatId===c.id)delete d.airCombatId;if(d.combatId===c.id){delete d.combatId;delete d.returnFrom;delete d.arrivalDay;delete d.routePath;}}));
+  }
+  function releaseInvalidAirMissions(){
+    for(const combat of state.activeCombats)if(combat.airMissions){
+      combat.airMissions=combat.airMissions.filter(mission=>{
+        const base=province(mission.base),unit=base?.garrison.find(candidate=>candidate.id===mission.unitId);
+        const valid=unit&&unit.hp>0&&base.owner===mission.owner&&unit.airCombatId===combat.id;
+        if(!valid&&unit?.airCombatId===combat.id)delete unit.airCombatId;
+        return valid;
+      });
+    }
   }
   function cancelCombat(c,reason){
     c.attackers.forEach(e=>returnTroop(e.unit,e.owner,e.from));
     const target=province(c.to),allies=target.garrison.filter(d=>d.combatId===c.id&&d.owner!==c.defender&&d.kind==='land');
     target.garrison=target.garrison.filter(d=>!allies.includes(d));
     allies.forEach(d=>returnTroop(d,d.owner,d.returnFrom===undefined?c.to:d.returnFrom,c.to));
-    unlockCombat(c);state.activeCombats=state.activeCombats.filter(x=>x!==c);
+    unlockCombat(c);state.activeCombats=state.activeCombats.filter(x=>x!==c);releaseInvalidAirMissions();
     if(reason)log(reason,'info');
   }
   function withdrawBlockedReinforcements(c){
@@ -797,10 +1040,12 @@ const Game = (function(){
     const c=activeCombat(id),summary=describeCombat(c);if(!summary||!summary.canRetreat)return false;
     if(summary.playerSide==='attack')finishCombat(c,false,'主动撤退');
     else {
-      const target=province(c.to),troops=defendersOf(c);target.garrison=target.garrison.filter(d=>!troops.includes(d));
-      troops.forEach(d=>returnTroop(d,d.owner||c.defender,c.to,c.to));
-      c.defenderWithdrawn=true;c.events.push('守军撤出阵地，敌军仍需完成占领推进');
-      log(target.name+' 的守军已撤至附近己方阵地。','war');
+      const target=province(c.to),troops=defendersOf(c),withdrawn=troops.filter(d=>safeDestination(d.owner||c.defender,c.to,'land',c.to)>=0),isolated=troops.filter(d=>!withdrawn.includes(d));
+      let naval=[];for(let count=isolated.length;count>0;count--){if(startNavalEvacuation(c.defender,c.to,isolated.slice(0,count))){naval=isolated.slice(0,count);break;}}
+      const moved=new Set([...withdrawn,...naval]);target.garrison=target.garrison.filter(d=>!withdrawn.includes(d));
+      withdrawn.forEach(d=>returnTroop(d,d.owner||c.defender,c.to,c.to));
+      c.defenderWithdrawn=moved.size===troops.length;c.events.push(c.defenderWithdrawn?'守军撤出阵地，敌军仍需完成占领推进':'部分守军撤出，剩余部队继续抵抗');
+      log(target.name+' 的守军撤离 '+moved.size+' / '+troops.length+' 个单位。','war');
     }
     autosave();if(window.UI)UI.refresh();return true;
   }
@@ -810,7 +1055,20 @@ const Game = (function(){
     if(won){
       // 防守者撤向相邻己方阵地；没有退路的包围部队投降。飞机和舰艇也不被占领军带走。
       const displaced=target.garrison.slice();target.garrison=[];
-      displaced.forEach(unit=>returnTroop(unit,unit.owner||c.defender,unit.returnFrom===undefined?c.to:unit.returnFrom,c.to));
+      const retreatingFleet=displaced.filter(unit=>unit.kind==='naval'&&unit.hp>0),alreadyEvacuating=displaced.filter(unit=>unit.rescueArrivalDay!==undefined);
+      target.garrison.push(...retreatingFleet,...alreadyEvacuating);
+      const displacedLand=displaced.filter(unit=>unit.kind!=='naval'&&unit.rescueArrivalDay===undefined);
+      displacedLand.filter(unit=>safeDestination(unit.owner||c.defender,unit.returnFrom===undefined?c.to:unit.returnFrom,'land',c.to)>=0)
+        .forEach(unit=>returnTroop(unit,unit.owner||c.defender,unit.returnFrom===undefined?c.to:unit.returnFrom,c.to));
+      const isolatedByOwner=new Map();
+      displacedLand.filter(unit=>safeDestination(unit.owner||c.defender,unit.returnFrom===undefined?c.to:unit.returnFrom,'land',c.to)<0)
+        .forEach(unit=>{const owner=unit.owner||c.defender;if(!isolatedByOwner.has(owner))isolatedByOwner.set(owner,[]);isolatedByOwner.get(owner).push(unit);});
+      for(const [owner,units] of isolatedByOwner){
+        let evacuated=0;for(let count=units.length;count>0;count--)if(startNavalEvacuation(owner,c.to,units.slice(0,count))){evacuated=count;break;}
+        units.slice(evacuated).forEach(unit=>{delete unit.combatId;delete unit.returnFrom;delete unit.arrivalDay;delete unit.routePath;});
+      }
+      target.garrison=target.garrison.filter(unit=>!retreatingFleet.includes(unit));
+      retreatingFleet.forEach(unit=>evacuateCombatShip(unit,unit.owner||c.defender,c.to,c.to));
       target.owner=c.attacker;
       c.attackers.forEach(e=>{
         if(e.unit.arrivalDay>state.daysElapsed){returnTroop(e.unit,e.owner,e.from);return;}
@@ -825,7 +1083,7 @@ const Game = (function(){
       target.garrison=target.garrison.filter(unit=>!allies.includes(unit));
       allies.forEach(unit=>returnTroop(unit,unit.owner,unit.returnFrom===undefined?c.to:unit.returnFrom,c.to));
     }
-    unlockCombat(c);state.activeCombats=state.activeCombats.filter(x=>x!==c);
+    unlockCombat(c);state.activeCombats=state.activeCombats.filter(x=>x!==c);releaseInvalidAirMissions();
     state.battles++;
     const rec={attacker:c.attacker,defender:c.defender,from:c.from,to:c.to,name:target.name,date:fmtDate(state.date),autoOffensiveDay:c.autoOffensiveDay===undefined?undefined:state.daysElapsed,
       won,aStr:Math.round(strengths.aStr),dStr:Math.round(strengths.dStr),aLoss:Math.round(c.aLoss),dLoss:Math.round(c.dLoss),
@@ -833,6 +1091,13 @@ const Game = (function(){
       aInitialPersonnel:Number.isFinite(c.aInitialPersonnel)?c.aInitialPersonnel:personnelOf(a)+(c.aPersonnelLoss||0),
       dInitialPersonnel:Number.isFinite(c.dInitialPersonnel)?c.dInitialPersonnel:personnelOf(d)+(c.dPersonnelLoss||0),
       aPersonnelLoss:Number.isFinite(c.aPersonnelLoss)?c.aPersonnelLoss:0,dPersonnelLoss:Number.isFinite(c.dPersonnelLoss)?c.dPersonnelLoss:0,
+      aEquipmentLoss:c.aEquipmentLoss||{tanks:0,aircraft:0,ships:0},dEquipmentLoss:c.dEquipmentLoss||{tanks:0,aircraft:0,ships:0},
+      aCasualties:casualties(c,'a'),dCasualties:casualties(c,'d'),
+      alliedAttackers:[...new Set(c.attackers.map(entry=>entry.owner).filter(owner=>owner!==c.attacker))],endedDay:state.daysElapsed,
+      aEvacuatedPersonnel:a.filter(unit=>unit.rescueArrivalDay!==undefined).reduce((sum,unit)=>sum+unitPersonnel(unit),0),
+      dEvacuatedPersonnel:d.filter(unit=>unit.rescueArrivalDay!==undefined).reduce((sum,unit)=>sum+unitPersonnel(unit),0),
+      aCapturedPersonnel:a.filter(unit=>unit.rescueCaptured||unit.hp>0&&unit.rescueArrivalDay===undefined&&!state.provinces.some(p=>p.garrison.includes(unit))).reduce((sum,unit)=>sum+unitPersonnel(unit),0),
+      dCapturedPersonnel:d.filter(unit=>unit.rescueCaptured||unit.hp>0&&unit.rescueArrivalDay===undefined&&!state.provinces.some(p=>p.garrison.includes(unit))).reduce((sum,unit)=>sum+unitPersonnel(unit),0),
       days:c.days,progress:c.progress,aOrg:percent(a,'org','maxOrg'),dOrg:percent(d,'org','maxOrg'),reason};
     state.recentBattles.unshift(rec);if(state.recentBattles.length>30)state.recentBattles.pop();
     log(country(c.attacker).name+(won?' 攻占 ':' 进攻被击退：')+target.name+'，历时 '+c.days+' 天（'+reason+'），损失 '+rec.aLoss+' / '+rec.dLoss+'。','war');
@@ -862,15 +1127,16 @@ const Game = (function(){
     const c=country(id);if(!c?.alive)return;
     const homeland=capitulationHomeland(id),total=c.initialVictoryWeight||homeland.reduce((sum,land)=>sum+victoryWeight(land),0);
     const held=homeland.reduce((sum,land)=>sum+(land.owner===id?victoryWeight(land):0),0);
-    if(total>0 && held/total<=.3)eliminateCountry(id,byId);
+    const capitalLost=c.capitalIdx<0||province(c.capitalIdx)?.owner!==id;
+    if(total>0&&held/total<=.15&&capitalLost)eliminateCountry(id,byId);
   }
   function capitulationProgress(id){
     const c=country(id);if(!c)return 0;if(!c.alive)return 100;
     const total=c.initialVictoryWeight||0,held=capitulationHomeland(id).reduce((sum,land)=>sum+(land.owner===id?victoryWeight(land):0),0);
-    return total?clamp(Math.round((1-held/total)/.7*100),0,100):0;
+    return total?clamp(Math.round((1-held/total)/.85*100),0,100):0;
   }
   // 接受命令并组织持续战斗。不能越过陆地邻接/同盟/海港规则，不会即时改归属。
-  function doAssault(attackerId,fromIdx,toIdx,navBonus,sendCount,quiet){
+  function doAssault(attackerId,fromIdx,toIdx,navBonus,sendCount,quiet,options){
     const from=province(fromIdx),to=province(toIdx),amphib=!!navBonus;
     const route=from&&to?expeditionRoute(fromIdx,toIdx,amphib,attackerId):null;
     if(state.over||!from||!to||!country(attackerId)?.alive||from.owner!==attackerId||to.owner===attackerId||
@@ -878,9 +1144,11 @@ const Game = (function(){
       from.garrison.some(d=>d.combatId&&d.kind==='land')||
       (amphib?(!coastalOf(fromIdx)||!coastalOf(toIdx)||!seaAdj(fromIdx).includes(toIdx)):!route))return false;
     const pool=availableLand(from);if(!pool.length)return false;
-    if(sendCount!==undefined && (!Number.isInteger(sendCount)||sendCount<1))return false;
-    const sent=pool.slice(0,sendCount===undefined?defaultSend(pool.length):Math.min(sendCount,pool.length));
-    const fleet=from.garrison.filter(d=>d.kind==='naval'&&!d.combatId&&d.hp>0);
+    if(sendCount!==undefined&&sendCount!==null && (!Number.isInteger(sendCount)||sendCount<(options?0:1)))return false;
+    if(!validAssaultOptions(options))return false;
+    const sent=selectedAssault(fromIdx,toIdx,sendCount,options,attackerId).sending;
+    if(!sent.length)return false;
+    const fleet=from.garrison.filter(d=>d.kind==='naval'&&!d.combatId&&d.hp>0&&!shipReservedForRescue(d));
     if(amphib&&!fleet.length)return false;
     if(to.owner&&!isAtWar(attackerId,to.owner)){
       if(country(attackerId).subjectOf)return false;
@@ -889,14 +1157,16 @@ const Game = (function(){
     }
     const c={id:'c'+(++state.combatSerial),attacker:attackerId,defender:to.owner,from:fromIdx,to:toIdx,...route,
       kind:amphib?'amphib':'land',phase:'preparation',days:0,progress:0,tactics:'balanced',defenderTactics:'balanced',
-      attackers:sent.map(unit=>({unit,from:fromIdx,owner:attackerId})),defenderIds:[],aLoss:0,dLoss:0,
+      attackers:sent.map(unit=>({unit,from:fromIdx,owner:attackerId})),defenderIds:[],aLoss:0,dLoss:0,airMissions:[],
+      aEquipmentLoss:{tanks:0,aircraft:0,ships:0},dEquipmentLoss:{tanks:0,aircraft:0,ships:0},
       aInitialPersonnel:personnelOf(sent),dInitialPersonnel:0,aPersonnelLoss:0,dPersonnelLoss:0,
       navBonus:navBonus||0,navalDays:0,events:['部队行军集结中；预计 '+route.preparationDays+' 天'+(route.routeKm?'，路线约 '+Math.round(route.routeKm)+' 公里':'')]};
     sent.forEach(unit=>{ensureUnit(unit,attackerId);unit.owner=attackerId;unit.combatId=c.id;});
     from.garrison=from.garrison.filter(d=>!sent.includes(d));
-    to.garrison.filter(d=>d.kind==='land'&&!d.combatId).forEach(d=>{ensureUnit(d,to.owner);d.combatId=c.id;c.defenderIds.push(d.id);});
+    to.garrison.filter(d=>d.kind==='land'&&!d.combatId&&d.rescueArrivalDay===undefined&&!d.rescueCaptured).forEach(d=>{ensureUnit(d,to.owner);d.combatId=c.id;c.defenderIds.push(d.id);});
     c.dInitialPersonnel=personnelOf(defendersOf(c));
     if(amphib){fleet.forEach(d=>{ensureUnit(d,attackerId);d.combatId=c.id;});to.garrison.filter(d=>d.kind==='naval'&&!d.combatId).forEach(d=>{ensureUnit(d,to.owner);d.combatId=c.id;});}
+    reserveAircraft(c,attackerId,options?.aircraftCount);reserveAircraft(c,to.owner,null);
     state.activeCombats.push(c);log(country(attackerId).name+' 向 '+to.name+' 出征 '+sent.length+' 师，正在准备作战。','war');
     if(c.defender===state.player){
       recordWorldEvent('invasion',to.name+'遭到'+country(attackerId).name+'进攻',
@@ -906,34 +1176,70 @@ const Game = (function(){
     }
     if(!quiet){autosave();if(window.UI)UI.refresh();}return true;
   }
-  function resolveAttack(attackerId,fromIdx,toIdx,sendCount){return doAssault(attackerId,fromIdx,toIdx,0,sendCount);}
+  function resolveAttack(attackerId,fromIdx,toIdx,sendCount,options){return doAssault(attackerId,fromIdx,toIdx,0,sendCount,undefined,options);}
   function arrivedUnits(units){return units.filter(d=>d.arrivalDay===undefined||d.arrivalDay<=state.daysElapsed);}
-  function combatFront(units,width){
-    const front=[],pool=arrivedUnits(units).filter(d=>d.hp>0&&d.org>0).sort((a,b)=>formationPermille(b)-formationPermille(a)||b.org/b.maxOrg-a.org/a.maxOrg);
+  function isIsolatedDefender(c,units=defendersOf(c)){
+    if(!units.length||!c.defender)return false;
+    const land=neighbors(c.to).some(index=>province(index).owner===c.defender&&!state.activeCombats.some(combat=>combat.to===index));
+    const rescue=navalRescuePlan(c.defender,c.to,units),completeRescue=rescue&&rescue.capacity>=rescue.personnel;
+    return !land&&!completeRescue;
+  }
+  function combatFront(units,width,holdout=false){
+    const front=[],pool=arrivedUnits(units).filter(d=>d.hp>0&&(holdout||d.org>0)).sort((a,b)=>formationPermille(b)-formationPermille(a)||b.org/b.maxOrg-a.org/a.maxOrg);
     let remaining=width*1000;
-    for(const d of pool)if(formationPermille(d)<=remaining){front.push(d);remaining-=formationPermille(d);}
+    const armored=pool.filter(unit=>(UNIT_TYPES[unit.type].tanks||0)>0&&unitAssets(unit).tanks>0);
+    const infantry=pool.filter(unit=>!armored.includes(unit));
+    if(armored.length&&infantry.length){
+      let armorWidth=Math.min(remaining,Math.max(Math.min(...armored.map(formationPermille)),Math.floor(remaining*.35)));
+      for(const unit of armored)if(formationPermille(unit)<=armorWidth){front.push(unit);armorWidth-=formationPermille(unit);remaining-=formationPermille(unit);}
+      for(const unit of infantry)if(formationPermille(unit)<=remaining){front.push(unit);remaining-=formationPermille(unit);}
+    }
+    for(const d of pool)if(!front.includes(d)&&formationPermille(d)<=remaining){front.push(d);remaining-=formationPermille(d);}
     return front;
   }
   function combatStrength(c){
-    const target=province(c.to),a=combatFront(attackersOf(c),frontage(target)),d=combatFront(defendersOf(c),frontage(target));
+    const target=province(c.to),dAll=defendersOf(c),a=combatFront(attackersOf(c),frontage(target)),d=combatFront(dAll,frontage(target),isIsolatedDefender(c,dAll));
     const ae=country(c.attacker).eff,de=c.defender?country(c.defender).eff:emptyEff(),terrain=TERRAIN[target.terrain].def;
     const fleet=province(c.from).garrison,sub=target.garrison.filter(d=>d.type==='submarine').length,escorts=fleet.filter(d=>d.type==='destroyer').length;
     const interdiction=c.kind==='amphib'?Math.max(.5,1-Math.max(0,sub-escorts)*.12):1;
-    return {a,d,aStr:landStrength(a,'atk',target.terrain,d,c.kind==='amphib',c.attacker)*(1+ae.landAtk)*(1+c.navBonus)/(1+(terrain-1)*.5)*airSupport(c.attacker,target,d,c.defender)*interdiction*combatSupply(c)/100,
-      dStr:landStrength(d,'def',target.terrain,a,false,c.defender)*(1+de.landDef)*terrain*fortBonusOf(target,a)*airSupport(c.defender,target,a,c.attacker)};
+    return {a,d,aStr:landStrength(a,'atk',target.terrain,d,c.kind==='amphib',c.attacker)*armorMultiplier(a,d,target.terrain,'atk')*armorControlMultiplier(a,d)*(1+ae.landAtk)*(1+c.navBonus)/(1+(terrain-1)*.5)*airSupport(c.attacker,target,d,c.defender,c)*interdiction*combatSupply(c)/100,
+      dStr:landStrength(d,'def',target.terrain,a,false,c.defender)*armorMultiplier(d,a,target.terrain,'def')*armorControlMultiplier(d,a)*(1+de.landDef)*terrain*fortBonusOf(target,a)*airSupport(c.defender,target,a,c.attacker,c)};
+  }
+  function casualties(c,side){
+    const total=c[side+'PersonnelLoss']||0,killed=total*.25;
+    return {killed,wounded:total-killed,...(c[side+'EquipmentLoss']||{tanks:0,aircraft:0,ships:0})};
+  }
+  function damageLand(units,hpRate,orgRate,enemyTanks=0){
+    let loss=0;
+    for(const unit of units){
+      const hp=unit.hp,assets=unitAssets(unit),protection=tankProtection(unit);
+      unit.hp=Math.max(0,unit.hp-unit.maxHp*hpRate*protection);
+      unit.org=Math.max(0,unit.org-unit.maxOrg*orgRate);
+      if(assets.tanks>0){unit.equipmentCondition=unit.equipmentCondition||{};const tankExposure=enemyTanks/(enemyTanks+250);unit.equipmentCondition.tanks=Math.max(0,(unit.equipmentCondition.tanks??1)*(1-hpRate*1.6-.012*tankExposure));}
+      loss+=hp-unit.hp;
+    }
+    return loss;
   }
   function damageCombat(units,hpRate,orgRate){
     let loss=0;units.forEach(d=>{const hp=d.hp;d.hp=Math.max(0,d.hp-d.maxHp*hpRate);d.org=Math.max(0,d.org-d.maxOrg*orgRate);loss+=hp-d.hp;});return loss;
   }
-  function airSortieLosses(owner,target,opponent,antiAir,sorties){
+  function airSortieLosses(owner,target,opponent,antiAir,sorties,combat){
     if(!owner||country(owner).oil<=0)return;
-    const own=aircraftAt(owner,target),hostile=aircraftAt(opponent,target),fighters=hostile.filter(unit=>unit.type==='air').reduce((sum,unit)=>sum+unitAssets(unit).aircraft,0);
-    const total=own.reduce((sum,unit)=>sum+unitAssets(unit).aircraft,0),loss=.001+Math.min(.003,fighters/Math.max(100,total)*.002)+Math.min(.003,formationTotal(antiAir.filter(unit=>unit.type==='antiAir'))*.0005);
-    for(const unit of own){
+    const own=airMissions(combat,owner),hostile=airMissions(combat,opponent),fighters=hostile.filter(mission=>mission.unit.type==='air').reduce((sum,mission)=>sum+mission.count,0);
+    const total=own.reduce((sum,mission)=>sum+mission.count,0),loss=.001+.009*fighters/Math.max(1,fighters+total)+Math.min(.003,formationTotal(antiAir.filter(unit=>unit.type==='antiAir'))*.0005);
+    let lost=0;
+    for(const {unit,count}of own){
       if(sorties.has(unit.id))continue;
-      sorties.add(unit.id);country(owner).oil=Math.max(0,country(owner).oil-unitAssets(unit).aircraft*.0001);
-      unit.hp=Math.max(0,unit.hp-unit.maxHp*loss);unit.org=Math.max(0,unit.org-unit.maxOrg*.01);
+      const before=unitAssets(unit).aircraft,fraction=before?count/before:0;
+      sorties.add(unit.id);country(owner).oil=Math.max(0,country(owner).oil-count*.0001);
+      const sortieKey=owner===combat.attacker?'aSorties':'dSorties';combat[sortieKey]=(combat[sortieKey]||0)+count;
+      unit.hp=Math.max(0,unit.hp-unit.hp*loss*fraction);unit.org=Math.max(0,unit.org-unit.maxOrg*.01*fraction);
+      const removed=before-unitAssets(unit).aircraft;
+      lost+=removed;
+      const mission=combat.airMissions?.find(candidate=>candidate.unitId===unit.id);
+      if(mission)mission.nominalAircraft=Math.max(1e-9,(count-removed)/Math.max(1e-9,unit.hp/unit.maxHp*(unit.equipmentCondition?.aircraft??1)));
     }
+    return lost;
   }
   function processCombats(){
     const airSorties=new Set();
@@ -953,8 +1259,11 @@ const Game = (function(){
         if(enemy.length){
           const ae=country(c.attacker).eff,de=c.defender?country(c.defender).eff:emptyEff();
           const atk=navalStrength(fleet,enemy,'atk')*(1+ae.navyAtk+navalFormation(c.from)),def=navalStrength(enemy,fleet,'def')*(1+de.navyDef);
+          const ownShips=assetsOf(fleet).ships,hostileShips=assetsOf(enemy).ships;
           damageCombat(fleet,.025+Math.min(.15,def/Math.max(atk,1)*.045),.06);
           damageCombat(enemy,.025+Math.min(.15,atk/Math.max(def,1)*.045),.06);
+          c.aEquipmentLoss=c.aEquipmentLoss||{tanks:0,aircraft:0,ships:0};c.dEquipmentLoss=c.dEquipmentLoss||{tanks:0,aircraft:0,ships:0};
+          c.aEquipmentLoss.ships+=Math.max(0,ownShips-assetsOf(fleet).ships);c.dEquipmentLoss.ships+=Math.max(0,hostileShips-assetsOf(enemy).ships);
           pruneDead(base);pruneDead(target);
           c.events.push('舰队争夺制海权，登陆尚未展开');
           if(c.navalDays>=2 && atk<def*.65){finishCombat(c,false,'敌方舰队阻止登陆');continue;}
@@ -966,14 +1275,17 @@ const Game = (function(){
       if(!aAll.length){finishCombat(c,false,'进攻部队损失殆尽');continue;}
       if(!arrivedUnits(aAll).length)continue;
       if(!arrivedUnits(dAll).length){c.progress=100;finishCombat(c,true,'守军撤出或阵地空虚');continue;}
-      const {a,d,aStr,dStr}=combatStrength(c),modes={careful:{power:.82,loss:.7,org:.75,pace:.7},balanced:{power:1,loss:1,org:1,pace:1},assault:{power:1.2,loss:1.4,org:1.5,pace:1.3}};
-      const am=modes[c.tactics],dm=modes[c.defenderTactics],ratio=aStr*am.power/Math.max(1e-9,dStr*dm.power);
+      const {a,d,aStr,dStr}=combatStrength(c);
+      const am=tacticModes[c.tactics]||tacticModes.balanced,dm=tacticModes[c.defenderTactics]||tacticModes.balanced,ratio=aStr*am.power/Math.max(1e-9,dStr*dm.power);
       const supplyCost=1+(100-combatSupply(c))/100;
-      const aPeopleBefore=personnelOf(a),dPeopleBefore=personnelOf(d);
-      airSortieLosses(c.attacker,target,c.defender,d,airSorties);
-      airSortieLosses(c.defender,target,c.attacker,a,airSorties);
-      c.aLoss+=damageCombat(a,(.003+Math.min(.035,.008/Math.max(.2,ratio)))*am.loss*supplyCost,(.025+Math.min(.09,.035/Math.max(.3,ratio)))*am.org*supplyCost);
-      c.dLoss+=damageCombat(d,(.003+Math.min(.035,.009*ratio))*dm.loss,.025+Math.min(.1,.04*ratio)*dm.org);
+      const aPeopleBefore=personnelOf(a),dPeopleBefore=personnelOf(d),aBefore=assetsOf(a),dBefore=assetsOf(d);
+      c.aEquipmentLoss=c.aEquipmentLoss||{tanks:0,aircraft:0,ships:0};c.dEquipmentLoss=c.dEquipmentLoss||{tanks:0,aircraft:0,ships:0};
+      c.aEquipmentLoss.aircraft+=airSortieLosses(c.attacker,target,c.defender,d,airSorties,c)||0;
+      c.dEquipmentLoss.aircraft+=airSortieLosses(c.defender,target,c.attacker,a,airSorties,c)||0;
+      const pressure=Math.sqrt(Math.max(.25,Math.min(4,ratio))),baseAttrition=.0035;
+      c.aLoss+=damageLand(a,Math.max(.0015,Math.min(.008,baseAttrition/pressure))*am.loss*supplyCost,(.025+Math.min(.09,.035/Math.max(.3,ratio)))*am.org*supplyCost,dBefore.tanks);
+      c.dLoss+=damageLand(d,Math.max(.0015,Math.min(.008,baseAttrition*pressure))*dm.loss,(.025+Math.min(.1,.04*ratio))*dm.org,aBefore.tanks);
+      c.aEquipmentLoss.tanks+=Math.max(0,aBefore.tanks-assetsOf(a).tanks);c.dEquipmentLoss.tanks+=Math.max(0,dBefore.tanks-assetsOf(d).tanks);
       c.aPersonnelLoss=(c.aPersonnelLoss||0)+Math.max(0,aPeopleBefore-personnelOf(a));
       c.dPersonnelLoss=(c.dPersonnelLoss||0)+Math.max(0,dPeopleBefore-personnelOf(d));
       c.progress=clamp(c.progress+clamp(4+(ratio-1)*7,-5,15)*am.pace,0,100);
@@ -981,12 +1293,13 @@ const Game = (function(){
       const aOrg=percent(attackersOf(c),'org','maxOrg'),dOrg=percent(defendersOf(c),'org','maxOrg');
       if(c.days%3===0)c.events.push('第 '+c.days+' 天：推进 '+Math.round(c.progress)+'%，组织度 '+aOrg+' / '+dOrg);
       if(c.events.length>8)c.events=c.events.slice(-8);
-      if(c.progress>=100 || !defendersOf(c).length || dOrg<10){finishCombat(c,true,'防线崩溃');continue;}
+      const remainingDefenders=defendersOf(c),canWithdraw=remainingDefenders.length&&!isIsolatedDefender(c,remainingDefenders);
+      if(c.progress>=100 || !remainingDefenders.length || (dOrg<10&&canWithdraw)){finishCombat(c,true,'防线崩溃');continue;}
       if(aOrg<10 || !attackersOf(c).length || c.days>=90){finishCombat(c,false,c.days>=90?'进攻受阻，停止消耗':'组织度耗尽');continue;}
     }
   }
   function restDaily(){
-    state.provinces.forEach(p=>p.garrison.forEach(d=>{if(!d.combatId&&d.hp>0)d.org=Math.min(d.maxOrg||60,d.org+(d.maxOrg||60)*.04);}));
+    state.provinces.forEach(p=>p.garrison.forEach(d=>{if(!d.combatId&&!d.airCombatId&&d.hp>0)d.org=Math.min(d.maxOrg||60,d.org+(d.maxOrg||60)*.04);}));
   }
   function setAutoOffensive(enabled){
     if(!state||typeof enabled!=='boolean')return false;
@@ -1074,13 +1387,12 @@ const Game = (function(){
     if(active===0)moveAutoReserve();
   }
   // 战斗胜率预估（供进攻策划面板使用，取随机区间中点，确定性）；sendCount 可指定预估出击数量
-  function battlePreview(fromIdx, toIdx, sendCount, amphib){
+  function battlePreview(fromIdx, toIdx, sendCount, amphib, options){
     const fromP = province(fromIdx), toP = province(toIdx);
     if(!fromP||!toP)return {aStr:0,dStr:0,win:0};
     const route=expeditionRoute(fromIdx,toIdx,amphib,state.player);
     if(!route)return {aStr:0,dStr:0,win:0};
-    const pool=availableLand(fromP);
-    const sending = pool.slice(0,typeof sendCount==='number'&&sendCount>=1?Math.min(sendCount,pool.length):defaultSend(pool.length));
+    const plan=selectedAssault(fromIdx,toIdx,sendCount,options),sending=plan.sending;
     if (!sending.length) return { aStr:0, dStr:0, win:0 };
     const atkEff = country(state.player).eff;
     const defEff = toP.owner ? country(toP.owner).eff : emptyEff();
@@ -1088,7 +1400,9 @@ const Game = (function(){
     const atkMod = 1 / (1 + (tDef - 1) * 0.5);
     const fB = fortBonusOf(toP);
     const bonus=amphib?Math.max(.01,atkEff.navBonus+navalFormation(fromIdx)+navalSupport(fromIdx,toIdx)) : 0;
-    const estimate=assaultStrength(state.player,fromIdx,toIdx,sending,bonus);
+    const previewAircraft={[state.player]:plan.missions};
+    if(toP.owner)previewAircraft[toP.owner]=previewAirAllocation(toP.owner,landUnits(toP),toP);
+    const estimate=assaultStrength(state.player,fromIdx,toIdx,sending,bonus,{to:toIdx,previewAircraft});
     const {aStr,dStr}=estimate;
     const win = (aStr + dStr > 0) ? aStr / (aStr + dStr) : 0;
     return { aStr, dStr, win, ...route };
@@ -1109,7 +1423,7 @@ const Game = (function(){
     state.provinces.forEach(p => {
       if (p.owner === id){
         p.garrison.forEach(d => {
-          if(d.combatId||d.hp<=0)return;
+          if(d.combatId||d.airCombatId||d.rescueArrivalDay!==undefined||d.rescueCaptured||d.hp<=0)return;
           if(d.hp<d.maxHp && c.equipment-reserve.equipment>0 && c.manpower-reserve.manpower>0){
             const nominalManpower=unitPersonnel({...d,hp:d.maxHp})/1000;
             const type=UNIT_TYPES[d.type],assets=unitAssets(d),scale=formationScale(d);
@@ -1117,6 +1431,11 @@ const Game = (function(){
             const equipment=type.equip*vehicleScale,manpower=nominalManpower;
             const fraction=Math.min(rate,(d.maxHp-d.hp)/d.maxHp,(c.equipment-reserve.equipment)/equipment,(c.manpower-reserve.manpower)/manpower);
             d.hp=Math.min(d.maxHp,d.hp+d.maxHp*fraction);c.equipment=Math.max(0,c.equipment-equipment*fraction);c.manpower=Math.max(0,c.manpower-manpower*fraction);
+          }
+          if(d.equipmentCondition?.tanks<1&&c.equipment>reserve.equipment){
+            const nominal=unitAssets(d).nominalTanks,cost=nominal/250*UNIT_TYPES.armor.equip;
+            const fraction=Math.min(rate,1-d.equipmentCondition.tanks,(c.equipment-reserve.equipment)/Math.max(1e-9,cost));
+            d.equipmentCondition.tanks=Math.min(1,d.equipmentCondition.tanks+fraction);c.equipment=Math.max(0,c.equipment-cost*fraction);
           }
           d.org=Math.min(d.maxOrg||60,d.org+(d.maxOrg||60)*.2);
         });
@@ -1135,8 +1454,8 @@ const Game = (function(){
     state.provinces.forEach(p => { if (p.owner === id){ p.owner = byId; p.garrison = []; } });
     state.wars=state.wars.filter(w=>w.a!==id&&w.b!==id);
     state.aiBuildQueue=state.aiBuildQueue.filter(item=>item.countryId!==id);
-    log(c.name+' 丧失了 70% 以上的本土胜利点，向 '+country(byId).name+' 投降。','war');
-    recordWorldEvent('capitulation',c.name+'投降',c.name+'失去至少 70% 的本土胜利点，向'+country(byId).name+'投降。',null,[id,byId],3);
+    log(c.name+' 首都失守且丧失了至少 85% 的本土胜利点，向 '+country(byId).name+' 投降。','war');
+    recordWorldEvent('capitulation',c.name+'投降',c.name+'首都失守且失去至少 85% 的本土胜利点，向'+country(byId).name+'投降。',null,[id,byId],3);
   }
 
   function navalStrength(fleet,opposing,stat){
@@ -1151,16 +1470,17 @@ const Game = (function(){
   }
   function navalSupport(fromIdx,toIdx){
     const fleet=province(fromIdx).garrison,enemy=province(toIdx).garrison;
-    const shore=fleet.filter(d=>d.type==='navy').reduce((sum,unit)=>sum+unitAssets(unit).ships/4*.08,0)+fleet.filter(d=>d.type==='carrier').reduce((sum,unit)=>sum+unitAssets(unit).ships*.12,0);
+    const available=fleet.filter(d=>!shipReservedForRescue(d));
+    const shore=available.filter(d=>d.type==='navy').reduce((sum,unit)=>sum+unitAssets(unit).ships/4*.08,0)+available.filter(d=>d.type==='carrier').reduce((sum,unit)=>sum+unitAssets(unit).ships*.12,0);
     return Math.min(.35,shore);
   }
   // 登陆先集结，再争夺制海，最后进入陆上交战；舰艇始终留在基地。
-  function amphibious(fromIdx,toIdx,sendCount,attackerId,quiet){
+  function amphibious(fromIdx,toIdx,sendCount,attackerId,quiet,options){
     attackerId=attackerId||state.player;
     const from=province(fromIdx),to=province(toIdx);
     if(!from||!to||!coastalOf(fromIdx)||!coastalOf(toIdx)||!seaAdj(fromIdx).includes(toIdx))return false;
     const eff=country(attackerId)?.eff;if(!eff)return false;
-    return doAssault(attackerId,fromIdx,toIdx,Math.max(.01,eff.navBonus+navalFormation(fromIdx)+navalSupport(fromIdx,toIdx)),sendCount,quiet);
+    return doAssault(attackerId,fromIdx,toIdx,Math.max(.01,eff.navBonus+navalFormation(fromIdx)+navalSupport(fromIdx,toIdx)),sendCount,quiet,options);
   }
 
   // 战略轰炸：选中国敌方省份，附近须有我方空军
@@ -1565,7 +1885,7 @@ const Game = (function(){
   }
   function sovereigntyAvailability(action,targetId){
     const c=country(state.player),target=country(targetId),integrating=target?.subjectOf===state.player;
-    const mode=action==='annex'?(integrating?'integration':'proposal'):action;
+    const mode=action==='annex'?(integrating?'integration':'proposal'):action==='puppet'?'intervention':action;
     const requestedCosts={pp:0,stability:0};
     const consequences={worldTension:action==='annex'?(integrating?5:10):action==='puppet'?5:0,tributeRate:['puppet','submit'].includes(action)?.1:0};
     const reasons=[],base={cost:requestedCosts.pp,costs:requestedCosts,requestedCosts,consequences,mode,strengthRatio:0,responseLikelihood:0,
@@ -1574,6 +1894,14 @@ const Game = (function(){
     if(action==='release'){
       if(!integrating)reasons.push('只能放归自己扶持的傀儡政府');
       return {...base,available:!reasons.length,reasons,predictedOutcome:'released',responseLikelihood:100,acceptanceLabel:'恢复独立',responseReason:'解除附属同盟和贡赋，保留领土与军队'};
+    }
+    if(action==='puppet'){
+      if(c.subjectOf)reasons.push('附属国不能独立扶持境外反对派');
+      if(integrating)reasons.push('对方已是我国附属国，可整合或放归');
+      if(!state.provinces.some(p=>p.owner===targetId))reasons.push('目标没有实际控制领土');
+      if(typeof Unrest==='undefined')reasons.push('当前战役未启用动态内乱');
+      return {...base,available:!reasons.length,reasons,consequences:{worldTension:0,tributeRate:0},predictedOutcome:'sponsored',
+        acceptanceLabel:'扶持已建立',responseReason:'秘密扶持反对派，无需现政府同意；持续增加内乱风险，但稳定的政府可能抵御干预。只有实际起义形成新政权后，才建立附属关系。'};
     }
     if(c.subjectOf)reasons.push('附属国不能独立改变主权关系');
     if(action==='surrender'&&!isAtWar(state.player,targetId))reasons.push('双方尚未交战，无需劝降；可直接提出合并或傀儡提案');
@@ -1588,16 +1916,20 @@ const Game = (function(){
       (isAllied(targetId,other.id)||state.guarantees[relKey(targetId,other.id)])&&!isAllied(state.player,other.id));
     const atWar=isAtWar(state.player,targetId),relations=relation(state.player,targetId),sameIdeology=c.ideo===target.ideo;
     const independence=targetSituation.independence;
-    const publicSupport=clamp(Math.round((100-target.stability)*.25+(100-target.warSupport)*.2+relations*.1+targetSituation.pressure*.15+
-      (c.stability-50)*.12+(sameIdeology?6:0)+(integrating?38:0)+targetSituation.lost*35+targetSituation.losses*25-20-(protectedBy?12:0)),0,100);
-    const power=clamp(Math.log2(Math.max(.01,action==='submit'?1/Math.max(.01,strengthRatio):strengthRatio))*10,-40,30);
-    const warPressure=atWar?targetSituation.lost*60+targetSituation.losses*35-playerSituation.lost*55-playerSituation.losses*25:0;
-    const score=clamp(Math.round(action==='submit'?45+relations*.18+power+(target.stability-50)*.15-(protectedBy?5:0):
-      15+power+(atWar?Math.min(0,relations*.06):relations*.12)+publicSupport*.5+warPressure+
-      (integrating?25:0)+(isAllied(state.player,targetId)?6:0)+(adjacent?3:0)-independence*.3-(protectedBy?15:0)),0,100);
-    const collapsing=targetSituation.lost>=.35||targetSituation.losses>=.45||target.stability<25&&publicSupport>=60;
-    const acceptsAnnex=score>=85&&publicSupport>=65&&(integrating||!atWar||collapsing);
-    const acceptsPuppet=score>=65&&publicSupport>=45&&(!atWar||collapsing);
+    const publicSupport=clamp(Math.round(8+(100-target.stability)*.24+(100-target.warSupport)*.2+
+      (atWar?Math.max(0,relations)*.08:relations*.12)+targetSituation.pressure*.15+
+      (c.stability-50)*.12+(sameIdeology?6:0)+(integrating?32:0)+targetSituation.lost*35+targetSituation.losses*25-(protectedBy?12:0)),0,100);
+    const power=clamp(Math.log2(Math.max(.01,action==='submit'?1/Math.max(.01,strengthRatio):strengthRatio))*12,-40,36);
+    const warPressure=atWar?targetSituation.lost*65+targetSituation.losses*40-playerSituation.lost*55-playerSituation.losses*25:0;
+    const score=clamp(Math.round(action==='submit'?55+relations*.18+power+(target.stability-50)*.15-(protectedBy?5:0):
+      25+power+(atWar?Math.min(0,relations*.025):relations*.14)+publicSupport*.5+warPressure+
+      (integrating?25:0)+(isAllied(state.player,targetId)?6:0)+(adjacent?3:0)-independence*.22-(protectedBy?15:0)),0,100);
+    const capitalLost=target.capitalIdx>=0&&province(target.capitalIdx)?.owner!==targetId;
+    const collapsing=targetSituation.lost>=.6&&capitalLost&&targetSituation.losses>=.5;
+    const peacefulMandate=relations>=65&&(target.stability<=65||targetSituation.pressure>=30||publicSupport>=65);
+    const peacefulCompromise=relations>=50&&(strengthRatio>=1.5||targetSituation.pressure>=35||target.stability<50);
+    const acceptsAnnex=score>=65&&publicSupport>=50&&(integrating||(atWar?collapsing:peacefulMandate));
+    const acceptsPuppet=score>=50&&publicSupport>=30&&(atWar?collapsing:peacefulCompromise);
     const predictedOutcome=action==='submit'?(score>=50?'puppeted':'refused'):['annex','surrender'].includes(action)?
       (acceptsAnnex?'annexed':!integrating&&acceptsPuppet?'puppeted':'refused'):acceptsPuppet?'puppeted':'refused';
     const costs=requestedCosts;
@@ -1648,6 +1980,11 @@ const Game = (function(){
   function sovereigntyAction(action,targetId){
     const status=sovereigntyAvailability(action,targetId);if(!status.available)return false;
     const c=country(state.player),target=country(targetId);
+    if(action==='puppet'){
+      if(!Unrest.sponsor(state,targetId,state.player,unrestContext()))return false;
+      state.diplomaticResponse={action,target:targetId,outcome:'sponsored',reason:status.acceptanceLabel+'。'+status.responseReason,costs:{...status.costs},day:state.daysElapsed||0};
+      if(window.UI)UI.refresh();return true;
+    }
     const outcome=status.predictedOutcome;
     state.diplomaticResponse={action,target:targetId,outcome,reason:status.acceptanceLabel+'。'+status.responseReason,costs:{...status.costs},day:state.daysElapsed||0};
     if(outcome==='refused'){
@@ -1716,7 +2053,7 @@ const Game = (function(){
         (war?30:0)-(conflictingAlly?20:0)+(c.stability+target.stability-100)*.06),0,100);
       const score=clamp(Math.round(publicSupport+(sharedEnemy?8:0)-(conflictingAlly?8:0)+
         (war?targetSituation.lost*30+playerSituation.lost*15+(targetSituation.losses+playerSituation.losses)*15:0)),0,100);
-      const predictedOutcome=score>=50?'allied':'refused';
+      const predictedOutcome=score>=45?'allied':'refused';
       return {available:!reasons.length,reasons,cost,costs:{pp:0,stability:0},requestedCosts:{pp:0,stability:0},cooldownDays:0,refusalCost:0,
         responseLikelihood:score,publicSupport,predictedOutcome,acceptanceLabel:predictedOutcome==='allied'?'接受同盟提案':'暂不接受同盟',
         responseReason:'接受倾向 '+score+'/100：同盟民意 '+publicSupport+'%，双方稳定 '+Math.round(c.stability)+' / '+Math.round(target.stability)+'，关系 '+relation(state.player,targetId)+
@@ -1853,7 +2190,7 @@ const Game = (function(){
     if(state.date.day>daysInMonth(state.date.year,state.date.month)){
       state.date.day=1;state.date.month++;if(state.date.month>12){state.date.month=1;state.date.year++;}monthEnded=true;
     }
-    dailyManpower(incomeYear,incomeMonth);processCombats();restDaily();
+    dailyManpower(incomeYear,incomeMonth);processCombats();processNavalEvacuations();restDaily();
     if(typeof Unrest!=='undefined')Unrest.tick(state,unrestContext());
     const briefItems=monthEnded?monthlySettlement(true):[];
     aiOrders();
@@ -2183,14 +2520,34 @@ const Game = (function(){
     aiWorldPolitics();
     Object.keys(state.countries).forEach(cid=>{
       if(cid===state.player||!country(cid).alive)return;
-      if(state.wars.some(w=>(w.a===cid&&country(w.b)?.alive)||(w.b===cid&&country(w.a)?.alive)))aiAttackEnemies(cid);
+      if(state.wars.some(w=>(w.a===cid&&country(w.b)?.alive)||(w.b===cid&&country(w.a)?.alive))){aiSupportAllies(cid);aiAttackEnemies(cid);}
     });
+  }
+  function aiSupportAllies(id){
+    for(const combat of state.activeCombats){
+      const attack=isAllied(id,combat.attacker)&&combat.attacker!==id&&isAtWar(id,combat.defender);
+      const defend=combat.defender&&isAllied(id,combat.defender)&&combat.defender!==id&&isAtWar(id,combat.attacker);
+      if(!attack&&!defend)continue;
+      const side=attack?'attack':'defend';
+      if(combat.attackers.some(entry=>entry.owner===id)||province(combat.to).garrison.some(unit=>unit.combatId===combat.id&&unit.owner===id))continue;
+      if(state.recentBattles.some(result=>result.to===combat.to&&result.won===false&&(result.attacker===id||result.alliedAttackers?.includes(id))&&Number.isInteger(result.endedDay??result.autoOffensiveDay)&&state.daysElapsed-(result.endedDay??result.autoOffensiveDay)<14))continue;
+      if(attack&&combat.kind==='amphib')continue;
+      const sources=state.provinces.map((land,index)=>({from:index,land,count:availableLand(land).length})).filter(origin=>origin.land.owner===id&&origin.count>1&&
+        !origin.land.garrison.some(unit=>unit.kind==='land'&&unit.combatId)&&availableLand(origin.land).every(unit=>unit.org>=(unit.maxOrg||60)*.55));
+      sources.sort((a,b)=>Number(neighbors(b.from).includes(combat.to))-Number(neighbors(a.from).includes(combat.to))||distanceKm(a.land,province(combat.to))-distanceKm(b.land,province(combat.to)));
+      const choice=sources.find(origin=>landRoute(origin.from,combat.to,id));
+      if(!choice)continue;
+      const count=Math.min(4,defaultSend(choice.count));
+      if(addCombatTroops(combat,choice.from,count,id,side))return true;
+    }
+    return false;
   }
   // 与玩家交战时：后方补防 + 边境补兵 + 择优进攻 / 两栖
   function aiAttackEnemies(id){
     const enemy = owner => owner && country(owner)?.alive && !isAllied(id,owner) && isAtWar(id,owner);
-    const cooling=(from,to)=>state.recentBattles.some(r=>r.attacker===id&&r.to===to&&r.won===false&&Number.isInteger(r.autoOffensiveDay)&&state.daysElapsed-r.autoOffensiveDay<14);
+    const cooling=(from,to)=>state.recentBattles.some(r=>(r.attacker===id||r.alliedAttackers?.includes(id))&&r.to===to&&r.won===false&&Number.isInteger(r.endedDay??r.autoOffensiveDay)&&state.daysElapsed-(r.endedDay??r.autoOffensiveDay)<14);
     const aiProv = state.provinces.map((p,i)=>({p,i})).filter(o=>o.p.owner===id);
+    aiProv.sort((a,b)=>Number(neighbors(b.i).some(next=>enemy(province(next).owner)))-Number(neighbors(a.i).some(next=>enemy(province(next).owner))));
     aiReinforceFront(id, aiProv);
     let active=state.activeCombats.filter(c=>c.attacker===id).length;
     aiProv.forEach(o => {
@@ -2199,7 +2556,7 @@ const Game = (function(){
       const adj = landTargets(o.i,id).map(n => province(n));
       const targets = adj.filter(t => enemy(t.owner)&&!cooling(o.i,state.provinces.indexOf(t)));
       if (targets.length){
-        targets.sort((a,b) => defendStrength(a) - defendStrength(b));
+        targets.sort((a,b)=>Number(neighbors(o.i).includes(state.provinces.indexOf(b)))-Number(neighbors(o.i).includes(state.provinces.indexOf(a)))||defendStrength(a)-defendStrength(b));
         const tgt = targets[0];
         const pool=availableLand(o.p),estimate=assaultStrength(id,o.i,state.provinces.indexOf(tgt),pool.slice(0,defaultSend(pool.length)),0);
         const atk=estimate.aStr,def=estimate.dStr;
@@ -2300,7 +2657,16 @@ const Game = (function(){
     log("【事件】" + ev.name + "：" + ev.text, "info");
   }
 
-  function unrestContext(){return {cancelCombat,declareWar,doAssault,makeDivision,returnTroop,log,recordWorldEvent,settleDiplomaticWars};}
+  function unrestContext(){return {cancelCombat,declareWar,doAssault,makeDivision,returnTroop,log,recordWorldEvent,settleDiplomaticWars,
+    afterControlChange:()=>{
+      releaseInvalidAirMissions();
+      for(const combat of state.activeCombats.slice()){
+        if(combat.kind==='land'&&!routePathValid(combat.routePath||[combat.from,combat.to],combat.attacker)){
+          cancelCombat(combat,'内乱或外交变更使行军通道关闭，部队安全撤回。');
+          for(const event of state.worldEvents)if(event.kind==='invasion'&&event.combatId===combat.id)event.acknowledged=true;
+        }else withdrawBlockedReinforcements(combat);
+      }
+    }};}
   function unrestStatus(id=state?.player){return state&&typeof Unrest!=='undefined'?Unrest.status(state,id):null;}
   function unrestAction(action){
     if(!state||state.over||typeof Unrest==='undefined'||!Unrest.respond(state,state.player,action,unrestContext()))return false;
@@ -2415,7 +2781,7 @@ const Game = (function(){
     if(s.diplomaticResponse!==undefined&&s.diplomaticResponse!==null){
       const response=s.diplomaticResponse;
       if(!obj(response)||!['annex','puppet','release','submit','ally','surrender'].includes(response.action)||!Object.hasOwn(s.countries,response.target)||
-        !['annexed','puppeted','refused','released','allied'].includes(response.outcome)||typeof response.reason!=='string'||response.reason.length>1000||
+        !['annexed','puppeted','refused','released','allied','sponsored'].includes(response.outcome)||typeof response.reason!=='string'||response.reason.length>1000||
         !obj(response.costs)||!Number.isFinite(response.costs.pp)||response.costs.pp<0||!Number.isFinite(response.costs.stability)||response.costs.stability<0||
         !Number.isSafeInteger(response.day)||response.day<0||response.day>(s.daysElapsed||0)||
         ['subject','overlord'].some(key=>response[key]!==undefined&&!Object.hasOwn(s.countries,response[key])))return false;
@@ -2428,6 +2794,12 @@ const Game = (function(){
       if(d?.formationRole!==undefined&&(d.formationRole!=='battleGroup'||UNIT_TYPES[d.type]?.kind!=='land'||typeof d.formationGroupId!=='string'||!d.formationGroupId||d.formationGroupId.length>128))return false;
       if(d?.nominalPersonnel!==undefined&&(!Number.isSafeInteger(d.nominalPersonnel)||d.nominalPersonnel<=0||d.nominalPersonnel>(UNIT_TYPES[d.type]?.kind==='land'?100000:10000000)))return false;
       if(['nominalTanks','nominalAircraft','nominalShips'].some(key=>d?.[key]!==undefined&&(!Number.isSafeInteger(d[key])||d[key]<0||d[key]>100000)))return false;
+      if(d?.equipmentCondition!==undefined&&(!obj(d.equipmentCondition)||Object.entries(d.equipmentCondition).some(([key,value])=>!['tanks','aircraft','ships'].includes(key)||!Number.isFinite(value)||value<0||value>1)))return false;
+      if(d?.airframeShare!==undefined&&(UNIT_TYPES[d.type]?.kind!=='air'||!Number.isFinite(d.airframeShare)||d.airframeShare<=0||d.airframeShare>1))return false;
+      if(d?.airCombatId!==undefined&&(UNIT_TYPES[d.type]?.kind!=='air'||typeof d.airCombatId!=='string'||!/^c[1-9]\d*$/.test(d.airCombatId)))return false;
+      if(d?.rescueArrivalDay!==undefined&&(!Number.isSafeInteger(d.rescueArrivalDay)||d.rescueArrivalDay<=(s.daysElapsed||0)||d.rescueArrivalDay>(s.daysElapsed||0)+365||UNIT_TYPES[d.type]?.kind!=='land'||!Array.isArray(d.rescueRoute)||d.rescueRoute.length<2||!d.rescueRoute.every(index=>Number.isInteger(index)&&index>=0&&index<s.provinces.length)||!s.coastal[d.rescueRoute[0]]||!s.coastal[d.rescueRoute.at(-1)]||d.rescueDestination!==d.rescueRoute[d.rescueRoute.length-1]||!Array.isArray(d.rescueShipIds)||!d.rescueShipIds.length||d.rescueShipIds.some(id=>typeof id!=='string')||!Number.isFinite(d.rescuePersonnel)||d.rescuePersonnel<=0||d.rescuePersonnel>unitPersonnel(d)+1e-7||!Number.isFinite(d.rescueInterceptionRisk)||d.rescueInterceptionRisk<0||d.rescueInterceptionRisk>.55))return false;
+      if(d?.rescueArrivalDay===undefined&&['rescueRoute','rescueDestination','rescueShipIds','rescuePersonnel','rescueInterceptionRisk'].some(key=>d?.[key]!==undefined))return false;
+      if(d?.rescueCaptured!==undefined&&typeof d.rescueCaptured!=='boolean')return false;
       if(!obj(d)||!UNIT_TYPES[d.type]||!Number.isFinite(d.hp)||!Number.isFinite(d.maxHp)||d.maxHp<=0||d.hp<0||
         (d.org!==undefined&&(!Number.isFinite(d.org)||d.org<0))||(d.maxOrg!==undefined&&(!Number.isFinite(d.maxOrg)||d.maxOrg<=0))||
         (d.owner!==undefined&&!s.countries[d.owner])||(d.combatId!==undefined&&typeof d.combatId!=='string')||
@@ -2440,7 +2812,15 @@ const Game = (function(){
          (p.administrativeWeight!==undefined&&(!Number.isFinite(p.administrativeWeight)||p.administrativeWeight<0||p.administrativeWeight>1)) ||
          (p.owner !== null && !s.countries[p.owner]) || !TERRAIN[p.terrain] ||
          p.garrison.some(d => !unitValid(d)))) return false;
-    const combatIds=new Set(),index=i=>Number.isInteger(i)&&i>=0&&i<s.provinces.length;
+    if(s.provinces.some((p,index)=>p.garrison.some(d=>d.rescueArrivalDay!==undefined&&
+      (d.rescueDestination!==index||d.rescueRoute[0]===d.rescueDestination||d.rescueRoute.some((at,step)=>step>0&&!s.seaAdj[d.rescueRoute[step-1]].includes(at))||
+       !s.provinces.some(port=>port.garrison.some(ship=>d.rescueShipIds.includes(ship.id)&&ship.kind==='naval'&&ship.owner===d.owner&&ship.hp>0))))))return false;
+    if(s.provinces.some(port=>port.garrison.some(unit=>{
+      if(unit.rescueArrivalDay===undefined)return false;
+      const liveShips=unit.rescueShipIds.filter(id=>s.provinces.some(candidate=>candidate.garrison.some(ship=>ship.id===id&&ship.kind==='naval'&&ship.owner===unit.owner&&ship.hp>0)));
+      return new Set(unit.rescueShipIds).size!==unit.rescueShipIds.length||liveShips.length!==unit.rescueShipIds.length;
+    })))return false;
+    const combatIds=new Set(),airMissionIds=new Set(),index=i=>Number.isInteger(i)&&i>=0&&i<s.provinces.length;
     const savedPath=(path,from,to)=>Array.isArray(path)&&path.length>0&&path.length<=s.provinces.length&&
       path[0]===from&&path[path.length-1]===to&&new Set(path).size===path.length&&path.every(index)&&
       path.slice(0,-1).every((i,at)=>Array.isArray(s.adj[i])&&s.adj[i].includes(path[at+1]));
@@ -2463,12 +2843,27 @@ const Game = (function(){
           (c.defender && !s.wars.some(w=>(w.a===c.attacker&&w.b===c.defender)||(w.b===c.attacker&&w.a===c.defender))))return false;
         if(c.kind==='land'&&(c.routePath!==undefined?!savedPath(c.routePath,c.from,c.to):!s.adj[c.from].includes(c.to)))return false;
         if(c.kind==='amphib'&&(!s.coastal[c.from]||!s.coastal[c.to]||!s.seaAdj[c.from].includes(c.to)))return false;
+        if(c.airMissions!==undefined){
+          if(!Array.isArray(c.airMissions)||c.airMissions.length>50000)return false;
+          for(const mission of c.airMissions){
+            if(!obj(mission)||typeof mission.unitId!=='string'||airMissionIds.has(mission.unitId)||!index(mission.base)||
+              ![c.attacker,c.defender].includes(mission.owner)||!s.countries[mission.owner]||!Number.isFinite(mission.nominalAircraft)||mission.nominalAircraft<=0||mission.nominalAircraft>100000)return false;
+            const base=s.provinces[mission.base],unit=base.garrison.find(candidate=>candidate.id===mission.unitId);
+            const nominal=unit?.nominalAircraft??UNIT_TYPES[unit?.type]?.aircraft??0;
+            if(!unit||unit.kind!=='air'||unit.airCombatId!==c.id||base.owner!==mission.owner||
+               (unit.owner||base.owner)!==mission.owner||distanceKm(base,s.provinces[c.to])>UNIT_TYPES[unit.type].range||mission.nominalAircraft>nominal+1e-7)return false;
+            airMissionIds.add(mission.unitId);
+          }
+        }
+        if(['aEquipmentLoss','dEquipmentLoss'].some(key=>c[key]!==undefined&&(!obj(c[key])||['tanks','aircraft','ships'].some(asset=>!Number.isFinite(c[key][asset])||c[key][asset]<0))))return false;
+        if(['aSorties','dSorties'].some(key=>c[key]!==undefined&&(!Number.isFinite(c[key])||c[key]<0)))return false;
         for(const e of c.attackers){if(!obj(e)||!index(e.from)||!s.countries[e.owner]||!unitValid(e.unit)||UNIT_TYPES[e.unit.type].kind!=='land'||
           !e.unit.id||e.unit.combatId!==c.id||e.unit.owner!==e.owner||(e.routePath!==undefined&&!savedPath(e.routePath,e.from,c.to)))return false;}
         targets.add(c.to);combatIds.add(c.id);
       }
     }
     if(s.provinces.some(p=>p.garrison.some(d=>d.combatId&&!combatIds.has(d.combatId))))return false;
+    if(s.provinces.some(p=>p.garrison.some(d=>d.airCombatId&&(!combatIds.has(d.airCombatId)||!airMissionIds.has(d.id)))))return false;
     if(ids.size>50000)return false;
     if (new Set(s.provinces.map(p => p.id)).size !== s.provinces.length) return false;
     if (s.adj.some(row => !Array.isArray(row) || row.some(i => !Number.isInteger(i) || i < 0 || i >= s.provinces.length)) ||
@@ -2483,7 +2878,7 @@ const Game = (function(){
     if(!validPoliticsDay(s.aiDiplomacyDay)||Object.values(s.countries).some(c=>!validPoliticsDay(c.aiWarDay)))return false;
     const incomeEffects = ["resOut","factoryOut","equip","researchOut"];
     if (Object.values(s.countries).some(c => !obj(c) || !obj(c.eff) || !obj(c.researched) ||
-        countryNumbers.some(k => !Number.isFinite(c[k])) || incomeEffects.some(k => !Number.isFinite(c.eff[k])) || Object.values(c.eff).some(v=>!Number.isFinite(v)) ||
+        countryNumbers.some(k => !Number.isFinite(c[k])) || (c.capturedPersonnel!==undefined&&(!Number.isFinite(c.capturedPersonnel)||c.capturedPersonnel<0)) || incomeEffects.some(k => !Number.isFinite(c.eff[k])) || Object.values(c.eff).some(v=>!Number.isFinite(v)) ||
         !Number.isInteger(c.capitalIdx) || c.capitalIdx < -1 || c.capitalIdx >= s.provinces.length)) return false;
     for(const [id,c]of Object.entries(s.countries)){
       if(c.subjectOf===undefined||c.subjectOf===null)continue;
@@ -2533,7 +2928,7 @@ const Game = (function(){
       const allUnits=candidate.provinces.flatMap(p=>p.garrison).concat(candidate.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)));
       allUnits.forEach(d=>{const match=/^u(\d+)$/.exec(d.id||'');if(match)candidate.unitSerial=Math.max(candidate.unitSerial,Number(match[1]));});
       const restore=d=>{
-        const t=UNIT_TYPES[d.type],permille=formationPermille(d),fresh={...d,id:d.id||'u'+(++candidate.unitSerial),type:t.key,name:unitName(d.type,permille,d.formationRole),kind:t.kind,atk:t.atk,def:t.def,hp:t.hp*permille/1000,maxHp:t.hp*permille/1000,org:t.org,maxOrg:t.org};
+        const t=UNIT_TYPES[d.type],permille=formationPermille(d),healthCap=t.kind==='air'?t.hp*(d.airframeShare??1):t.hp*permille/1000,fresh={...d,id:d.id||'u'+(++candidate.unitSerial),type:t.key,name:unitName(d.type,permille,d.formationRole),kind:t.kind,atk:t.atk,def:t.def,hp:healthCap,maxHp:healthCap,org:t.org,maxOrg:t.org};
         fresh.hp=d.maxHp===fresh.maxHp?Math.max(0,Math.min(d.hp,fresh.maxHp)):Math.max(0,Math.min(1,d.hp/d.maxHp))*fresh.maxHp;
         fresh.org=Number.isFinite(d.org)?(d.maxOrg===fresh.maxOrg?Math.max(0,Math.min(d.org,fresh.maxOrg)):Math.max(0,Math.min(1,d.org/(d.maxOrg||fresh.maxOrg)))*fresh.maxOrg):fresh.maxOrg;
         if(!fresh.combatId){delete fresh.arrivalDay;delete fresh.routePath;delete fresh.returnFrom;}
@@ -2657,10 +3052,12 @@ const Game = (function(){
 
   return {
     get state(){ return state; },
-    unitAssets, militaryAssets, autoEquipmentStatus, setAutoEquipment,
+    unitAssets, militaryAssets, autoEquipmentStatus, setAutoEquipment, assaultOptions, tacticProfile,
     init, onMapClick, endTurn, advanceDay, finishTurn:advanceDay, advanceTurn:advanceDay, timeStatus, getCombats, getCombat, combatReinforcements, setCombatTactics,
-    reinforceCombat:command(reinforceCombat), retreatCombat, requestCombatSupport:command(requestCombatSupport), armyTotals, unitPersonnel, personnelOf, provincePersonnel, capitulationProgress,
+    reinforceCombat:command(reinforceCombat), retreatCombat, requestCombatSupport:command(requestCombatSupport), alliedAttackOptions, requestAlliedAttack:command(requestAlliedAttack), armyTotals, unitPersonnel, personnelOf, provincePersonnel, capitulationProgress,
     buildUnit:command(buildUnit), unitAvailability, landCount, formationScale, formationTotal, makeDivision, aiUnitTargets, fortBonusOf, bombingAvailability, navalStrength,
+    navalRescuePlan, hasNavalEvacuationRoute, startNavalEvacuation, navalRescueStatus,
+    evacuateProvince:command(evacuateProvince,from=>province(from)?.owner===state?.player),
     buildFactory:command(buildFactory), buildProvince:command(buildProvince), trade:command(trade), bombProvince:command(bombProvince),
     assignResearch:command(assignResearch), cancelResearch, doFocus:command(doFocus), doAssault:command(doAssault,owner=>owner===state?.player),
     diploAction:command(diploAction), diplomacyAvailability, subjectStatus, sovereigntyResponse, unrestStatus, unrestAction:command(unrestAction), callAlly:command(callAlly), setAutoLogistics, autoLogisticsStatus, setAutoRecruitment, autoRecruitmentStatus, setAutoOffensive, autoOffensiveStatus,

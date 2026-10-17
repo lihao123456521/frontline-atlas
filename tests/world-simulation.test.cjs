@@ -97,6 +97,7 @@ test('major outcomes create persistent structured events once; old and malformed
   Game.province(0).garrison=Array.from({length:5},()=>unit('armor'));
   s.adj[0]=[1];s.adj[1]=[0];
   Game.country('fra').initialVictoryWeight=5;
+  Game.country('fra').capitalIdx=1;
   assert.equal(Game.doAssault('ger',0,1,0,4),true);
   assert.equal(s.worldEvents.length,1);assert.equal(s.worldEvents[0].kind,'war');
   for(let day=0;day<5&&!s.over&&Game.province(1).owner==='fra';day++)Game.advanceDay();
@@ -121,6 +122,23 @@ test('peace is announced only after a real war ends',()=>{
   assert.equal(s.worldEvents.length,1);assert.equal(s.worldEvents[0].kind,'peace');
   Game.proposePeace('fra');
   assert.equal(s.worldEvents.length,1);
+});
+
+test('automatic capitulation requires near-total homeland loss and the loss of the capital',()=>{
+  for(const [heldWeight,capitalHeld,expectedAlive] of [[2,false,true],[1,true,true],[1,false,false]]){
+    const {Game}=setup(),state=Game.state,from=Game.provinceById('ger_rhine'),target=Game.provinceById('fra_paris'),remainder=Game.provinceById('fra_normandy');
+    state.provinces.forEach(province=>{province.garrison=[];if(province.originalOwner==='fra')province.originalOwner=null;});
+    state.adj=state.provinces.map(()=>[]);state.seaAdj=state.provinces.map(()=>[]);state.adj[from]=[target];state.adj[target]=[from];
+    for(const nation of Object.values(state.countries))if(!['ger','fra'].includes(nation.id))nation.alive=false;
+    Object.assign(Game.province(remainder),{owner:'fra',originalOwner:'fra',administrativeWeight:heldWeight,isCapital:false});
+    Object.assign(Game.province(target),{owner:'fra',originalOwner:'fra',administrativeWeight:10-heldWeight,isCapital:false});
+    const france=Game.country('fra');france.initialVictoryWeight=10;france.capitalIdx=capitalHeld?remainder:target;
+    Game.province(from).garrison=Array.from({length:5},()=>Game.makeDivision('infantry'));
+    assert.equal(Game.resolveAttack('ger',from,target,4),true);
+    for(let day=0;day<10&&Game.province(target).owner==='fra';day++)Game.advanceDay();
+    assert.equal(Game.province(target).owner,'ger');
+    assert.equal(france.alive,expectedAlive,'held '+heldWeight+'/10, capital held '+capitalHeld);
+  }
 });
 
 test('event queue retains the latest 40 real outcomes and a monotonic serial',()=>{

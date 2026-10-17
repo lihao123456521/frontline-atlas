@@ -42,6 +42,17 @@ const World = (() => {
   PROVINCES_DEF.push({id:'ccp_shaanxi',name:'陕北根据地',lon:109.3,lat:36.8,owner:'ccp',shapeOwner:'chn',cap:true,terrain:'hill'});
   MINOR_COUNTRIES.push({id:'ccp',name:names.ccp,capital:'ccp_shaanxi',color:'#ae4d43',ideo:'com',startCiv:3,startMil:2,startRes:18,startPP:12,stability:60,warSupport:55});
   for(const c of COUNTRIES.concat(MINOR_COUNTRIES))if(names[c.id]&&c.id!=='chn')c.name=names[c.id];
+  const majorColors={ger:'#71836a',sov:'#ba4c48',uk:'#cf659f',fra:'#4e83c4',usa:'#44a576',jpn:'#b46bb6',chn:'#d1a841',ita:'#78bba0'};
+  const palette=['#d6ac58','#6887bb','#bc6373','#66a98c','#9b79b5','#ba8053','#51a7b6','#c5a4bd','#91ae58','#c76f48','#778a60','#8aafd0','#c9be75','#8c6e93','#67b8b2','#b58c98','#596e8e','#acb78b','#769fb5','#a77d80','#c9b892','#a26891','#b4a2c5','#668d80'];
+  const countryDefs=COUNTRIES.concat(MINOR_COUNTRIES),neighbors=new Map(countryDefs.map(country=>[country.id,new Set()]));
+  for(const [first,second]of WORLD_HISTORICAL_MAP.adjacency){neighbors.get(first)?.add(second);neighbors.get(second)?.add(first);}
+  const assigned=new Map(Object.entries(majorColors));
+  for(const country of countryDefs.filter(country=>!assigned.has(country.id)).sort((first,second)=>(neighbors.get(second.id)?.size||0)-(neighbors.get(first.id)?.size||0)||first.id.localeCompare(second.id))){
+    const nearby=[...neighbors.get(country.id)].map(id=>assigned.get(id)).filter(Boolean);
+    const choices=palette.map((color,index)=>({color,score:nearby.length?Math.min(...nearby.map(other=>countryColorDistance(color,other))):140-index})).sort((first,second)=>second.score-first.score);
+    assigned.set(country.id,choices[0].color);
+  }
+  for(const country of countryDefs)country.color=assigned.get(country.id);
   // More useful campaign scale outside Europe. These anchors produce clipped
   // strategic Voronoi cells, not claimed historical administrative boundaries.
   // Rounded WGS84 city locations; reference: https://www.geonames.org/ (CC BY 4.0).

@@ -7,6 +7,27 @@
 // 等距圆柱投影：经纬度 -> SVG 像素（viewBox 1000×500）
 function proj(lon, lat){ return { x:(lon+180)/360*1000, y:(90-lat)/180*500 }; }
 
+function countryColorDistance(first,second){
+  const channels=color=>[1,3,5].map(start=>parseInt(color.slice(start,start+2),16));
+  const left=channels(first),right=channels(second);
+  return Math.hypot(...left.map((value,index)=>value-right[index]));
+}
+function countryFactionColor(parentColor,factionId,neighborColors=[]){
+  const hash=Array.from(factionId).reduce((value,letter)=>(Math.imul(value,31)+letter.charCodeAt(0))>>>0,17);
+  const blocked=[parentColor,...neighborColors].filter(color=>/^#[\da-f]{6}$/i.test(color||''));
+  const rgb=(hue,saturation,lightness)=>{
+    const component=offset=>{const section=(offset+hue/30)%12,amplitude=saturation*Math.min(lightness,1-lightness);return Math.round((lightness-amplitude*Math.max(-1,Math.min(section-3,9-section,1)))*255).toString(16).padStart(2,'0');};
+    return '#'+component(0)+component(8)+component(4);
+  };
+  let selected='#cb7d45',best=-Infinity;
+  for(let index=0;index<32;index++){
+    const candidate=rgb((hash%360+index*137.508)%360,.5+(index%3)*.08,.48+(index%2)*.1);
+    const score=Math.min(...blocked.map(color=>countryColorDistance(color,candidate)))-index*.01;
+    if(score>best){best=score;selected=candidate;}
+  }
+  return selected;
+}
+
 // ============ 欧洲战场限定 ============
 // 参战国家（其余国家视为"剧场之外"，开局即不算主要对手）
 const EUROPEAN_COUNTRIES = ["ger", "sov", "uk", "fra", "ita"];

@@ -22,6 +22,11 @@ function popularConsent(Game,key,id){
   Game.state.relations[key(Game.state.player,id)]=200;
   if(Game.state.unrest?.countries[id])Game.state.unrest.countries[id].pressure=100;
 }
+function establishSubject(Game,key,targetId,overlord=Game.state.player){
+  const player=Game.state.player;Game.state.player=targetId;Game.state.relations[key(targetId,overlord)]=200;
+  try{assert.equal(Game.diploAction('submit',overlord),true);assert.equal(Game.country(targetId).subjectOf,overlord);}
+  finally{Game.state.player=player;}
+}
 function units(Game){return Game.state.provinces.flatMap(p=>p.garrison).concat(Game.state.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)));}
 function readiness(Game){return units(Game).map(unit=>({id:unit.id,hp:unit.hp,org:unit.org})).sort((a,b)=>a.id.localeCompare(b.id));}
 test('a genuine popular sovereignty crisis can accept peaceful unification with actual land, troops and finite reserves conserved once',()=>{
@@ -53,12 +58,12 @@ test('invalid peaceful annexation and puppet proposals never charge or alter the
   Game.country('ger').pp=0;assert.equal(Game.diplomacyAvailability('annex','aut').available,true);
   Game.state.wars.push({a:'ger',b:'aut'});
   assert.equal(Game.diplomacyAvailability('annex','aut').available,true);
-  Game.state.wars=[];Game.state.relations[key('ger','aut')]=-200;assert.equal(Game.diplomacyAvailability('puppet','aut').predictedOutcome,'refused');
+  Game.state.wars=[];Game.state.relations[key('ger','aut')]=-200;assert.equal(Game.diplomacyAvailability('puppet','aut').predictedOutcome,'sponsored');
 });
-test('puppet sovereignty preserves independent territory and armies while enforcing defensive passage and refusing attacks inside its bloc',()=>{
+test('voluntary subject sovereignty preserves independent territory and armies while enforcing defensive passage and refusing attacks inside its bloc',()=>{
   const {Game,key,from,to}=setup();
   const provinces=JSON.stringify(Game.state.provinces.map(p=>({owner:p.owner,garrison:p.garrison}))),before=Game.country('ger').pp;
-  assert.equal(Game.diploAction('puppet','aut'),true);assert.equal(Game.country('ger').pp,before);
+  establishSubject(Game,key,'aut');assert.equal(Game.country('ger').pp,before);
   assert.equal(Game.country('aut').subjectOf,'ger');assert.equal(Game.subjectStatus('aut').tributeRate,.1);
   assert.equal(JSON.stringify(Game.state.provinces.map(p=>({owner:p.owner,garrison:p.garrison}))),provinces);
   assert.equal(Game.isAllied('ger','aut'),true);assert.ok(Game.landRoute(from,to,'ger'));
@@ -73,7 +78,7 @@ test('monthly puppet tribute transfers only ten percent of real income and keeps
   const run=puppet=>{
     const {Game,key}=setup();Game.setAutoRecruitment({enabled:false});Game.setAutoLogistics(false);
     for(const p of Game.state.provinces)for(const unit of p.garrison){unit.hp=unit.maxHp;unit.org=unit.maxOrg;}
-    if(puppet){assert.equal(Game.diploAction('puppet','aut'),true);assert.equal(Game.country('aut').subjectOf,'ger');}
+    if(puppet)establishSubject(Game,key,'aut');
     const before={ger:{},aut:{}};for(const id of ['ger','aut'])for(const field of ['res','oil','rare','equipment'])before[id][field]=Game.country(id)[field];
     Game.endTurn();return {Game,before};
   };
@@ -85,7 +90,7 @@ test('monthly puppet tribute transfers only ten percent of real income and keeps
   }
 });
 test('releasing a puppet cancels invalid routes and returns the exact marching units without retaining travel metadata',()=>{
-  const {Game,key,from,to}=setup();assert.equal(Game.diploAction('puppet','aut'),true);
+  const {Game,key,from,to}=setup();establishSubject(Game,key,'aut');
   const enemy=Game.state.provinces.findIndex(p=>p.owner==='ita');Game.state.adj[from]=[to];Game.state.adj[to]=[from,enemy];Game.state.adj[enemy]=[to];
   const original=Game.province(from).garrison[0],hp=original.hp;
   assert.equal(Game.doAssault('ger',from,enemy,0,1,true),true);assert.equal(Game.state.activeCombats.length,1);
@@ -95,7 +100,7 @@ test('releasing a puppet cancels invalid routes and returns the exact marching u
   assert.equal(Game.load(Game.save()),true);
 });
 test('integrating a puppet stays free and transfers paid pending production without duplication',()=>{
-  const {Game,key,to}=setup();Game.diploAction('puppet','aut');
+  const {Game,key,to}=setup();establishSubject(Game,key,'aut');
   Game.state.aiBuildQueue.push({countryId:'aut',unitType:'infantry',provinceIdx:to,turnsLeft:1});
   assert.equal(Game.diplomacyAvailability('annex','aut').cost,0);const count=units(Game).length;
   assert.equal(Game.diploAction('annex','aut'),true);assert.equal(Game.state.aiBuildQueue.some(item=>item.countryId==='aut'),false);
@@ -104,7 +109,7 @@ test('integrating a puppet stays free and transfers paid pending production with
   assert.equal(units(Game).filter(unit=>unit.owner==='ger').length>0,true);assert.equal(Game.load(Game.save()),true);
 });
 test('subject saves reject invalid, circular, nested and internally warring sovereignty without replacing current state',()=>{
-  const {Game,key}=setup();Game.diploAction('puppet','aut');const current=Game.state;
+  const {Game,key}=setup();establishSubject(Game,key,'aut');const current=Game.state;
   for(const mutate of [s=>s.countries.aut.subjectOf='aut',s=>s.countries.aut.subjectOf='missing',s=>s.countries.aut.subjectOf=3,
     s=>s.countries.ger.subjectOf='aut',s=>{s.countries.ger.subjectOf='fra';},s=>s.wars.push({a:'aut',b:'ger'})]){
     const bad=JSON.parse(Game.save());mutate(bad);assert.equal(Game.load(JSON.stringify(bad)),false);assert.equal(Game.state,current);
@@ -112,7 +117,7 @@ test('subject saves reject invalid, circular, nested and internally warring sove
   assert.equal(Game.load(Game.save()),true);assert.equal(Game.subjectStatus('ger').subjects[0],'aut');
 });
 test('subjects cannot initiate new wars through AI, direct assaults or player justification while defensive participation remains valid',()=>{
-  const {Game,ctx,key,to}=setup();assert.equal(Game.diploAction('puppet','aut'),true);
+  const {Game,ctx,key,to}=setup();establishSubject(Game,key,'aut');
   const enemy=Game.state.provinces.findIndex(p=>p.owner==='ita');Game.state.adj[to]=[enemy];Game.state.adj[enemy]=[to];
   Game.province(to).garrison=Array.from({length:8},()=>Game.makeDivision('armor'));Game.province(enemy).garrison=[];
   Game.country('aut').pp=200;Game.country('aut').manpower=1000;Game.country('aut').equipment=1000;Game.country('aut').res=1000;
@@ -139,7 +144,7 @@ test('generic sovereign proposals can annex, compromise on a puppet, or refuse w
     const {Game,key}=setup();Game.state.player='ita';const c=Game.country('ita'),target=Game.country(targetId);c.pp=200;c.stability=80;
     if(outcome!=='refused')popularConsent(Game,key,targetId);
     Game.state.relations[key('ita',targetId)]=relations;target.stability=stability;
-    if(outcome==='puppeted')Game.state.unrest.countries[targetId].baselinePersonnel=Game.armyTotals(targetId).landPersonnel*5;
+    if(outcome==='puppeted'){Game.state.unrest.countries[targetId].pressure=0;target.warSupport=100;target.stability=75;Game.state.relations[key('ger',targetId)]=50;}
     const status=Game.diplomacyAvailability('annex',targetId),before=JSON.stringify(Game.state.provinces.map(p=>({owner:p.owner,garrison:p.garrison}))),pp=c.pp,wt=Game.state.wt;
     assert.equal(status.available,true,status.reasons.join(';'));assert.equal(status.predictedOutcome,outcome,status.responseReason);
     assert.match(status.responseReason,/综合军力比/);assert.match(status.responseReason,/民意/);assert.ok(status.responseLikelihood>=0&&status.responseLikelihood<=100);
@@ -153,7 +158,7 @@ test('generic sovereign proposals can annex, compromise on a puppet, or refuse w
       else {
         assert.equal(target.subjectOf,null);assert.equal(response.costs.pp,0);assert.equal(c.stability,80);assert.equal(Game.state.wt,wt);
         assert.equal(Game.diplomacyAvailability('annex',targetId).cooldownDays,0);
-        const refusedSave=Game.save();assert.equal(Game.diploAction('puppet',targetId),true);assert.equal(Game.sovereigntyResponse().outcome,'refused');
+        const refusedSave=Game.save();assert.equal(Game.diploAction('puppet',targetId),true);assert.equal(Game.sovereigntyResponse().outcome,'sponsored');
         assert.equal(Game.load(refusedSave),true);assert.equal(Game.diplomacyAvailability('annex',targetId).available,true);
       }
     }
@@ -183,16 +188,25 @@ test('diplomatic proposals remain available at zero political power and stabilit
 });
 test('wartime surrender requires a real crisis and returns every marching unit exactly once before unification',()=>{
   const {Game,key}=setup();Game.country('ger').pp=0;
-  const to=Game.state.provinces.findIndex((p,i)=>p.owner==='aut'&&Game.neighbors(i).some(next=>Game.province(next).owner==='ger'));
-  assert.ok(to>=0,'official map has a German-Austrian land border');
+  const to=Game.state.provinces.findIndex((p,i)=>p.owner==='fra'&&Game.neighbors(i).some(next=>Game.province(next).owner==='ger'));
+  assert.ok(to>=0,'official map has a German-French land border');
   const from=Game.neighbors(to).find(idx=>Game.province(idx).owner==='ger');
   Game.province(from).garrison.push(Game.makeDivision('infantry'),Game.makeDivision('armor'));
-  assert.equal(Game.diploAction('declare','aut'),true);assert.equal(Game.doAssault('ger',from,to,0,1,true),true);
-  Game.state.relations[key('ger','aut')]=100;
-  const record=Game.state.unrest.countries.aut;record.baselinePersonnel=Game.armyTotals('aut').landPersonnel*5;
+  assert.equal(Game.diploAction('declare','fra'),true);assert.equal(Game.doAssault('ger',from,to,0,1,true),true);
+  Game.state.relations[key('ger','fra')]=100;
+  const record=Game.state.unrest.countries.fra;record.baselinePersonnel=Game.armyTotals('fra').landPersonnel*5;
   assert.equal(Game.state.activeCombats.length,1);const before=JSON.stringify(readiness(Game));
-  const status=Game.diplomacyAvailability('surrender','aut');assert.equal(status.available,true);assert.equal(status.predictedOutcome,'annexed',status.responseReason);
-  assert.equal(Game.diploAction('surrender','aut'),true);assert.equal(Game.country('aut').alive,false);assert.equal(Game.isAtWar('ger','aut'),false);
+  const early=Game.diplomacyAvailability('surrender','fra');assert.equal(early.available,true);assert.equal(early.predictedOutcome,'refused',early.responseReason);
+  const homeland=Game.state.provinces.filter(province=>province.originalOwner==='fra');
+  const totalWeight=homeland.reduce((sum,province)=>sum+(province.administrativeWeight||1)+(province.isCapital?4:0),0);
+  let lostWeight=0;
+  for(const [index,province]of homeland.sort((first,second)=>Number(second.isCapital)-Number(first.isCapital)).entries()){
+    if(index<homeland.length-1&&(province.isCapital||lostWeight<totalWeight*.65)){
+      province.owner='ger';lostWeight+=(province.administrativeWeight||1)+(province.isCapital?4:0);
+    }
+  }
+  const status=Game.diplomacyAvailability('surrender','fra');assert.equal(status.predictedOutcome,'annexed',status.responseReason);
+  assert.equal(Game.diploAction('surrender','fra'),true,JSON.stringify(Game.diplomacyAvailability('surrender','fra')));assert.equal(Game.country('fra').alive,false);assert.equal(Game.isAtWar('ger','fra'),false);
   assert.equal(Game.state.activeCombats.length,0);assert.equal(JSON.stringify(readiness(Game)),before);assert.equal(Game.country('ger').pp,0);
   assert.equal(new Set(units(Game).map(unit=>unit.id)).size,units(Game).length);
   assert.equal(Game.sovereigntyResponse().action,'surrender');assert.equal(Game.sovereigntyResponse().outcome,'annexed');
@@ -211,34 +225,41 @@ test('a weaker country may ask an undefeated major power to surrender but receiv
   assert.equal(JSON.stringify(readiness(Game)),before);assert.equal(JSON.stringify(Game.state.provinces.map(p=>p.owner)),owners);assert.equal(Game.isAtWar('aut','ger'),true);
   assert.equal(Game.load(Game.save()),true);
 });
-test('wartime puppet proposals preserve armies and territory while ending all wars of the joining government',()=>{
+test('wartime voluntary protection requests preserve armies and territory while ending all wars of the joining government',()=>{
   const {Game,key}=setup();Game.country('ger').pp=0;
   Game.state.wars.push({a:'aut',b:'ger'},{a:'aut',b:'ita'});
   Game.state.unrest.countries.aut.baselinePersonnel=Game.armyTotals('aut').landPersonnel*5;
   const before=JSON.stringify(readiness(Game)),owners=JSON.stringify(Game.state.provinces.map(p=>p.owner));
-  assert.equal(Game.diploAction('puppet','aut'),true);assert.equal(Game.country('aut').subjectOf,'ger');
+  establishSubject(Game,key,'aut');
   assert.equal(Game.state.wars.some(w=>w.a==='aut'||w.b==='aut'),false);assert.equal(JSON.stringify(readiness(Game)),before);
   assert.equal(JSON.stringify(Game.state.provinces.map(p=>p.owner)),owners);assert.equal(Game.load(Game.save()),true);
 });
-test('a peaceful stable nation rejects sovereignty loss despite overwhelming army size and high relations, consistently and freely',()=>{
+test('a peaceful stable major nation rejects sovereignty loss despite high relations, consistently and freely',()=>{
   const {Game,key}=setup(true,false);Game.init('ger','fas',null,'standard','sandbox36',{reinforcedArmy:true});
-  const target=Game.country('aut');assert.ok(target?.alive);assert.ok(Game.armyTotals('ger').landPersonnel>Game.armyTotals('aut').landPersonnel*5);
-  Game.state.relations[key('ger','aut')]=200;Game.country('ger').pp=0;
+  const target=Game.country('uk');assert.ok(target?.alive);
+  Game.state.relations[key('ger','uk')]=200;Game.country('ger').pp=0;
   const before=JSON.stringify(readiness(Game)),owners=JSON.stringify(Game.state.provinces.map(province=>province.owner));
-  const status=Game.diplomacyAvailability('annex','aut');assert.equal(status.available,true);assert.equal(status.predictedOutcome,'refused',status.responseReason);
-  assert.match(status.responseReason,/民意.*独立意愿/);assert.ok(status.publicSupport<65);
+  const status=Game.diplomacyAvailability('annex','uk');assert.equal(status.available,true);assert.equal(status.predictedOutcome,'refused',status.responseReason);
+  assert.match(status.responseReason,/民意.*独立意愿/);
   for(let attempt=0;attempt<4;attempt++){
-    assert.equal(Game.diploAction('annex','aut'),true);assert.equal(Game.sovereigntyResponse().outcome,'refused');
-    assert.equal(Game.diplomacyAvailability('annex','aut').responseLikelihood,status.responseLikelihood);assert.equal(Game.country('ger').pp,0);
+    assert.equal(Game.diploAction('annex','uk'),true);assert.equal(Game.sovereigntyResponse().outcome,'refused');
+    assert.equal(Game.diplomacyAvailability('annex','uk').responseLikelihood,status.responseLikelihood);assert.equal(Game.country('ger').pp,0);
   }
   assert.equal(JSON.stringify(readiness(Game)),before);assert.equal(JSON.stringify(Game.state.provinces.map(province=>province.owner)),owners);
 });
-test('declaring war alone does not persuade an undefeated weak nation to surrender, while actual losses change the response',()=>{
+test('major military losses alone do not persuade a nation to surrender before the capital and most homeland fall',()=>{
   const {Game,key}=setup(true,false);Game.init('ger','fas',null,'standard','sandbox36',{reinforcedArmy:true});
-  assert.equal(Game.diploAction('declare','aut'),true);
-  const initial=Game.diplomacyAvailability('surrender','aut');assert.equal(initial.available,true);assert.equal(initial.predictedOutcome,'refused',initial.responseReason);
-  const target=Game.country('aut');target.stability=0;target.warSupport=0;Game.state.unrest.countries.aut.pressure=95;
-  Game.state.unrest.countries.aut.baselinePersonnel=Game.armyTotals('aut').landPersonnel*5;Game.state.relations[key('ger','aut')]=0;
-  const defeated=Game.diplomacyAvailability('surrender','aut');assert.ok(defeated.responseLikelihood>initial.responseLikelihood+30);
-  assert.ok(['annexed','puppeted'].includes(defeated.predictedOutcome),defeated.responseReason);
+  assert.equal(Game.diploAction('declare','fra'),true);
+  const initial=Game.diplomacyAvailability('surrender','fra');assert.equal(initial.available,true);assert.equal(initial.predictedOutcome,'refused',initial.responseReason);
+  const target=Game.country('fra');target.stability=0;target.warSupport=0;Game.state.unrest.countries.fra.pressure=95;
+  Game.state.unrest.countries.fra.baselinePersonnel=Game.armyTotals('fra').landPersonnel*5;Game.state.relations[key('ger','fra')]=0;
+  const defeated=Game.diplomacyAvailability('surrender','fra');assert.ok(defeated.responseLikelihood>initial.responseLikelihood+30);
+  assert.equal(defeated.predictedOutcome,'refused',defeated.responseReason);
+  const homeland=Game.state.provinces.filter(province=>province.originalOwner==='fra');
+  const totalWeight=homeland.reduce((sum,province)=>sum+(province.administrativeWeight||1)+(province.isCapital?4:0),0);
+  let lostWeight=0;
+  for(const [index,province]of homeland.sort((first,second)=>Number(second.isCapital)-Number(first.isCapital)).entries()){
+    if(index<homeland.length-1&&(province.isCapital||lostWeight<totalWeight*.65)){province.owner='ger';lostWeight+=(province.administrativeWeight||1)+(province.isCapital?4:0);}
+  }
+  assert.ok(['annexed','puppeted'].includes(Game.diplomacyAvailability('surrender','fra').predictedOutcome));
 });

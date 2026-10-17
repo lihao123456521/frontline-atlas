@@ -21,9 +21,9 @@ function setup({balanced=true,scenario='sandbox36',map=false,mapVersion}={}){
   if(balanced)files.push('strategic_regions.js');
   files.push('campaign.js','order_of_battle.js','game.js');
   for(const file of files)vm.runInContext(load(file),ctx,{filename:file});
-  if(mapVersion==='v1'||mapVersion==='v2')vm.runInContext(`{
+  if(['v1','v2','v3'].includes(mapVersion))vm.runInContext(`{
     const select=StrategicRegions.useBalanced,apply=StrategicRegions.apply;
-    const version=${mapVersion==='v1'?'StrategicRegions.previousVersion':'StrategicRegions.compactVersion'};
+    const version=${mapVersion==='v1'?'StrategicRegions.previousVersion':mapVersion==='v2'?'StrategicRegions.compactVersion':'StrategicRegions.groupedVersion'};
     StrategicRegions.useBalanced=()=>select(version);
     StrategicRegions.apply=s=>{apply(s);select(version);s.strategicRegionsVersion=version;};
   }`,ctx);
@@ -40,8 +40,8 @@ test('European operations use fewer connected regions while major world countrie
   assert.deepEqual(plain(f.S.beforeCounts),{pol:17,fra:90,ger:43,uk:116});
   assert.deepEqual(plain(f.S.previousCounts),{pol:17,fra:54,ger:30,uk:70});
   assert.deepEqual(plain(f.S.compactCounts),{pol:17,fra:54,ger:19,uk:65});
-  assert.deepEqual(plain(f.S.afterCounts),{pol:17,fra:46,ger:19,uk:44});
-  assert.equal(f.Game.state.provinces.length,433);assert.equal(old.Game.state.provinces.length,470);
+  assert.deepEqual(plain(f.S.afterCounts),{pol:15,fra:45,ger:12,uk:39});
+  assert.equal(f.Game.state.provinces.length,418);assert.equal(old.Game.state.provinces.length,470);
   assert.equal(f.S.compactRegionMerges.length,29);
   for(const [id,before,after]of [['usa',10,21],['chn',7,19],['sov',8,22],['jpn',9,17],['can',1,15],['aus',3,15],['bra',2,15]]){
     assert.equal(old.Game.state.provinces.filter(p=>p.originalOwner===id).length,before,id+' old');
@@ -61,7 +61,7 @@ test('European operations use fewer connected regions while major world countrie
       const next=e.a===queue[n]?e.b:e.a;if(list.includes(next)&&!reached.has(next)){reached.add(next);queue.push(next);}
     }
     assert.equal(reached.size,list.length,id+' merges only connected source polygons');
-    assert.equal(new Set(list.map(pid=>old.R.nodes.find(n=>n.id===pid).strategicProvinceId)).size,1,id+' keeps source economic grouping');
+    assert.equal(new Set(list.map(pid=>old.R.nodes.find(n=>n.id===pid).shapeOwner)).size,1,id+' never crosses a national boundary');
   }
 });
 test('every live anchor is clickable and retired administrative interiors select the shared operation node',()=>{
@@ -125,11 +125,11 @@ test('old contested saves retain province indexes, controller, soldiers, stocks 
   assert.deepEqual(units(after).map(d=>[d.id,d.hp,d.org]).sort(),units(before).map(d=>[d.id,d.hp,d.org]).sort());
   for(let n=0;n<before.provinces.length;n++)for(const key of ['resource','oil','rare','administrativeWeight'])assert.equal(after.provinces[n][key],before.provinces[n][key],before.provinces[n].id+' '+key);
   assert.equal(f.R.nodes.length,266);assert.equal(f.Game.load(f.Game.save()),true,'old map continues to round trip');
-  f.Game.init('ger','fas',null,'standard','sandbox36');assert.equal(f.R.nodes.length,126);assert.equal(f.Game.state.provinces.length,433);
-  assert.equal(f.Game.load(f.Game.save()),true,'balanced map round trip');assert.equal(f.R.nodes.length,126);
+  f.Game.init('ger','fas',null,'standard','sandbox36');assert.equal(f.R.nodes.length,111);assert.equal(f.Game.state.provinces.length,418);
+  assert.equal(f.Game.load(f.Game.save()),true,'balanced map round trip');assert.equal(f.R.nodes.length,111);
 });
 
-test('v1 balanced saves preserve retired small regions and disputed control while new campaigns choose v3',()=>{
+test('v1 balanced saves preserve retired small regions and disputed control while new campaigns choose v4',()=>{
   const old=setup({mapVersion:'v1',scenario:'poland39'}),G=old.Game;
   assert.equal(G.state.provinces.length,478);assert.equal(old.R.nodes.length,171);
   assert.equal(G.state.strategicRegionsVersion,'strategic-balanced-1');
@@ -145,11 +145,11 @@ test('v1 balanced saves preserve retired small regions and disputed control whil
   const idx=f.Game.provinceById(small.id);assert.ok(idx>=0);
   assert.equal(f.MapView.provinceUnderPoint(old.R.nodes.find(n=>n.id===small.id).x,old.R.nodes.find(n=>n.id===small.id).y),idx);
   assert.equal(f.Game.load(f.Game.save()),true);assert.equal(f.R.nodes.length,171);
-  f.Game.init('ger','fas',null,'standard','sandbox36');assert.equal(f.Game.state.provinces.length,433);assert.equal(f.R.nodes.length,126);
+  f.Game.init('ger','fas',null,'standard','sandbox36');assert.equal(f.Game.state.provinces.length,418);assert.equal(f.R.nodes.length,111);
   assert.equal(f.Game.provinceById(small.id),-1,'new campaign removes the small garrison slot');
 });
 
-test('v2 saves preserve all province indexes and contested territory removed from new v3 campaigns',()=>{
+test('v2 saves preserve all province indexes and contested territory removed from new v4 campaigns',()=>{
   const old=setup({mapVersion:'v2'}),f=setup({map:true});
   assert.equal(old.Game.state.provinces.length,462);assert.equal(old.R.nodes.length,155);
   const removed=f.S.compactRegionMerges.find(merge=>old.Game.provinceById(merge.id)>=0);
@@ -160,9 +160,9 @@ test('v2 saves preserve all province indexes and contested territory removed fro
   assert.equal(f.MapView.provinceUnderPoint(province.x,province.y),old.Game.provinceById(province.id));
   assert.equal(f.Game.load(f.Game.save()),true);assert.equal(f.Game.state.provinces.length,462);
 });
-test('failed version selection restores the active v1, v2, v3 or legacy geometry without changing the save',()=>{
-  const legacy=setup({balanced:false}),v1=setup({mapVersion:'v1'}),v2=setup({mapVersion:'v2'}),f=setup({map:true});
-  for(const [source,count,nodes,version]of [[f,433,126,'strategic-balanced-3'],[v2,462,155,'strategic-balanced-2'],[v1,478,171,'strategic-balanced-1'],[legacy,470,266,legacy.R.version]]){
+test('failed version selection restores the active v1, v2, v3, v4 or legacy geometry without changing the save',()=>{
+  const legacy=setup({balanced:false}),v1=setup({mapVersion:'v1'}),v2=setup({mapVersion:'v2'}),v3=setup({mapVersion:'v3'}),f=setup({map:true});
+  for(const [source,count,nodes,version]of [[f,418,111,'strategic-balanced-4'],[v3,433,126,'strategic-balanced-3'],[v2,462,155,'strategic-balanced-2'],[v1,478,171,'strategic-balanced-1'],[legacy,470,266,legacy.R.version]]){
     assert.equal(f.Game.load(source.Game.save()),true);const before=f.Game.save();
     const invalid=JSON.parse(before);invalid.strategicRegionsVersion='unsupported-future-map';
     assert.equal(f.Game.load(JSON.stringify(invalid)),false);

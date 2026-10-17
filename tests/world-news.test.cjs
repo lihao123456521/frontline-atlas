@@ -77,11 +77,11 @@ test('loaded games do not replay old events and returning home clears queued car
   f.news.reset();assert.equal(f.timers.size,0);assert.equal(f.box.children.length,0);assert.equal(f.box.classList.contains('hidden'),true);
 });
 
-test('foreign civil wars remain locatable after the transient news disappears and clear only after actual peace',()=>{
+test('foreign civil wars leave no persistent map banner after the transient news disappears',()=>{
   const f=setup();Object.assign(f.state,{countries:{esp:{alive:true,name:'西班牙'},rebels:{alive:true,name:'反对派'}},
     provinces:[{owner:'esp'},{owner:'rebels'}],wars:[{a:'esp',b:'rebels'}],unrest:{conflicts:[{parent:'esp',rebels:'rebels',kind:'civilWar'}]}});
-  f.event('war',['esp','rebels'],3);f.update();assert.equal(f.unrest.classList.contains('hidden'),false);assert.match(f.unrest.textContent,/西班牙内战/);
-  f.tick();assert.equal(f.box.classList.contains('hidden'),true);assert.equal(f.unrest.classList.contains('hidden'),false);
-  f.unrest.onclick();assert.deepEqual(f.focused,[1]);assert.deepEqual(f.selected,[1]);
+  f.event('war',['esp','rebels'],3);f.update();assert.equal(f.unrest.classList.contains('hidden'),true);
+  f.tick();assert.equal(f.box.classList.contains('hidden'),true);assert.equal(f.unrest.classList.contains('hidden'),true);
+  assert.equal(f.unrest.textContent,'');assert.equal(f.state.worldEvents.length,1);
   f.state.wars=[];f.update();assert.equal(f.unrest.classList.contains('hidden'),true);assert.equal(f.unrest.textContent,'');
 });

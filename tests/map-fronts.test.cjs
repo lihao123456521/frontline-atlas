@@ -28,7 +28,7 @@ function setup(cityDefs=null){
       {id:'east-fight',from:2,to:3,attacker:'c',defender:'d',phase:'engagement',progress:60},
     ]};
   const source=fs.readFileSync(path.join(__dirname,'../js/map.js'),'utf8')
-    .replace('return { W,H,','return { smoothCell, getCells:()=>cellHitPolygons, renderTerritory, renderFronts, renderBattleEffects, startAnim, W,H,');
+    .replace('return { W,H,','return { smoothCell, getCells:()=>cellHitPolygons, renderTerritory, renderFronts, renderBattleEffects, startAnim, setMapMode, W,H,');
   const c=vm.createContext({document:{getElementById:id=>elements.get(id),createElementNS:()=>element()},
     window:{},requestAnimationFrame:fn=>frames.push(fn),
     PROVINCES_DEF:defs,HISTORICAL_MAP:{land:[],shapes:[shape('west',0),shape('east',100)]},Game:{state}});
@@ -77,6 +77,16 @@ test('long province boundaries curve visibly while keeping narrow city anchors c
   assert.ok(Math.max(...narrow.map(p=>Math.abs(p[0])))<.04,'narrow island city remains inside its own cell');
 });
 
+test('continental strategic edges use broad bends instead of a fixed tiny bow',()=>{
+  const {map}=setup();
+  const edge=edgePoints(map.smoothCell([[0,0],[0,100],[90,100],[90,0]],
+    [{x:-35,y:50},{x:35,y:50}]),[0,0],[0,100]);
+  const offsets=edge.slice(1,-1).map(point=>point[0]);
+  assert.ok(Math.max(...offsets.map(Math.abs))>5,'continental borders need a visible broad bend');
+  assert.ok(Math.min(...offsets)<0&&Math.max(...offsets)>0,'long borders have a restrained S profile');
+  assert.ok(Math.max(...offsets.map(Math.abs))<13,'the strategic shape stays subordinate to the country outline');
+});
+
 test('shared province curves partition country bounds without overlaps or coastline gaps',()=>{
   const c=setup();c.map.renderTerritory();
   const [left,right]=c.map.getCells();
@@ -84,6 +94,30 @@ test('shared province curves partition country bounds without overlaps or coastl
   for(let y=1;y<100;y+=3.7)for(let x=1;x<100;x+=3.1){
     assert.ok(c.map.provinceUnderPoint(x,y)>=0,`no uncovered point at ${x},${y}`);
   }
+});
+
+test('occupied provinces controlled by one country use a uniform political fill',()=>{
+  const c=setup(),state=c.Game.state,territory=c.layers.get('layerTerritory');
+  state.provinces[0].owner='a';state.provinces[2].owner='a';
+  c.map.renderTerritory();
+  assert.equal(territory.children[0].attrs.fill,'#bd4335');
+  assert.equal(territory.children[2].attrs.fill,'#bd4335');
+  assert.equal(territory.children[0].attrs.opacity,'1');
+  assert.equal(territory.children[2].attrs.opacity,'1');
+});
+
+test('strategic curves keep their original national-border intersections and water segments fixed',()=>{
+  const c=setup();c.map.renderTerritory();
+  const [left,right]=c.map.getCells();
+  for(const point of [[45,0],[45,100]]){
+    assert.ok(left.some(sample=>Math.abs(sample[0]-point[0])<1e-6&&Math.abs(sample[1]-point[1])<1e-6),'left shore junction '+point);
+    assert.ok(right.some(sample=>Math.abs(sample[0]-point[0])<1e-6&&Math.abs(sample[1]-point[1])<1e-6),'right shore junction '+point);
+  }
+  for(const cell of [left,right])for(const point of cell.filter(sample=>sample[1]<0||sample[1]>100)){
+    assert.ok(point[0]===-1||point[0]===45||point[0]===101,'offshore bounds stay straight');
+  }
+  assert.equal(c.map.provinceUnderPoint(44.99,.001),0);
+  assert.equal(c.map.provinceUnderPoint(45.01,.001),1);
 });
 
 test('three-city junctions stay a complete subdivision and never mutate strategic city positions',()=>{

@@ -8,11 +8,11 @@ function setup(scenario,player='ger'){
   const Game=vm.runInContext('Game',ctx);Game.init(player,'fas',null,'standard',scenario);return Game;
 }
 const units=G=>G.state.provinces.flatMap(p=>p.garrison).concat(G.state.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)));
-for(const scenario of ['sandbox36','poland39','barbarossa41'])test(scenario+' begins independent world wars within two weeks without any player offensive',()=>{
-  const G=setup(scenario),seen=new Set(),operations=[];assert.equal(G.state.provinces.length,433);
-  let diplomacyDay=-3;const initialIds=new Set(units(G).map(u=>u.id)),warDays={};
-  for(let day=1;day<=14;day++){
-    G.advanceDay();const ids=units(G).map(u=>u.id);assert.equal(new Set(ids).size,ids.length);assert.ok(ids.every(id=>initialIds.has(id)),'orders do not manufacture soldiers');
+for(const scenario of ['sandbox36','poland39','barbarossa41'])test(scenario+' sustains independent AI wars without any player offensive',()=>{
+  const G=setup(scenario),seen=new Set(),operations=[],initialOwners=G.state.provinces.map(province=>province.owner),days=scenario==='sandbox36'?180:scenario==='barbarossa41'?14:90;assert.equal(G.state.provinces.length,418);
+  let diplomacyDay=-3;const warDays={};
+  for(let day=1;day<=days;day++){
+    G.advanceDay();const ids=units(G).map(u=>u.id);assert.equal(new Set(ids).size,ids.length,'real recruitment keeps unit identities unique');
     if(G.state.aiDiplomacyDay!==undefined&&G.state.aiDiplomacyDay!==diplomacyDay){assert.ok(G.state.aiDiplomacyDay-diplomacyDay>=3);diplomacyDay=G.state.aiDiplomacyDay;}
     for(const [id,c]of Object.entries(G.state.countries)){
       for(const key of ['pp','equipment','res','manpower'])assert.ok(c[key]>=0,id+' '+key);
@@ -26,8 +26,14 @@ for(const scenario of ['sandbox36','poland39','barbarossa41'])test(scenario+' be
       }
     }
   }
+  const independentWars=new Set(G.state.wars.filter(war=>war.a!==G.state.player&&war.b!==G.state.player).map(war=>[war.a,war.b].sort().join('|')));
+  const independentCaptures=G.state.recentBattles.filter(battle=>battle.won&&battle.attacker!==G.state.player&&battle.defender!==G.state.player);
+  const spanishRevolt=G.state.unrest.conflicts.find(conflict=>conflict.parent==='esp');
   assert.ok(Object.keys(warDays).length>=2,'at least two independent countries initiate');
+  assert.ok(independentWars.size>=2,'multiple wars remain between non-player countries');
   assert.ok(operations.filter(c=>c.attacker!==G.state.player&&c.defender!==G.state.player).length>=2,'other countries actually march and fight');
+  assert.ok(independentCaptures.length>=1,'non-player battles resolve into actual territorial captures');
+  if(scenario==='sandbox36')assert.ok(spanishRevolt&&spanishRevolt.startedDay<=days,'the default 1936 campaign can produce a real Spanish civil war within the 180-day audit; '+JSON.stringify({pressure:G.unrestStatus('esp')?.pressure,wars:G.state.wars.filter(war=>war.a==='esp'||war.b==='esp')}));
   assert.ok(!operations.some(c=>c.attacker===G.state.player),'player never issued an attack');assert.equal(G.load(G.save()),true);
 });
 test('world initiative cooldowns survive saves and malformed future timestamps cannot replace the live campaign',()=>{

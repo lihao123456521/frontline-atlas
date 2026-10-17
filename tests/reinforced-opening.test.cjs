@@ -64,12 +64,17 @@ for(const scenario of ['sandbox36','poland39','barbarossa41','pacific42'])test(s
       near(preview.targetMultiplier,multiplier,id+' preview multiplier');near(preview.targetPersonnel,target,id+' preview actual soldier target');assert.match(preview.reinforcementLabel,/游戏兵力配置/);
     }
   }
+  const deployedUnits=s.provinces.flatMap(province=>province.garrison);
   for(const p of historical.provinces){
-    const now=s.provinces.find(q=>q.id===p.id);
     for(const previous of p.garrison.filter(d=>d.kind!=='land')){
-      const current=now.garrison.find(unit=>unit.id===previous.id);assert.ok(current,'existing naval and air identities remain');
+      const current=deployedUnits.find(unit=>unit.id===previous.id);assert.ok(current,'existing naval and air identities remain after air-base redistribution');
       const withoutEquipment={...current};for(const key of ['nominalTanks','nominalAircraft','nominalShips','nominalPersonnel'])delete withoutEquipment[key];
-      assert.equal(JSON.stringify(withoutEquipment),JSON.stringify(previous),'vehicle game profiles preserve health, organization and ownership, with dedicated crew configured separately');
+      if(current.kind==='air'){
+        near(current.hp/current.maxHp,previous.hp/previous.maxHp,'dispersed aircraft preserve health ratio');
+        near(current.maxHp,previous.maxHp*(current.airframeShare??1),'split wing health follows its conserved airframe share');
+        withoutEquipment.hp=previous.hp;withoutEquipment.maxHp=previous.maxHp;delete withoutEquipment.airframeShare;
+      }
+      assert.equal(JSON.stringify(withoutEquipment),JSON.stringify(previous),'vehicle game profiles preserve readiness and ownership, with dedicated crew configured separately');
       assert.ok(current.nominalPersonnel>0,'new equipment has a dedicated naval or aviation workforce');
     }
   }

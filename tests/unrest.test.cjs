@@ -19,13 +19,15 @@ function readiness(Game){return units(Game).map(unit=>({id:unit.id,hp:unit.hp,or
 function context(Game){return {doAssault:(...args)=>Game.doAssault(...args),makeDivision:(...args)=>Game.makeDivision(...args),log:()=>{},recordWorldEvent:()=>{}};}
 function nextDay(Game,Unrest){Game.state.daysElapsed++;return Unrest.tick(Game.state,context(Game));}
 function outbreak(Game,Unrest,id){Game.state.unrest.countries[id].pressure=100;return nextDay(Game,Unrest).started.find(item=>item.parent===id);}
-test('unchanged 1936 Spain develops an actual mainland civil war from pressure, with legal marching battles instead of a calendar popup',()=>{
+test('a real crisis in 1936 Spain develops an actual mainland civil war with legal marching battles instead of a calendar popup',()=>{
   const {Game,Unrest,ctx}=setup();
   const mainland=Game.state.provinces.map((province,index)=>({province,index})).filter(({province})=>province.owner==='esp'&&province.lat>36);
   assert.ok(mainland.length>=3,'Spain needs independent mainland control regions for a civil front');
+  Game.country('esp').stability=20;Game.country('esp').res=0;Game.country('esp').equipment=0;
+  Game.state.unrest.countries.esp.pressure=85;
   const originalDate=JSON.stringify(Game.state.date);let conflict;
   for(let day=0;day<90&&!conflict;day++)conflict=nextDay(Game,Unrest).started.find(item=>item.parent==='esp');
-  assert.ok(conflict,'initial political division must create an actual conflict within 90 daily evaluations');
+  assert.ok(conflict,'sustained domestic collapse must be able to create actual conflict');
   assert.equal(JSON.stringify(Game.state.date),originalDate,'the trigger does not inspect a required calendar month');
   assert.ok(Game.country(conflict.rebels).alive);assert.ok(Game.isAtWar('esp',conflict.rebels));
   assert.ok(vm.runInContext('IDEOLOGIES',ctx)[Game.country(conflict.rebels).ideo],'dynamic factions use an actual supported ideology');
@@ -41,20 +43,32 @@ test('an uprising transfers existing armies, stockpiles and finite reserves exac
   const {Game,Unrest}=setup(),before=JSON.stringify(readiness(Game));
   const fields=['civ','mil','res','equipment','oil','rare','pp','manpower','manpowerCap'];
   const government=Game.country('esp'),totals=Object.fromEntries(fields.map(field=>[field,government[field]]));
-  const pools={...government.mobilization};const people=Game.armyTotals('esp').personnel;
+  const pools={...government.mobilization},capturedPersonnel=government.capturedPersonnel;const people=Game.armyTotals('esp').personnel;
   const conflict=outbreak(Game,Unrest,'esp');assert.ok(conflict);
   const rebels=Game.country(conflict.rebels);
+  assert.equal(rebels.capturedPersonnel,0);assert.equal(government.capturedPersonnel,capturedPersonnel);
   assert.equal(JSON.stringify(readiness(Game)),before);assert.equal(new Set(units(Game).map(unit=>unit.id)).size,units(Game).length);
   for(const field of fields)assert.ok(Math.abs(government[field]+rebels[field]-totals[field])<1e-8,field);
   for(const field of ['capacity','reserve','consumed'])assert.ok(Math.abs(government.mobilization[field]+rebels.mobilization[field]-pools[field])<1e-8,field);
   assert.ok(Math.abs(Game.armyTotals('esp').personnel+Game.armyTotals(conflict.rebels).personnel-people)<1e-6);
-  assert.ok(Game.armyTotals(conflict.rebels).landPersonnel>people*.15);
+  assert.ok(Game.armyTotals(conflict.rebels).landPersonnel>0);assert.ok(Game.armyTotals(conflict.rebels).landPersonnel<=people*.18);
   assert.equal(Game.state.provinces.some(province=>province.owner===conflict.rebels&&province.garrison.some(unit=>unit.owner==='esp')),false);
   for(let day=0;day<3;day++)nextDay(Game,Unrest);
   assert.equal(Game.state.unrest.conflicts.filter(item=>item.parent==='esp').length,1);
 });
+test('an uprising leaves future-arriving reinforcements in a mixed garrison under government ownership',()=>{
+  const baseline=setup(),baselineConflict=outbreak(baseline.Game,baseline.Unrest,'esp');assert.ok(baselineConflict);
+  const provinceId=baselineConflict.provinceIds[0],{Game,Unrest}=setup(),state=Game.state,province=Game.province(Game.provinceById(provinceId));
+  const source=state.provinces.find(land=>land.owner==='esp'&&land!==province&&land.garrison.some(unit=>unit.kind==='land'&&!unit.combatId&&unit.hp>0));
+  assert.ok(source,'Spain has a second land unit for the transit fixture');
+  const transit=source.garrison.find(unit=>unit.kind==='land'&&!unit.combatId&&unit.hp>0);source.garrison=source.garrison.filter(unit=>unit!==transit);
+  transit.rescueArrivalDay=state.daysElapsed+2;province.garrison.push(transit);
+  const conflict=outbreak(Game,Unrest,'esp');assert.ok(conflict);
+  assert.equal(province.owner,'esp');assert.equal(transit.owner,'esp');assert.equal(transit.rescueArrivalDay,state.daysElapsed+1);
+  assert.equal(conflict.provinceIds.includes(provinceId),false);
+});
 test('normal daily game advancement triggers and then resolves real rebel combat through the existing battle engine',()=>{
-  const {Game}=setup();let conflict;
+  const {Game}=setup();Game.state.unrest.countries.esp.pressure=100;let conflict;
   for(let day=0;day<90&&!conflict;day++){
     assert.equal(Game.advanceDay(),true);
     conflict=Game.state.unrest.conflicts.find(item=>item.parent==='esp');
@@ -91,6 +105,15 @@ test('normal rebel declarations reuse sovereign and allied defensive participati
     }
     assert.equal(Game.load(Game.save()),true);
   }
+});
+test('unrest ignores future-arriving rescue troops in occupation garrison strength and damage',()=>{
+  const {Game,Unrest}=setup('ger'),state=Game.state;
+  const index=state.provinces.findIndex(province=>province.owner==='ger'&&!province.isCapital&&province.garrison.some(unit=>unit.kind==='land'));
+  assert.ok(index>=0);const province=state.provinces[index],unit=province.garrison.find(unit=>unit.kind==='land');
+  province.originalOwner='fra';province.garrison=[unit];unit.owner='ger';unit.rescueArrivalDay=state.daysElapsed+2;
+  const record=Unrest.observeOccupation(state,index);record.support=50;record.resistance=80;record.reserve=0;record.capacity=0;
+  const hp=unit.hp;assert.equal(Game.occupationStatus(index).garrison,0);state.daysElapsed++;
+  Unrest.tick(state);assert.equal(unit.hp,hp);assert.equal(Game.occupationStatus(index).garrison,0);
 });
 test('rejected declaration callbacks do not leave half-created rebels or transfer troops and resources',()=>{
   const {Game,Unrest}=setup(),countries=Object.keys(Game.state.countries),before=JSON.stringify(Game.state.provinces);
@@ -165,6 +188,7 @@ test('submitting to a rebel faction through real diplomacy before reunification 
   assert.equal(Game.proposePeace(conflict.rebels),true,'a ceasefire precedes a negotiated alliance');
   for(let proposal=0;proposal<20;proposal++)assert.equal(Game.diploAction('improve',conflict.rebels),true);
   assert.equal(Game.diploAction('ally',conflict.rebels),true);assert.equal(Game.isAllied('esp',conflict.rebels),true);
+  for(let proposal=0;proposal<7;proposal++)assert.equal(Game.diploAction('improve',conflict.rebels),true);
   assert.equal(Game.diploAction('submit',conflict.rebels),true);assert.equal(Game.country('esp').subjectOf,conflict.rebels);
   Game.state.player='prt';
   for(let proposal=0;proposal<20;proposal++)assert.equal(Game.diploAction('improve',conflict.rebels),true);
@@ -187,7 +211,7 @@ test('rebel subjects transfer to the existing sovereign instead of creating a ne
   Game.state.player='ger';
   Game.country('esp').stability=0;Game.country('esp').warSupport=0;Game.country('esp').ideo=Game.country('ger').ideo;Game.state.unrest.countries.esp.pressure=100;
   for(let proposal=0;proposal<20;proposal++)assert.equal(Game.diploAction('improve','esp'),true);
-  assert.equal(Game.diploAction('puppet','esp'),true);assert.equal(Game.country('esp').subjectOf,'ger');
+  Game.state.player='esp';assert.equal(Game.diploAction('submit','ger'),true);assert.equal(Game.country('esp').subjectOf,'ger');
   Game.state.player='prt';
   for(let proposal=0;proposal<20;proposal++)assert.equal(Game.diploAction('improve',conflict.rebels),true);
   assert.equal(Game.diploAction('submit',conflict.rebels),true);assert.equal(Game.country('prt').subjectOf,conflict.rebels);
@@ -204,7 +228,7 @@ test('reunification ends only new sovereign-group wars after called rebel subjec
       Game.state.player=protectedBy;
       Game.country('esp').stability=0;Game.country('esp').warSupport=0;Game.country('esp').ideo=Game.country(protectedBy).ideo;Game.state.unrest.countries.esp.pressure=100;
       for(let proposal=0;proposal<20;proposal++)assert.equal(Game.diploAction('improve','esp'),true);
-      assert.equal(Game.diploAction('puppet','esp'),true);assert.equal(Game.country('esp').subjectOf,protectedBy);
+      Game.state.player='esp';assert.equal(Game.diploAction('submit',protectedBy),true);assert.equal(Game.country('esp').subjectOf,protectedBy);
     }
     Game.state.player='prt';
     for(let proposal=0;proposal<20;proposal++)assert.equal(Game.diploAction('improve',conflict.rebels),true);

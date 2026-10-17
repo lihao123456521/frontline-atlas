@@ -33,6 +33,15 @@
 .unit-training .training-cost { flex-direction: row; align-items: baseline; justify-content: space-between; min-width: 45px; padding: 6px; gap: 4px; border-radius: 6px; }
 .unit-training .training-cost strong { font-size: 16px; }
 .unit-training .training-cost span { font-size: 11px; }
+.combined-arms-controls { border-top: 1px solid #4b6668; padding-top: 10px; margin-top: 12px; }
+.composition-control { display: block; margin: 8px 0 16px; }
+.composition-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: #b9ceca; font-size: 13px; }
+.composition-label > strong { font-size: 15px; color: #edd9ae; font-variant-numeric: tabular-nums; }
+.composition-control input[type="range"] { width: 100%; min-height: 36px; margin: 4px 0; touch-action: none; }
+.combined-arms-controls .force-range-bounds { margin-top: 0; }
+#rpContent .battle-win-box .force-metric { padding: 8px 5px; border-top: 0; }
+#rpContent .battle-win-box .force-metric > strong { font-size: 16px; }
+.combat-reinforcements > .force-metrics { margin: 10px 0; }
 #rpContent .combat-sides { gap: 10px; }
 #rpContent .combat-side { min-width: 0; }
 #rpContent .combat-side .force-metrics { grid-template-columns: 1fr; gap: 5px; }
@@ -57,3 +66,8 @@
   #rpContent .force-metric > strong { font-size: 16px; }
   .force-metric { padding: 8px 6px; }
 }
+.combat-equipment-effect,.combat-tactic-summary{font-size:11px;line-height:1.45;color:var(--muted);margin:5px 0;overflow-wrap:anywhere}
+.combat-command-dock { position: sticky; bottom: 0; z-index: 4; display: grid; gap: 0; margin: 10px -10px -10px; padding: 8px 10px 10px; background: #1c3341; border-top: 1px solid #587079; box-shadow: 0 -8px 12px #1c3341; }
+#rpContent .combat-command-dock .combat-command { min-height: 42px; margin: 0; }
+#rpContent .combat-command-dock .combat-actions { position: static; z-index: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 7px 0 0; padding: 0; background: transparent; border: 0; box-shadow: none; }
+#rpContent .combat-command-dock .combat-actions .rp-btn { min-height: 42px; }

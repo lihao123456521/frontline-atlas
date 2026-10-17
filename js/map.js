@@ -400,7 +400,31 @@ const MapView = (() => {
     const t=length2?clamp(((x-a[0])*dx+(y-a[1])*dy)/length2,0,1):0;
     return Math.hypot(x-a[0]-t*dx,y-a[1]-t*dy);
   }
-  function curveEdge(start,end,sites=[],nearby=[]){
+  function boundaryIndex(edges){
+    if(!edges.length)return null;
+    const bounds=[Infinity,Infinity,-Infinity,-Infinity];
+    for(const edge of edges){
+      bounds[0]=Math.min(bounds[0],edge.start[0],edge.end[0]);bounds[1]=Math.min(bounds[1],edge.start[1],edge.end[1]);
+      bounds[2]=Math.max(bounds[2],edge.start[0],edge.end[0]);bounds[3]=Math.max(bounds[3],edge.start[1],edge.end[1]);
+    }
+    if(edges.length<=8)return {bounds,edges};
+    const axis=bounds[2]-bounds[0]>bounds[3]-bounds[1]?0:1;
+    const sorted=edges.slice().sort((first,second)=>(first.start[axis]+first.end[axis])-(second.start[axis]+second.end[axis]));
+    const middle=Math.floor(sorted.length/2);
+    return {bounds,left:boundaryIndex(sorted.slice(0,middle)),right:boundaryIndex(sorted.slice(middle))};
+  }
+  function boundaryDistance(x,y,index,best=Infinity){
+    if(!index)return best;
+    const bounds=index.bounds,dx=Math.max(bounds[0]-x,0,x-bounds[2]),dy=Math.max(bounds[1]-y,0,y-bounds[3]);
+    if(dx*dx+dy*dy>=best*best)return best;
+    if(index.edges){for(const edge of index.edges)best=Math.min(best,segmentDistance(x,y,edge.start,edge.end));return best;}
+    const first=index.left.bounds,second=index.right.bounds;
+    const leftDistance=Math.max(first[0]-x,0,x-first[2])**2+Math.max(first[1]-y,0,y-first[3])**2;
+    const rightDistance=Math.max(second[0]-x,0,x-second[2])**2+Math.max(second[1]-y,0,y-second[3])**2;
+    best=boundaryDistance(x,y,leftDistance<=rightDistance?index.left:index.right,best);
+    return boundaryDistance(x,y,leftDistance<=rightDistance?index.right:index.left,best);
+  }
+  function curveEdge(start,end,sites=[],nearby=[],shore=null){
     const dx=end[0]-start[0],dy=end[1]-start[1],length=Math.hypot(dx,dy);
     if(length<1e-6) return [start,end];
     const sign=Math.sin(start[0]*12.9898+start[1]*78.233+end[0]*37.719+end[1]*19.31)>=0?1:-1;
@@ -409,12 +433,17 @@ const MapView = (() => {
     // edges limit it before sampling, so a curve cannot swallow a city or cross
     // another border. The sinusoid has a gently changing slope rather than a
     // long straight middle followed by a small rounded tip.
-    let bow=Math.min(4,length*.15,nearest*.36);
+    const continental=clamp((length-22)/58,0,1);
+    let bow=Math.min(4+6*continental,length*.15,nearest*.36);
     const steps=Math.max(24,Math.min(80,Math.ceil(length*2)));
-    const profile=t=>Math.sin(Math.PI*t)*(1+.2*Math.sin(2*Math.PI*t));
-    for(let j=1;j<steps && nearby.length;j++){
+    const phase=.22*Math.sin(start[0]*.31+start[1]*.19);
+    const profile=t=>Math.sin(Math.PI*t)*((1-continental)*(1+.2*Math.sin(2*Math.PI*t))+
+      continental*(.4+1.05*Math.cos(2*Math.PI*t+phase)));
+    for(let j=1;j<steps && (nearby.length||shore);j++){
       const t=j/steps,x=start[0]+dx*t,y=start[1]+dy*t;
-      for(const edge of nearby)bow=Math.min(bow,segmentDistance(x,y,edge.start,edge.end)*.42/profile(t));
+      const offset=Math.abs(profile(t));
+      if(offset>1e-9)for(const edge of nearby)bow=Math.min(bow,segmentDistance(x,y,edge.start,edge.end)*.42/offset);
+      if(offset>1e-9&&shore)bow=Math.min(bow,boundaryDistance(x,y,shore,bow*offset/.42)*.42/offset);
     }
     return Array.from({length:steps+1},(_,j)=>{
       if(j===0)return start;if(j===steps)return end;
@@ -423,24 +452,48 @@ const MapView = (() => {
         +(start[1]+dy*t+dx/length*offset).toFixed(5)];
     });
   }
-  function sharedCellCurves(polys,sites){
+  function sharedCellCurves(polys,sites,shape=null){
     const edges=new globalThis.Map();
     polys.forEach(poly=>poly?.forEach((a,i)=>{
       const edge=canonicalEdge(a,poly[(i+1)%poly.length]);
       if(edges.has(edge.key))edges.get(edge.key).count++;
       else edges.set(edge.key,{...edge,count:1});
     }));
-    const all=[...edges.values()],curves=new globalThis.Map();
+    const withBounds=edge=>({...edge,bounds:[Math.min(edge.start[0],edge.end[0]),Math.min(edge.start[1],edge.end[1]),
+      Math.max(edge.start[0],edge.end[0]),Math.max(edge.start[1],edge.end[1])]});
+    const all=[...edges.values()].map(withBounds),curves=new globalThis.Map();
+    if(!all.some(edge=>edge.count>1))return new globalThis.Map(all.map(edge=>[edge.key,[edge.start,edge.end]]));
+    const shore=shape?shape.rings.flatMap(ring=>ring.map((start,index)=>withBounds({start,end:ring[(index+1)%ring.length]}))):[];
+    const shoreIndex=boundaryIndex(shore);
+    const closeTo=(edge,other)=>
+      other.bounds[2]>=edge.bounds[0]-10&&other.bounds[0]<=edge.bounds[2]+10&&
+      other.bounds[3]>=edge.bounds[1]-10&&other.bounds[1]<=edge.bounds[3]+10;
     for(const edge of all){
       // The artificial outer rectangle is outside the historical coastline. It
       // stays straight, so clipping never exposes a sliver of unfilled country.
       if(edge.count===1){curves.set(edge.key,[edge.start,edge.end]);continue;}
-      const nearby=all.filter(other=>other.key!==edge.key &&
-        Math.max(other.start[0],other.end[0])>=Math.min(edge.start[0],edge.end[0])-10 &&
-        Math.min(other.start[0],other.end[0])<=Math.max(edge.start[0],edge.end[0])+10 &&
-        Math.max(other.start[1],other.end[1])>=Math.min(edge.start[1],edge.end[1])-10 &&
-        Math.min(other.start[1],other.end[1])<=Math.max(edge.start[1],edge.end[1])+10);
-      curves.set(edge.key,curveEdge(edge.start,edge.end,sites,nearby));
+      const nearby=all.filter(other=>other.key!==edge.key && closeTo(edge,other));
+      const coast=shore.filter(other=>closeTo(edge,other));
+      if(!shape){curves.set(edge.key,curveEdge(edge.start,edge.end,sites,nearby));continue;}
+      const dx=edge.end[0]-edge.start[0],dy=edge.end[1]-edge.start[1],cuts=[0,1];
+      for(const border of coast){
+        const sx=border.end[0]-border.start[0],sy=border.end[1]-border.start[1],denominator=dx*sy-dy*sx;
+        if(Math.abs(denominator)<1e-10)continue;
+        const ox=border.start[0]-edge.start[0],oy=border.start[1]-edge.start[1];
+        const along=(ox*sy-oy*sx)/denominator,across=(ox*dy-oy*dx)/denominator;
+        if(along>1e-8&&along<1-1e-8&&across>=-1e-8&&across<=1+1e-8)cuts.push(along);
+      }
+      cuts.sort((first,second)=>first-second);
+      const outline=[];
+      for(let index=1;index<cuts.length;index++){
+        const from=cuts[index-1],to=cuts[index];if(to-from<1e-8)continue;
+        const point=along=>[+(edge.start[0]+dx*along).toFixed(5),+(edge.start[1]+dy*along).toFixed(5)];
+        const start=point(from),end=point(to),middle=point((from+to)/2);
+        const part=withBounds({start,end}),local=nearby.filter(other=>closeTo(part,other));
+        const points=pointInShape(...middle,shape)?curveEdge(start,end,sites,local,shoreIndex):[start,end];
+        outline.push(...points.slice(0,-1));
+      }
+      outline.push(edge.end);curves.set(edge.key,outline);
     }
     return curves;
   }
@@ -485,7 +538,7 @@ const MapView = (() => {
         if(!sitesByCountry.has(cid)){sitesByCountry.set(cid,[]);polysByCountry.set(cid,[]);}
         sitesByCountry.get(cid).push(p);polysByCountry.get(cid).push(cellPolygons[i]);
       });
-      for(const [cid,polys]of polysByCountry)curvesByCountry.set(cid,sharedCellCurves(polys,sitesByCountry.get(cid)));
+      for(const [cid,polys]of polysByCountry)curvesByCountry.set(cid,sharedCellCurves(polys,sitesByCountry.get(cid),historicalShapes.get(cid)));
       cellHitPolygons=cellPolygons.map((poly,i)=>poly?.length>=3?smoothCell(poly,sitesByCountry.get(geometryCountry(ps[i])),curvesByCountry.get(geometryCountry(ps[i]))):null);
       cellRegions=ps.map(p=>typeof HistoricalRegions!=="undefined" && HistoricalRegions.regionsFor(p.id).length
         ?HistoricalRegions.regionsFor(p.id):null);
@@ -589,7 +642,7 @@ const MapView = (() => {
         op = 0.6;
       } else {
         fill = p.owner ? countryColor(p.owner) : "#6a6f75";
-        op = historicalMap ? 0.86 : 0.5;
+        op = historicalMap ? 1 : 0.5;
       }
       const cid = historicalMap ? geometryCountry(p) : p.originalOwner;
       ensureClip(cid);
@@ -848,12 +901,19 @@ const MapView = (() => {
     if(n>=1000)return Math.round(n/1000)+'千人';
     return Math.round(n)+'人';
   }
+  function fleetShips(p){
+    if(!p.coastal||typeof Game.unitAssets!=='function')return 0;
+    return p.garrison.filter(unit=>unit.hp>0).reduce((total,unit)=>total+(Game.unitAssets(unit).ships||0),0);
+  }
   function renderUnits(){
     L.units.innerHTML="";unitHits=[];occupiedRects=[];
     const state=Game.state, k=visibleAnchor().k, national=k<2.8;
     const candidates=[];
-    const provinces=state.provinces.map((p,i)=>({p:displayProvince(p),i})).filter(({p})=>p.garrison.length);
-    const rank=({p,i})=>importantProvince(p,i)?100:p.owner===state.player?80:p.owner&&Game.isAtWar(state.player,p.owner)?65:p.isCapital?30:10;
+    const provinces=state.provinces.map((p,i)=>({p:{...displayProvince(p),garrison:national?p.garrison:p.garrison.filter(unit=>!(unit.rescueArrivalDay>(state.daysElapsed||0)))},i})).filter(({p})=>p.garrison.length);
+    const ownFleets=provinces.filter(({p})=>p.owner===state.player).map(({p})=>fleetShips(p)).filter(Boolean);
+    const majorFleet=Math.max(8,ownFleets.reduce((total,value)=>total+value,0)/Math.max(1,ownFleets.length)*.6);
+    const visibleFleet=p=>k>=6&&fleetShips(p)>=majorFleet&&(p.owner===state.player||Game.isAllied(state.player,p.owner));
+    const rank=({p,i})=>importantProvince(p,i)?100:visibleFleet(p)?85:p.owner===state.player?80:p.owner&&Game.isAtWar(state.player,p.owner)?65:p.isCapital?30:10;
     if(national){
       const owners=[...new Set(provinces.map(v=>v.p.owner))];
       for(const cid of owners){
@@ -861,8 +921,8 @@ const MapView = (() => {
         const special=rows.find(v=>importantProvince(v.p,v.i));
         if(cid!==state.player && !Game.isAtWar(state.player,cid) && !special) continue;
         const row=special || rows.find(v=>v.p.id===state.countries[cid]?.capital) || rows.find(v=>v.p.isCapital) || rows[0];
-        const units=rows.flatMap(v=>v.p.garrison);
-        candidates.push({...row,group:{type:"all",count:units.length,personnel:personnelOf(units),national:true},priority:rank(row)});
+        const units=state.provinces.flatMap(region=>region.garrison.filter(unit=>(unit.owner||region.owner)===cid));
+        candidates.push({...row,group:{type:"all",count:units.length,personnel:personnelOf(units),ships:fleetShips({garrison:units,coastal:true}),national:true},priority:rank(row)});
       }
     }else{
       const localForces=provinces.filter(({p})=>p.owner===state.player).map(({p})=>personnelOf(p.garrison));
@@ -871,8 +931,8 @@ const MapView = (() => {
         const {p,i}=row;
         // Routine rear-area detachments are real troops, but their small counters
         // only become useful at close zoom or when the province is inspected.
-        if(!importantProvince(p,i)&&(k<18||scale<13.5)&&p.garrison.every(d=>(d.formationPermille??1000)<100))continue;
-        if(!importantProvince(p,i)){
+        if(!importantProvince(p,i)&&!visibleFleet(p)&&(k<18||scale<13.5)&&p.garrison.every(d=>(d.formationPermille??1000)<100))continue;
+        if(!importantProvince(p,i)&&!visibleFleet(p)){
           if(p.owner===state.player){
             const frontline=Game.neighbors(i).some(neighbor=>{const owner=state.provinces[neighbor]?.owner;return owner&&Game.isAtWar(state.player,owner);});
             if(!frontline&&!p.isCapital&&personnelOf(p.garrison)<mainForceThreshold)continue;
@@ -881,12 +941,12 @@ const MapView = (() => {
             if(!enemyFront||personnelOf(p.garrison)<20000)continue;
           }
         }
-        candidates.push({...row,group:{type:"all",count:p.garrison.length,personnel:personnelOf(p.garrison)},priority:rank(row)});
+        candidates.push({...row,group:{type:"all",count:p.garrison.length,personnel:personnelOf(p.garrison),ships:fleetShips(p)},priority:rank(row)});
       }
     }
     candidates.sort((a,b)=>b.priority-a.priority || a.i-b.i);
     for(const {p,i,group:g} of candidates){
-      const pt=screenPoint(p.x,p.y), bw=56,bh=21;
+      const ships=Math.round(g.ships||0),pt=screenPoint(p.x,p.y), bw=ships?64:56,bh=ships?34:21;
       // Counters occupy actual pixel rectangles; never scale into neighbouring capitals.
       const slots=[[0,22],[-42,22],[42,22],[0,45]];
       let slot=null;
@@ -894,8 +954,9 @@ const MapView = (() => {
       if(!slot) continue;
       const [dx,dy]=slot, ux=pt.vx+dx/k,uy=p.y+dy/k;
       const key=i+"_"+g.type;
-      unitHits.push({key,idx:i,type:g.type,x:ux,y:uy,bw:bw/k,bh:bh/k,count:g.count,national:!!g.national});
+      unitHits.push({key,idx:i,type:g.type,x:ux,y:uy,bw:bw/k,bh:bh/k,count:g.count,ships:g.ships||0,national:!!g.national});
       const ge=document.createElementNS(NS,"g");ge.setAttribute("class","g-unit density-unit");
+      ge.setAttribute("data-province",p.id);
       ge.setAttribute("transform",`translate(${ux-bw/(2*k)},${uy-bh/(2*k)}) scale(${1/k})`);
       const box=document.createElementNS(NS,"rect"),rel=relationTo(p.owner);
       box.setAttribute("class","density-unit-box "+rel);box.setAttribute("width",bw);box.setAttribute("height",bh);box.setAttribute("rx",3);
@@ -904,6 +965,10 @@ const MapView = (() => {
       const text=document.createElementNS(NS,"text");text.setAttribute("x",bw/2);text.setAttribute("y",13);
       text.setAttribute("class","density-unit-text");
       text.textContent="军"+formatPersonnel(g.personnel);ge.appendChild(text);
+      if(ships){
+        const fleet=document.createElementNS(NS,"text");fleet.setAttribute("x",bw/2);fleet.setAttribute("y",26);
+        fleet.setAttribute("class","density-fleet-text");fleet.textContent="舰 "+ships+"艘";ge.appendChild(fleet);
+      }
       L.units.appendChild(ge);
     }
   }
@@ -1370,10 +1435,12 @@ const MapView = (() => {
     if(p){
       const c=p.owner?Game.country(p.owner):null;
       const personnel=hit?.national
-        ?personnelOf(s.provinces.filter(q=>q.owner===p.owner).flatMap(q=>q.garrison))
-        :typeof Game.provincePersonnel==='function'?Game.provincePersonnel(cityIdx):personnelOf(p.garrison);
+        ?personnelOf(s.provinces.flatMap(region=>region.garrison.filter(unit=>(unit.owner||region.owner)===p.owner)))
+        :personnelOf(p.garrison.filter(unit=>!(unit.rescueArrivalDay>(s.daysElapsed||0))));
+      const ships=Math.round(hit?.national?hit.ships||0:fleetShips(p));
       html=`<div class="tt-title">${p.name}${p.isCapital?" ★":""}</div>`+
-        `<div class="tt-row">${c?.name||"无主地区"} · ${hit?.national?"全国驻军":"驻军"} ${formatPersonnel(personnel)}</div>`;
+        `<div class="tt-row">${c?.name||"无主地区"} · ${hit?.national?"全国驻军":"驻军"} ${formatPersonnel(personnel)}</div>`+
+        (ships?`<div class="tt-row">${hit?.national?"全国舰艇":"港口舰艇"} ${ships} 艘</div>`:'');
     }
     if(html){
       tip.innerHTML = html;

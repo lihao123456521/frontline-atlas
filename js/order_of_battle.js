@@ -131,6 +131,65 @@ const OrderOfBattle = (() => {
     for(let n=total-allocated.reduce((sum,e)=>sum+e.count,0),i=0;i<n;i++)ranked[i].count++;
     return allocated;
   }
+  function disperseOpeningEquipment(s,report,makeDivision){
+    report.equipment.deployment={};
+    const index=new Map(s.provinces.map((province,position)=>[province,position]));
+    for(const id of Object.keys(report.countries)){
+      const owned=s.provinces.filter(province=>province.owner===id);
+      const capital=owned.find(province=>province.id===s.countries[id]?.capital)||owned[0];
+      if(!capital)continue;
+      const distance=province=>Math.hypot((province.lon-capital.lon)*Math.cos(capital.lat*Math.PI/180),province.lat-capital.lat);
+      const score=province=>{
+        const border=(s.adj[index.get(province)]||[]).some(next=>s.provinces[next]?.owner&&s.provinces[next].owner!==id&&!allied(s,id,s.provinces[next].owner));
+        return (province===capital?12:0)+(border?8:0)+(province.infra||0)*2+(province.terrain==='plain'?3:province.terrain==='mountain'?-5:0)-distance(province)*.12;
+      };
+      const bases=[...owned].filter(province=>province.garrison.some(isLand)).sort((left,right)=>score(right)-score(left)||left.id.localeCompare(right.id));
+      const tankTotal=report.equipment.countries[id]?.tanks||0,targetBases=Math.min(bases.length,Math.max(3,Math.min(10,Math.ceil(tankTotal/600))));
+      const nominalTank=unit=>unit.nominalTanks??(UNIT_TYPES[unit.type].tanks||0)*(unit.formationPermille||1000)/1000;
+      for(const target of bases.slice(0,targetBases)){
+        if(target.garrison.some(unit=>nominalTank(unit)>0))continue;
+        const sources=owned.filter(province=>province!==target&&province.garrison.filter(unit=>nominalTank(unit)>0).length>1);
+        sources.sort((left,right)=>right.garrison.filter(unit=>nominalTank(unit)>0).length-left.garrison.filter(unit=>nominalTank(unit)>0).length);
+        const source=sources[0],unit=source?.garrison.filter(unit=>nominalTank(unit)>0).sort((left,right)=>nominalTank(right)-nominalTank(left))[0];
+        if(unit){source.garrison=source.garrison.filter(candidate=>candidate!==unit);target.garrison.push(unit);}
+      }
+      const tankBases=bases.slice(0,targetBases),actualTanks=unit=>nominalTank(unit)*unit.hp/unit.maxHp;
+      const tankStrength=province=>province.garrison.reduce((sum,unit)=>sum+actualTanks(unit),0);
+      const armoredGroups=owned.flatMap(province=>province.garrison).filter(unit=>(UNIT_TYPES[unit.type].tanks||0)>0&&actualTanks(unit)>0);
+      for(let moved=0;moved<armoredGroups.length;moved++){
+        const target=[...tankBases].sort((left,right)=>tankStrength(left)-tankStrength(right))[0];
+        const source=[...owned].filter(province=>province!==target&&province.garrison.filter(isLand).length>1).sort((left,right)=>tankStrength(right)-tankStrength(left))[0];
+        if(!source||!target)break;
+        const difference=tankStrength(source)-tankStrength(target);
+        const unit=source.garrison.filter(candidate=>armoredGroups.includes(candidate)&&actualTanks(candidate)<=difference/2).sort((left,right)=>actualTanks(right)-actualTanks(left))[0];
+        if(!unit)break;
+        source.garrison=source.garrison.filter(candidate=>candidate!==unit);target.garrison.push(unit);
+      }
+      const wings=owned.flatMap(province=>province.garrison.filter(unit=>unit.kind==='air').map(unit=>({province,unit})));
+      const airTotal=report.equipment.countries[id]?.aircraft||0,airBases=bases.slice(0,Math.min(bases.length,Math.max(3,Math.min(12,Math.ceil(airTotal/450)))));
+      for(const {province,unit}of wings){
+        const nominal=unit.nominalAircraft??UNIT_TYPES[unit.type].aircraft??0;
+        if(nominal<airBases.length||airBases.length<2)continue;
+        province.garrison=province.garrison.filter(candidate=>candidate!==unit);
+        const chunks=weightedAllocation(airBases.map(base=>({base,weight:1})),nominal),nominalPeople=unit.nominalPersonnel??UNIT_TYPES[unit.type].man*1000;
+        const originalHp=unit.hp,originalMaxHp=unit.maxHp,originalShare=unit.airframeShare??1;
+        let assignedPeople=0;
+        for(let position=0;position<chunks.length;position++){
+          const chunk=chunks[position];if(!chunk.count)continue;
+          const deployed=position===0?unit:{...unit,id:makeDivision(unit.type).id};
+          const people=position===chunks.length-1?nominalPeople-assignedPeople:Math.floor(nominalPeople*chunk.count/nominal);
+          assignedPeople+=people;deployed.nominalAircraft=chunk.count;deployed.nominalPersonnel=Math.max(1,people);
+          deployed.airframeShare=originalShare*chunk.count/nominal;
+          deployed.maxHp=UNIT_TYPES[unit.type].hp*deployed.airframeShare;deployed.hp=originalHp/originalMaxHp*deployed.maxHp;
+          chunk.base.garrison.push(deployed);
+        }
+      }
+      report.countries[id].air=owned.reduce((total,province)=>total+province.garrison.filter(unit=>unit.kind==='air').length,0);
+      report.countries[id].total=report.countries[id].land+report.countries[id].naval+report.countries[id].air;
+      report.equipment.deployment[id]={airGroupsBefore:wings.length,tankBases:owned.filter(province=>province.garrison.some(unit=>nominalTank(unit)>0)).length,
+        airBases:owned.filter(province=>province.garrison.some(unit=>unit.kind==='air'&&unit.nominalAircraft>0)).length};
+    }
+  }
   function reinforcementTarget(scenario,id){
     if(id==='ger')return ({sandbox36:5500000,poland39:6000000,barbarossa41:7000000,pacific42:7000000})[scenario]||5500000;
     if(id==='sov')return 8000000;
@@ -455,6 +514,7 @@ const OrderOfBattle = (() => {
     splitOpeningBattleGroups(s,makeDivision,report);
     if(options.reinforcedArmy===true){
       configureOpeningEquipment(s,report,makeDivision);
+      disperseOpeningEquipment(s,report,makeDivision);
       report.unitScale+=' 坦克按辆、飞机按架、舰艇按艘独立配置，随真实单位编制与损失变化，不随陆军人数倍增。';
     }
     s.orderOfBattleVersion=1;s.orderOfBattle=report;return report;

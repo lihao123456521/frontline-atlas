@@ -38,7 +38,7 @@ function forceSummary(units,types){
 }
 for(const scenario of ['sandbox36','poland39','barbarossa41','pacific42'])test(scenario+' gains independent battle groups while each province retains its historical force and readiness',()=>{
   const {Game,before,countries,afterCountries,types}=setup(scenario),s=Game.state;
-  assert.equal(s.provinces.length,433);assert.equal(afterCountries,countries,'splitting cannot grant national resources');
+  assert.equal(s.provinces.length,418);assert.equal(afterCountries,countries,'splitting cannot grant national resources');
   const all=s.provinces.flatMap(p=>p.garrison);assert.equal(new Set(all.map(d=>d.id)).size,all.length);
   const afterById=new Map(all.map(d=>[d.id,d]));
   for(const p of before){

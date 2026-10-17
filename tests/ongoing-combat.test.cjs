@@ -73,6 +73,42 @@ test('assault and careful tactics trade faster progress for actual organization 
   assert.ok(assault.progress>careful.progress);assert.ok(assault.aLoss>careful.aLoss);assert.ok(assault.aOrg<careful.aOrg);
 });
 
+test('daily combat attrition stays bilateral at parity and remains measurable under advantages',()=>{
+  const run=(attackerCount,defenderCount)=>{
+    const {Game,unit,from,to}=setup();
+    Game.province(from).garrison=Array.from({length:attackerCount},()=>unit('infantry'));
+    Game.province(to).garrison=Array.from({length:defenderCount},()=>unit('infantry'));
+    Game.resolveAttack('ger',from,to,attackerCount);const id=Game.getCombats()[0].id;
+    advance(Game,5);
+    return Game.getCombat(id)||Game.state.recentBattles.find(result=>result.from===from&&result.to===to);
+  };
+  const parity=run(12,12),advantage=run(24,12),disadvantage=run(6,12);
+  for(const [label,result] of [['parity',parity],['advantage',advantage],['disadvantage',disadvantage]]){
+    assert.ok(result.aPersonnelLoss>0&&result.dPersonnelLoss>0,label+' both sides suffer personnel losses');
+    assert.ok(result.aPersonnelLoss/result.aInitialPersonnel<.2,label+' attacker losses stay bounded');
+    assert.ok(result.dPersonnelLoss/result.dInitialPersonnel<.2,label+' defender losses stay bounded');
+  }
+  assert.ok(parity.aEffects&&parity.dEffects);assert.ok(Number.isFinite(parity.aEffects.armorMultiplier)&&Number.isFinite(parity.dEffects.airMultiplier));
+  assert.ok(advantage.aPersonnelLoss/advantage.aInitialPersonnel<parity.aPersonnelLoss/parity.aInitialPersonnel);
+  assert.ok(advantage.dPersonnelLoss/advantage.dInitialPersonnel>parity.dPersonnelLoss/parity.dInitialPersonnel);
+  assert.ok(disadvantage.aPersonnelLoss/disadvantage.aInitialPersonnel>parity.aPersonnelLoss/parity.aInitialPersonnel);
+  assert.ok(disadvantage.dPersonnelLoss/disadvantage.dInitialPersonnel<parity.dPersonnelLoss/parity.dInitialPersonnel);
+});
+
+test('isolated defenders keep fighting after organization breaks when no safe land or sea evacuation exists',()=>{
+  const {Game,unit,from,to}=setup();Game.state.adj[to]=[];Game.province(to).garrison=Array.from({length:100},()=>unit('infantry'));
+  assert.equal(Game.resolveAttack('ger',from,to,1),true);const id=Game.getCombats()[0].id;
+  Game.state.provinces[to].garrison.filter(defender=>defender.combatId===id).forEach(defender=>defender.org=0);
+  advance(Game,5);const combat=Game.getCombat(id);
+  assert.ok(combat,'isolated defenders do not instantly disappear at zero organization');
+  assert.equal(combat.dOrg,0);assert.ok(combat.dFront>0,'isolated zero-organization troops remain at the front '+JSON.stringify({defenders:combat.defenders,dFront:combat.dFront,units:Game.state.provinces[to].garrison.filter(d=>d.combatId===id).slice(0,2).map(d=>({hp:d.hp,org:d.org,arrivalDay:d.arrivalDay})),escapes:Game.neighbors(to).filter(index=>Game.province(index).owner==='fra'),naval:Game.hasNavalEvacuationRoute('fra',to,Game.state.provinces[to].garrison),effects:combat.dEffects}));
+  assert.equal(combat.defenders,100);assert.equal(Game.province(to).owner,'fra');
+  assert.equal(Game.hasNavalEvacuationRoute('fra',to,Game.state.provinces[to].garrison),false);
+  const losses=combat.dPersonnelLoss;Game.advanceDay();assert.ok(Game.getCombat(id).dPersonnelLoss>losses,'holdouts suffer ongoing losses instead of recovering');
+  assert.equal(Game.load(Game.save()),true);
+  assert.equal(Game.acceptPeace('fra'),true);assert.equal(Game.getCombats().length,0);
+});
+
 test('ally support needs actual nearby troops and an alliance in the same war; every troop is conserved',()=>{
   const {Game,unit,key,from,to,ally}=setup();Game.state.alliances[key('ger','ita')]=true;
   Game.province(ally).garrison=Array.from({length:9},()=>unit('infantry'));

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-function setup(withTutorial=false) {
+function setup(withTutorial=false,fullMap=false) {
   const descendants = node => [node, ...node.children.flatMap(descendants)];
   class Element {
     constructor(tag = 'div') {
@@ -32,7 +32,8 @@ function setup(withTutorial=false) {
   const timers = new Map();
   const ctx = vm.createContext({window, document, console, Math: Object.create(Math), localStorage: {getItem: () => null, setItem: () => {}}, setTimeout: (fn, ms) => {timers.set(++nextTimer, {fn, ms}); return nextTimer;}, clearTimeout: id => timers.delete(id), setInterval: () => 0, clearInterval: () => {}, confirm: () => true});
   ctx.Math.random = () => .5;
-  for (const name of ['data.js', 'data_world.js', 'data_provinces.js', 'campaign.js', 'game.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../js', name), 'utf8'), ctx);
+  const scripts=fullMap?['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','data_historical_regions.js','historical_regions.js','history.js','world.js','strategic_regions.js','campaign.js','order_of_battle.js','unrest.js','game.js']:['data.js','data_world.js','data_provinces.js','campaign.js','game.js'];
+  for (const name of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, '../js', name), 'utf8'), ctx);
   const Game = vm.runInContext('Game', ctx); Game.init('ger', 'fas', null, 'standard', 'sandbox36');
   ctx.MapView = {setSelect: () => {}, isProvinceInView: () => true, focusProvince: () => {}, showBattlePlan: () => {}, showAttackable: () => {}, clearAttackable: () => {}};
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../js/ui.js'), 'utf8').replace('return { init, refresh,', 'return { startGame, navigate, selectCity, mapHandlers, renderRightPanel, advanceClock, init, refresh,'), ctx);
@@ -54,6 +55,88 @@ function setup(withTutorial=false) {
   return {Game, UI, Tutorial, panel, descendants, get, button, click, emit, flush, window, document, timers,ctx,
     events:vm.runInContext('SCRIPTED_EVENTS',ctx)};
 }
+
+function combinedArmsPlan(){
+  const fixture=setup(false,true),{Game,UI,panel,descendants,emit,flush}=fixture;
+  const from=Game.state.provinces.findIndex((province,index)=>province.owner==='ger'&&Game.neighbors(index).some(target=>Game.province(target).owner==='pol')&&Game.neighbors(index).some(target=>Game.province(target).owner==='ger'));
+  assert.ok(from>=0);const to=Game.neighbors(from).find(index=>Game.province(index).owner==='pol');
+  const reserve=Game.neighbors(from).find(index=>index!==from&&Game.province(index).owner==='ger');assert.notEqual(reserve,undefined);
+  assert.equal(Game.landRoute(from,to).path.length,2);assert.ok(Game.landRoute(reserve,to));
+  const forces=index=>{
+    const infantry=Array.from({length:4},()=>Game.makeDivision('infantry')),armor=Array.from({length:4},()=>Game.makeDivision('armor')),air=Array.from({length:2},()=>Game.makeDivision('air'));
+    for(const unit of [...infantry,...armor,...air])unit.owner='ger';
+    Game.province(index).garrison=[...infantry,...armor,...air];return {infantry,armor,air};
+  };
+  const front=forces(from),backup=forces(reserve);Game.country('ger').oil=1000;
+  UI.selectCity(from);UI.beginBattle('attack',to);
+  const control=label=>descendants(panel).find(node=>node.attributes['aria-label']===label);
+  const setRange=(label,value)=>{const range=control(label);assert.ok(range,label);range.value=String(value);emit(range,'input');return range;};
+  const release=range=>{emit(range,'pointerup');flush();};
+  return {...fixture,from,to,reserve,front,backup,control,setRange,release};
+}
+
+test('armor and aircraft drags retain fractional thumbs across refresh and dispatch the selected real equipment',()=>{
+  const {Game,UI,panel,descendants,button,click,emit,flush,control,setRange,release,front}=combinedArmsPlan();
+  const armor=control('出击装甲兵力');assert.ok(armor);assert.ok(control('出击飞机数量'));assert.equal(armor.disabled,false);assert.equal(control('出击飞机数量').disabled,false);
+  setRange('出击兵力数量',0);
+  emit(armor,'pointerdown',{pointerType:'touch'});armor.value='1.4';emit(armor,'input');UI.refresh();emit(armor,'lostpointercapture',{buttons:1});flush();assert.ok(descendants(panel).includes(armor));
+  armor.value='2.6';emit(armor,'input');UI.refresh();assert.ok(descendants(panel).includes(armor));release(armor);assert.equal(+control('出击装甲兵力').value,2.6);
+  const aircraft=control('出击飞机数量');emit(aircraft,'pointerdown');aircraft.value='24.2';emit(aircraft,'input');UI.refresh();assert.ok(descendants(panel).includes(aircraft));aircraft.value='37.6';emit(aircraft,'input');release(aircraft);assert.equal(+control('出击飞机数量').value,37.6);
+  click(button('确认进攻（将宣战）'));const combat=Game.getCombats()[0];assert.ok(combat);assert.equal(combat.attackers,3);
+  const units=Game.state.activeCombats[0].attackers.map(entry=>entry.unit);assert.deepEqual(Array.from(units,unit=>unit.id),front.armor.slice(0,3).map(unit=>unit.id));
+  assert.equal(combat.aAssets.tanks,front.armor.slice(0,3).reduce((sum,unit)=>sum+Game.unitAssets(unit).tanks,0));assert.ok(Math.abs(combat.aAssets.aircraft-38)<1e-8);
+  assert.equal(new Set(Game.state.activeCombats[0].attackers.map(entry=>entry.unit.id)).size,3);
+});
+
+test('composition keyboard endpoints remain zero or full after focusout and cannot silently dispatch default tanks or aircraft',()=>{
+  const {Game,UI,panel,descendants,button,click,emit,flush,document,control,setRange}=combinedArmsPlan();
+  setRange('出击兵力数量',0);
+  for(const label of ['出击装甲兵力','出击飞机数量']){
+    let range=control(label);assert.ok(range);document.activeElement=range;emit(range,'keydown',{key:'Home'});range.value='0';emit(range,'input');emit(range,'keyup',{key:'Home'});UI.refresh();flush();assert.ok(descendants(panel).includes(range));assert.equal(+range.value,0);
+    document.activeElement=null;emit(range,'focusout');flush();range=control(label);assert.equal(+range.value,0);assert.equal(range.attributes.dir,'ltr');
+    document.activeElement=range;emit(range,'keydown',{key:'End'});range.value=range.max;emit(range,'input');emit(range,'keyup',{key:'End'});UI.refresh();assert.ok(descendants(panel).includes(range));assert.equal(+range.value,+range.max);document.activeElement=null;emit(range,'focusout');flush();assert.equal(+control(label).value,+range.max);
+    range=control(label);document.activeElement=range;emit(range,'keydown',{key:'Home'});range.value='0';emit(range,'input');emit(range,'keyup',{key:'Home'});document.activeElement=null;emit(range,'focusout');flush();assert.equal(+control(label).value,0);
+  }
+  assert.equal(button('确认进攻（将宣战）').disabled,true);click(button('确认进攻（将宣战）'));assert.equal(Game.getCombats().length,0);
+  setRange('出击兵力数量',1);click(button('确认进攻（将宣战）'));const combat=Game.getCombats()[0];assert.ok(combat);assert.equal(combat.attackers,1);assert.equal(combat.aAssets.tanks,0);assert.equal(combat.aAssets.aircraft,0);
+});
+
+test('composition cancel and blur release deferred rendering without losing the raw setting or issuing an order',()=>{
+  for(const [label,ending,value]of [['出击装甲兵力','pointercancel',1.7],['出击飞机数量','blur',23.4]]){
+    const {Game,UI,panel,descendants,emit,flush,window,control}=combinedArmsPlan(),range=control(label);assert.ok(range);
+    emit(range,'pointerdown',{pointerType:'touch'});range.value=String(value);emit(range,'input');UI.refresh();assert.ok(descendants(panel).includes(range));
+    emit(ending==='blur'?window:range,ending);flush();assert.notEqual(control(label),range);assert.equal(+control(label).value,value);assert.equal(Game.getCombats().length,0);
+  }
+});
+
+test('reinforcement equipment sliders dispatch selected armor while zero aircraft reserves no hidden support',()=>{
+  const {Game,UI,panel,descendants,button,click,emit,flush,document,window,reserve,to,from,backup,control,setRange,release}=combinedArmsPlan();
+  setRange('出击兵力数量',1);setRange('出击装甲兵力',0);setRange('出击飞机数量',0);click(button('确认进攻（将宣战）'));const combat=Game.getCombats()[0];assert.ok(combat);assert.equal(combat.aAssets.aircraft,0);
+  UI.navigate('war');click(button('增援'));const origin=control('增援来源');assert.ok(origin);origin.value=String(reserve);emit(origin,'change');setRange('增援师数',0);
+  const armor=control('增援装甲兵力');assert.ok(armor);emit(armor,'pointerdown',{pointerType:'touch'});armor.value='1.2';emit(armor,'input');UI.refresh();assert.ok(descendants(panel).includes(armor));armor.value='2.6';emit(armor,'input');release(armor);assert.equal(+control('增援装甲兵力').value,2.6);
+  const aircraft=control('增援飞机数量');assert.ok(aircraft);emit(aircraft,'pointerdown');aircraft.value='20.5';emit(aircraft,'input');UI.refresh();assert.ok(descendants(panel).includes(aircraft));aircraft.value='0';emit(aircraft,'input');release(aircraft);assert.equal(+control('增援飞机数量').value,0);
+  for(const label of ['增援装甲兵力','增援飞机数量']){
+    for(const key of ['End','Home']){
+      const range=control(label);document.activeElement=range;emit(range,'keydown',{key});range.value=key==='Home'?'0':range.max;emit(range,'input');emit(range,'keyup',{key});UI.refresh();flush();assert.ok(descendants(panel).includes(range));
+      const expected=+range.value;document.activeElement=null;emit(range,'focusout');flush();assert.equal(+control(label).value,expected);assert.equal(expected,key==='Home'?0:+range.max);
+    }
+  }
+  assert.equal(button('确认增援').disabled,true);
+  for(const [label,ending,value]of [['增援装甲兵力','pointercancel',2.6],['增援飞机数量','blur',0]]){
+    const range=control(label);emit(range,'pointerdown');range.value=String(value);emit(range,'input');UI.refresh();assert.ok(descendants(panel).includes(range));emit(ending==='blur'?window:range,ending);flush();assert.notEqual(control(label),range);assert.equal(+control(label).value,value);assert.equal(Game.getCombat(combat.id).attackers,1);
+  }
+  click(button('确认增援'));const updated=Game.getCombat(combat.id),committed=Game.state.activeCombats[0].attackers;assert.equal(updated.attackers,4);assert.equal(updated.aAssets.aircraft,0);assert.equal(Game.state.activeCombats[0].airMissions.filter(mission=>mission.owner==='ger').length,0);
+  assert.deepEqual(Array.from(committed.filter(entry=>entry.from===reserve),entry=>entry.unit.id),backup.armor.slice(0,3).map(unit=>unit.id));assert.equal(Game.province(reserve).garrison.filter(unit=>unit.kind==='air').every(unit=>!unit.airCombatId),true);
+  assert.ok(Game.landRoute(from,to));
+});
+
+test('coordinated attacks honor zero armor and zero aircraft for every source rather than implicitly reserving aviation',()=>{
+  const {Game,UI,panel,descendants,button,click,control,setRange}=combinedArmsPlan();
+  setRange('出击兵力数量',1);setRange('出击装甲兵力',0);setRange('出击飞机数量',0);
+  const coordinated=descendants(panel).find(node=>node.tagName==='button'&&node.textContent.startsWith('协同进攻'));assert.ok(coordinated);click(coordinated);
+  const combat=Game.getCombats()[0],raw=Game.state.activeCombats[0];assert.ok(combat);assert.ok(new Set(raw.attackers.map(entry=>entry.from)).size>1);assert.equal(combat.aAssets.aircraft,0);assert.equal(raw.airMissions.filter(mission=>mission.owner==='ger').length,0);
+  assert.equal(raw.attackers.some(entry=>entry.unit.type==='armor'),false);assert.equal(Game.state.provinces.flatMap(province=>province.garrison).filter(unit=>unit.owner==='ger'&&unit.kind==='air').every(unit=>!unit.airCombatId),true);
+});
 
 test('a range retains its node after lost capture during a held drag, and maps continuous movement to whole divisions',()=>{
   const f=setup(),{Game,UI,panel,descendants,emit,flush}=f;
@@ -279,14 +362,14 @@ test('holding a rendered battle pause command across refresh retains its origina
   const combat={id:'c1',to:1,name:'前线',playerSide:'attack',attacker:'ger',defender:'pol',phase:'preparation',days:0,progress:0,supply:100,attackers:3,defenders:2,aOrg:90,dOrg:90,aPersonnel:30000,dPersonnel:20000,aPersonnelLoss:0,dPersonnelLoss:0,tactics:'balanced',canRetreat:true,allies:[]};
   Game.getCombats=()=>[combat];Game.getCombat=()=>combat;
   UI.navigate('war');UI.setSpeed(2);UI.refresh();
-  const execute=descendants(panel).find(n=>(n.className||'').includes('combat-command'));assert.ok(execute);assert.match(execute.textContent,/暂停/);
+  const execute=descendants(panel).find(n=>n.className==='rp-btn combat-command primary');assert.ok(execute);assert.match(execute.textContent,/暂停/);
   const days=Game.state.daysElapsed,date=JSON.stringify(Game.state.date);
   emit(execute,'pointerdown');UI.refresh();assert.equal(UI.getSpeed(),0);
   assert.ok(descendants(panel).includes(execute),'a held native target survives deferred rendering');
   assert.equal(JSON.stringify(Game.state.date),date,'pressing the command does not advance');
   emit(execute,'pointerup');assert.ok(descendants(panel).includes(execute));
   click(execute);flush();assert.equal(Game.state.daysElapsed,days);assert.equal(UI.getSpeed(),0,'pointerdown planning pause must not turn the rendered Pause command into Continue');
-  const resume=descendants(panel).find(n=>(n.className||'').includes('combat-command'));assert.ok(resume);assert.match(resume.textContent,/继续/);
+  const resume=descendants(panel).find(n=>n.className==='rp-btn combat-command primary');assert.ok(resume);assert.match(resume.textContent,/继续/);
   emit(resume,'pointerdown');UI.refresh();emit(resume,'pointerup');click(resume);flush();assert.equal(UI.getSpeed(),2);assert.equal(Game.state.daysElapsed,days);
 });
 

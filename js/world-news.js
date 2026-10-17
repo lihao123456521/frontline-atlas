@@ -86,7 +86,7 @@ const WorldNews=(()=>{
   }
   function updateUnrest(state){
     const button=document.getElementById('worldUnrest');if(!button)return;
-    const conflicts=(state.unrest?.conflicts||[]).filter(conflict=>state.countries[conflict.parent]?.alive&&state.countries[conflict.rebels]?.alive&&
+    const conflicts=(state.unrest?.conflicts||[]).filter(conflict=>(conflict.parent===state.player||conflict.rebels===state.player)&&state.countries[conflict.parent]?.alive&&state.countries[conflict.rebels]?.alive&&
       state.wars.some(war=>war.a===conflict.parent&&war.b===conflict.rebels||war.b===conflict.parent&&war.a===conflict.rebels));
     button.classList.toggle('hidden',!conflicts.length);
     if(!conflicts.length){button.textContent='';return;}

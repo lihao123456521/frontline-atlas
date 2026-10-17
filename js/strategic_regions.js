@@ -4,7 +4,7 @@
  * not a new historical administrative boundary dataset. */
 const StrategicRegions = (() => {
   if(typeof World!=='undefined'&&World.installStrategicAnchors)World.installStrategicAnchors();
-  const version='strategic-balanced-3',previousVersion='strategic-balanced-1',compactVersion='strategic-balanced-2',historical=typeof HistoricalRegions!=='undefined'?HistoricalRegions:null;
+  const version='strategic-balanced-4',groupedVersion='strategic-balanced-3',previousVersion='strategic-balanced-1',compactVersion='strategic-balanced-2',historical=typeof HistoricalRegions!=='undefined'?HistoricalRegions:null;
   const legacy=historical?{...historical}:null;
   const aliases=new Map(),members=new Map(),groups=new Map();
   const targets={uk:70,fra:54,ger:28};
@@ -44,7 +44,7 @@ const StrategicRegions = (() => {
       regions.set(id,rs);rings.set(id,rs.flatMap(r=>r.rings));
     }
     const nodes=[...groupMap.values()].map(g=>({...g.node,area:g.area,
-      name:g.list.length>1?g.node.name+'战区':g.node.name,
+      name:g.name||(g.list.length>1?g.node.name+'战区':g.node.name),
       strategicRegionMembers:g.list.map(n=>n.id),strategicApproximation:g.list.length>1,
       coastal:g.list.some(n=>n.coastal)}));
     const edges=new Map();
@@ -111,15 +111,132 @@ const StrategicRegions = (() => {
     }
     members.clear();for(const group of groups.values())members.set(group.node.id,group.list.map(node=>node.id));
   }
-  const balanced=buildBalanced(groups,new Map(aliases),new Map(members),version);
-  function useBalanced(requestedVersion=version){const selected=requestedVersion===previousVersion?previousBalanced:requestedVersion===compactVersion?compactBalanced:balanced;
+  const groupedBalanced=buildBalanced(groups,new Map(aliases),new Map(members),groupedVersion);
+  const metropolitanMerges=[],fragmentReassignments=[];
+  if(legacy){
+    const regionalNames={ger_hamburg:'汉堡—易北地区',ger_berlin:'勃兰登堡—西里西亚',neu_poland:'华沙都会区',fra_paris:'大巴黎',uk_london:'大伦敦'};
+    for(const [id,name]of Object.entries(regionalNames)){
+      const keep=groups.get(id);if(!keep||keep.area>=3)continue;
+      const candidates=[];
+      for(const edge of legacy.adjacency){
+        const first=groups.get(aliases.get(edge.a)),second=groups.get(aliases.get(edge.b));
+        const neighbor=first===keep?second:second===keep?first:null;
+        if(!neighbor||neighbor===keep||neighbor.node.shapeOwner!==keep.node.shapeOwner||
+          neighbor.node.strategicProvinceId!==keep.node.strategicProvinceId||edge.length<=0)continue;
+        candidates.push({neighbor,length:edge.length});
+      }
+      candidates.sort((first,second)=>second.length-first.length||second.neighbor.area-first.neighbor.area);
+      const retire=candidates[0]?.neighbor;if(!retire)continue;
+      metropolitanMerges.push({id:retire.node.id,into:id,country:keep.node.shapeOwner,area:retire.area});
+      keep.list.push(...retire.list);keep.area+=retire.area;keep.name=name;groups.delete(retire.node.id);
+      for(const node of keep.list)aliases.set(node.id,id);
+    }
+    for(const small of [...groups.values()].filter(group=>group.area<7).sort((first,second)=>first.area-second.area)){
+      if(!groups.has(small.node.id)||small.node.id===small.node.strategicProvinceId)continue;
+      const candidates=[];
+      for(const edge of legacy.adjacency){
+        const first=groups.get(aliases.get(edge.a)),second=groups.get(aliases.get(edge.b));
+        const neighbor=first===small?second:second===small?first:null;
+        if(neighbor&&neighbor!==small&&neighbor.node.shapeOwner===small.node.shapeOwner&&edge.length>0)candidates.push({neighbor,length:edge.length});
+      }
+      candidates.sort((first,second)=>second.length-first.length||second.neighbor.area-first.neighbor.area);
+      const keep=candidates[0]?.neighbor;if(!keep)continue;
+      metropolitanMerges.push({id:small.node.id,into:keep.node.id,country:small.node.shapeOwner,area:small.area});
+      keep.list.push(...small.list);keep.area+=small.area;groups.delete(small.node.id);
+      for(const node of keep.list)aliases.set(node.id,keep.node.id);
+    }
+    members.clear();for(const group of groups.values())members.set(group.node.id,group.list.map(node=>node.id));
+  }
+  function continuousGeometry(base){
+    if(!base)return null;
+    const inRing=(ring,x,y)=>{let inside=false;for(let index=0,previous=ring.length-1;index<ring.length;previous=index++){
+      const first=ring[index],second=ring[previous];if((first[1]>y)!==(second[1]>y)&&x<(second[0]-first[0])*(y-first[1])/(second[1]-first[1])+first[0])inside=!inside;
+    }return inside;};
+    const area=ring=>Math.abs(ring.reduce((sum,point,index)=>{const next=ring[(index+1)%ring.length];return sum+point[0]*next[1]-next[0]*point[1];},0))/2;
+    const containsPart=(part,x,y)=>part.rings.reduce((inside,ring,index)=>{const box=part.bounds[index];return x>=box[0]&&x<=box[2]&&y>=box[1]&&y<=box[3]?inside!==inRing(ring,x,y):inside;},false);
+    const parts=[];
+    for(const node of base.nodes)for(const region of base.regionsFor(node.id)){
+      const depths=region.rings.map((ring,index)=>region.rings.reduce((depth,other,next)=>depth+(index!==next&&inRing(other,...ring[0])?1:0),0));
+      region.rings.forEach((ring,index)=>{if(depths[index]%2)return;
+        const indexes=[index,...region.rings.map((_,next)=>next).filter(next=>depths[next]===depths[index]+1&&inRing(ring,...region.rings[next][0]))];
+        const rings=indexes.map(next=>region.rings[next]),bounds=indexes.map(next=>region.bounds[next]);
+        parts.push({...region,rings,bounds,owner:node.id,original:node.id,area:rings.reduce((sum,value,next)=>sum+(next?-1:1)*area(value),0),neighbors:new Map()});
+      });
+    }
+    const segments=new Map();
+    for(const [index,part]of parts.entries())for(const ring of part.rings)for(let next=0;next<ring.length;next++){
+      const first=ring[next],second=ring[(next+1)%ring.length],key=[first.map(value=>value.toFixed(6)).join(','),second.map(value=>value.toFixed(6)).join(',')].sort().join('|');
+      const other=segments.get(key);if(other!==undefined&&parts[other].shapeOwner===part.shapeOwner){
+        const length=Math.hypot(first[0]-second[0],first[1]-second[1]),point=[(first[0]+second[0])/2,(first[1]+second[1])/2];
+        for(const [from,to]of [[index,other],[other,index]]){const previous=parts[from].neighbors.get(to);parts[from].neighbors.set(to,{length:(previous?.length||0)+length,point});}
+      }else if(other===undefined)segments.set(key,index);
+    }
+    const primary=new Set();
+    for(const node of base.nodes){
+      const own=parts.map((part,index)=>({part,index})).filter(value=>value.part.owner===node.id).sort((first,second)=>second.part.area-first.part.area);
+      const seed=own.find(value=>containsPart(value.part,node.x,node.y))||own[0];if(!seed)continue;
+      const queue=[seed.index];primary.add(seed.index);
+      while(queue.length){const next=queue.pop();for(const neighbor of parts[next].neighbors.keys())if(!primary.has(neighbor)&&parts[neighbor].owner===node.id){primary.add(neighbor);queue.push(neighbor);}}
+    }
+    let changed=true;
+    while(changed){changed=false;
+      for(const [index,part]of parts.entries())if(!primary.has(index)){
+        const candidates=[...part.neighbors].filter(([neighbor])=>primary.has(neighbor)).sort((first,second)=>second[1].length-first[1].length);
+        const destination=candidates[0];if(!destination)continue;
+        const into=parts[destination[0]].owner;
+        if(into!==part.owner)fragmentReassignments.push({from:part.owner,into,fromCountry:part.shapeOwner,intoCountry:parts[destination[0]].shapeOwner,area:part.area,sharedLength:destination[1].length});
+        part.owner=into;primary.add(index);changed=true;
+      }
+    }
+    const byId=new Map(base.nodes.map(node=>[node.id,[]]));
+    for(const part of parts)byId.get(part.owner).push({...part,playableProvinceId:part.owner,strategicApproximation:true});
+    const idOf=value=>typeof value==='string'?value:value?.id;
+    const regionsFor=value=>byId.get(idOf(value))||[];
+    const nodes=base.nodes.map(node=>({...node,area:regionsFor(node.id).reduce((sum,part)=>sum+part.area,0)}));
+    const edges=new Map();
+    for(const [index,part]of parts.entries())if(primary.has(index))for(const [neighbor,edge]of part.neighbors)if(primary.has(neighbor)&&part.owner!==parts[neighbor].owner){
+      const pair=[part.owner,parts[neighbor].owner].sort(),key=pair.join('|'),previous=edges.get(key);
+      if(!previous||previous.length<edge.length)edges.set(key,{a:pair[0],b:pair[1],...edge});
+    }
+    const distance=(part,x,y)=>{let best=Infinity;for(const ring of part.rings)for(let index=0;index<ring.length;index++){
+      const first=ring[index],second=ring[(index+1)%ring.length],dx=second[0]-first[0],dy=second[1]-first[1],ratio=Math.max(0,Math.min(1,((x-first[0])*dx+(y-first[1])*dy)/(dx*dx+dy*dy||1)));
+      best=Math.min(best,(x-first[0]-ratio*dx)**2+(y-first[1]-ratio*dy)**2);
+    }return best;};
+    const lowerDistance=(part,x,y)=>Math.min(...part.bounds.map(box=>Math.max(box[0]-x,0,x-box[2])**2+Math.max(box[1]-y,0,y-box[3])**2));
+    return {...base,nodes,regionsFor,ringsFor:value=>{const regions=regionsFor(value);return regions.length?regions.flatMap(part=>part.rings):null;},adjacency:[...edges.values()],
+      contains:(value,x,y)=>regionsFor(value).some(part=>containsPart(part,x,y)),
+      ownerAt:(x,y,provinces)=>{const ids=new Set(provinces.map(province=>idOf(province.p||province))),allowed=parts.filter(part=>ids.has(part.owner));
+        const containing=allowed.find(part=>containsPart(part,x,y));if(containing)return containing.owner;
+        let owner=null,best=Infinity;for(const entry of allowed.map(part=>({part,lower:lowerDistance(part,x,y)})).sort((first,second)=>first.lower-second.lower)){
+          if(entry.lower>best)break;const candidate=distance(entry.part,x,y);if(candidate<best){best=candidate;owner=entry.part.owner;}
+        }return owner;
+      },
+      boundaryCuts:(provinces,first,second)=>{const ids=new Set(provinces.map(province=>idOf(province.p||province))),out=[],dx=second[0]-first[0],dy=second[1]-first[1];
+        const box=[Math.min(first[0],second[0]),Math.min(first[1],second[1]),Math.max(first[0],second[0]),Math.max(first[1],second[1])];
+        for(const part of parts)if(ids.has(part.owner))for(const [ringIndex,ring]of part.rings.entries()){
+          const bounds=part.bounds[ringIndex];if(bounds[0]>box[2]||bounds[2]<box[0]||bounds[1]>box[3]||bounds[3]<box[1])continue;
+          for(let index=0;index<ring.length;index++){
+          const start=ring[index],end=ring[(index+1)%ring.length],ex=end[0]-start[0],ey=end[1]-start[1],denominator=dx*ey-dy*ex;if(Math.abs(denominator)<1e-12)continue;
+          const px=start[0]-first[0],py=start[1]-first[1],along=(px*ey-py*ex)/denominator,across=(px*dy-py*dx)/denominator;
+          if(along>1e-6&&along<1-1e-6&&across>=-1e-6&&across<=1+1e-6)out.push(along);
+        }}return out;
+      },
+      anchorBoundaryContains:(value,x,y)=>{const id=idOf(value),own=parts.map((part,index)=>({part,index})).filter(entry=>entry.part.owner===id);
+        const containing=own.find(entry=>containsPart(entry.part,x,y));if(containing)return primary.has(containing.index);
+        let nearest=null,best=Infinity;for(const entry of own.map(value=>({...value,lower:lowerDistance(value.part,x,y)})).sort((first,second)=>first.lower-second.lower)){
+          if(entry.lower>best)break;const candidate=distance(entry.part,x,y);if(candidate<best){best=candidate;nearest=entry.index;}
+        }return nearest===null||primary.has(nearest);
+      }};
+  }
+  const balanced=continuousGeometry(buildBalanced(groups,new Map(aliases),new Map(members),version));
+  function useBalanced(requestedVersion=version){const selected=requestedVersion===previousVersion?previousBalanced:requestedVersion===compactVersion?compactBalanced:requestedVersion===groupedVersion?groupedBalanced:balanced;
     if(historical&&selected)Object.assign(historical,selected);return selected?.version||version;}
   function useLegacy(){if(historical&&legacy)Object.assign(historical,legacy);return legacy?.version;}
   // Old saves keep their exact province indexes, controllers, units and ongoing
   // routes. Rebalancing is used by new campaigns; it never swallows disputed land.
   function prepareState(s,{loading=false}={}){
     const savedVersion=s.strategicRegionsVersion;
-    if(loading&&savedVersion&&![version,previousVersion,compactVersion].includes(savedVersion))throw new Error('Unsupported strategic regions version: '+savedVersion);
+    if(loading&&savedVersion&&![version,previousVersion,compactVersion,groupedVersion].includes(savedVersion))throw new Error('Unsupported strategic regions version: '+savedVersion);
     const old=loading&&!savedVersion;
     if(old)useLegacy();else useBalanced(loading?savedVersion:version);
     return {mode:old?'legacy-administrative':savedVersion===previousVersion?'balanced-v1':'balanced',preservedProvinceIndexes:true};
@@ -148,7 +265,7 @@ const StrategicRegions = (() => {
     s.strategicMapBasis='Europe: adjacent historical administrative groups; world: clipped strategic city cells';
   }
   useBalanced();
-  return {version,previousVersion,compactVersion,useBalanced,useLegacy,prepareState,apply,smallRegionMerges,compactRegionMerges,compactCounts,
+  return {version,previousVersion,compactVersion,groupedVersion,useBalanced,useLegacy,prepareState,apply,smallRegionMerges,compactRegionMerges,compactCounts,metropolitanMerges,fragmentReassignments,
     safeMapping:Object.fromEntries(aliases),members:Object.fromEntries(members),
     legacyProvinceIds:legacy?.nodes.map(n=>n.id)||[],balancedProvinceIds:balanced?.nodes.map(n=>n.id)||[],
     previousProvinceIds:previousBalanced?.nodes.map(n=>n.id)||[],

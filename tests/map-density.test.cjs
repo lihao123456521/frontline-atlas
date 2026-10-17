@@ -50,6 +50,19 @@ test('regional and country views reveal more city detail while keeping pixel rec
     const a=rs[i],b=rs[j];assert.equal(a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top,false);
   }
 });
+
+test('sea evacuation placeholders do not appear as already stationed provincial armies before arrival',()=>{
+  const c=setup(),port=c.Game.state.provinces[1];c.Game.state.daysElapsed=0;c.Game.state.selectedIdx=1;
+  port.garrison.forEach(unit=>unit.rescueArrivalDay=5);c.map.focusCountry('ger');c.map.renderUnits();
+  assert.equal(c.map.getUnits().some(unit=>unit.idx===1),false);
+  c.Game.state.daysElapsed=5;c.map.renderUnits();assert.equal(c.map.getUnits().some(unit=>unit.idx===1),true);
+});
+test('national counters retain the real owner of transports whose destination has been captured',()=>{
+  const context=setup();context.Game.state.daysElapsed=0;
+  context.Game.state.provinces[5].garrison.push({type:'infantry',owner:'ger',hp:100,maxHp:100,org:60,maxOrg:60,rescueArrivalDay:5});
+  context.map.resetView();const german=context.map.getUnits().find(counter=>context.Game.state.provinces[counter.idx].owner==='ger');
+  assert.equal(german.count,16,'transport placeholders remain German rather than joining the destination controller');
+});
 test('British home fit ignores India and region views can reach Asia, America and the Pacific',()=>{
   const c=setup();c.map.focusCountry('uk');
   assert.ok(c.map.getCamera().scale>6);
@@ -102,6 +115,41 @@ test('country view prioritizes the player main force while foreign and ordinary 
       const anchor=c.map.getProvinceAnchor(index);
       assert.equal(c.map.provinceUnderPoint(anchor.x,anchor.y),index,'counter visibility does not change province selection');
     }
+  }
+});
+
+test('selected ports show surviving ship numbers in the existing army counter',()=>{
+  const c=setup(1280,800),port=c.Game.state.provinces[1];
+  port.coastal=true;
+  port.garrison.push({type:'navy',kind:'naval',hp:50,maxHp:100,ships:18});
+  port.garrison.push({type:'navy',kind:'naval',hp:0,maxHp:100,ships:40});
+  c.Game.unitAssets=unit=>({ships:unit.kind==='naval'?Math.floor(unit.ships*unit.hp/unit.maxHp):0});
+  c.Game.state.selectedIdx=1;c.map.focusCountry('ger');c.map.renderUnits();
+  const counters=c.layers.get('layerUnits').children.filter(node=>node.attrs['data-province']==='hamburg');
+  assert.equal(counters.length,1,'the port keeps one combined label instead of stacked force cards');
+  const fleet=counters[0].children.find(node=>node.attrs.class==='density-fleet-text');
+  assert.ok(fleet,'port fleet strength is visible');assert.equal(fleet.textContent,'舰 9艘');
+  const hit=c.map.getUnits().find(unit=>unit.idx===1);
+  assert.equal(c.map.unitUnderPoint(hit.x,hit.y),hit.key,'the taller card retains a valid click target');
+  port.coastal=false;c.map.renderUnits();
+  assert.ok(!c.layers.get('layerUnits').children.some(node=>node.children.some(child=>child.attrs.class==='density-fleet-text')),
+    'a naval object in an inland province does not invent a port');
+});
+
+test('major friendly port fleets are visible nearby and distant fleets merge only in overview',()=>{
+  const c=setup(1280,800),port=c.Game.state.provinces[1];
+  c.Game.unitAssets=unit=>({ships:unit.kind==='naval'&&unit.hp>0?unit.ships:0});
+  port.coastal=true;port.garrison.push({type:'navy',kind:'naval',hp:100,ships:21});
+  c.Game.state.provinces[2].coastal=true;c.Game.state.provinces[2].garrison.push({type:'destroyer',kind:'naval',hp:100,ships:4});
+  c.map.focusCountry('ger');
+  assert.ok(c.layers.get('layerUnits').children.some(node=>node.attrs['data-province']==='hamburg'&&
+    node.children.some(child=>child.attrs.class==='density-fleet-text'&&child.textContent==='舰 21艘')));
+  c.map.resetView();
+  const fleets=c.layers.get('layerUnits').children.flatMap(node=>node.children).filter(node=>node.attrs.class==='density-fleet-text');
+  assert.equal(fleets.length,1);assert.equal(fleets[0].textContent,'舰 25艘');
+  const rects=c.map.getRects();
+  for(let first=0;first<rects.length;first++)for(let second=first+1;second<rects.length;second++){
+    const a=rects[first],b=rects[second];assert.equal(a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top,false);
   }
 });
 test('zoom is bounded at 1–14 and selected city remains visible at global scale',()=>{

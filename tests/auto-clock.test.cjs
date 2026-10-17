@@ -166,8 +166,8 @@ test('a second incoming warning or required event prevents a premature resume',(
 
 test('battle card pause and continue use the same selected clock as the top control',()=>{
   const f=setup(),{Game,UI,from,to,activeTimers}=f;Game.resolveAttack('ger',from,to,6);UI.setSpeed(3);UI.refresh();
-  let control=descendants(f.get('rpContent')).find(e=>(e.className||'').includes('combat-command'));assert.ok(control);assert.match(control.textContent,/暂停/);control.click();
-  assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);control=descendants(f.get('rpContent')).find(e=>(e.className||'').includes('combat-command'));assert.match(control.textContent,/继续/);control.click();
+  let control=descendants(f.get('rpContent')).find(e=>e.className==='rp-btn combat-command primary');assert.ok(control);assert.match(control.textContent,/暂停/);control.click();
+  assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);control=descendants(f.get('rpContent')).find(e=>e.className==='rp-btn combat-command primary');assert.match(control.textContent,/继续/);control.click();
   assert.equal(UI.getSpeed(),3);assert.equal(activeTimers().length,1);assert.equal(Game.state.daysElapsed,0);
 });
 

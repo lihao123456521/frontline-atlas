@@ -30,7 +30,7 @@ function summary(Game,types,id){
 const scenarios=['sandbox36','poland39','barbarossa41','pacific42'];
 for(const scenario of scenarios)test(scenario+' covers real controlled provinces without increasing national troops or resources',()=>{
   const baseline=setup(scenario,true),opening=setup(scenario),s=opening.Game.state,b=baseline.Game.state;
-  assert.equal(s.provinces.length,433);
+  assert.equal(s.provinces.length,418);
   assert.equal(JSON.stringify(s.countries),JSON.stringify(b.countries),'national resources and economy');
   assert.equal(JSON.stringify(s.provinces.map(p=>({id:p.id,owner:p.owner}))),JSON.stringify(b.provinces.map(p=>({id:p.id,owner:p.owner}))));
   const all=s.provinces.flatMap(p=>p.garrison);assert.equal(new Set(all.map(d=>d.id)).size,all.length,'all unit IDs remain unique');

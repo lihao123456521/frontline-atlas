@@ -4,6 +4,7 @@
 #   PORT  默认 8642（DevStation 端口转发支持 8080-8089）
 import http.server
 import os
+import socket
 
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8642"))
@@ -19,7 +20,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pass  # 静默日志
 
 # 浏览器的空闲预连接不能占住唯一处理线程，否则其余脚本会等待到超时。
-Server = http.server.ThreadingHTTPServer
+class Server(http.server.ThreadingHTTPServer):
+    request_queue_size = 128
+    allow_reuse_address = os.name != "nt"
+    allow_reuse_port = False
+
+    def server_bind(self):
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 if __name__ == "__main__":
     with Server((HOST, PORT), Handler) as httpd:

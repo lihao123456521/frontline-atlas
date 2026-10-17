@@ -48,7 +48,7 @@ test('regional cooperation requires a real friendly neighbour and never performs
 
 test('Spain has a connected seven-region mainland without increasing its people or economic weight',()=>{
   const {Game}=setup(),baseline=setup(false).Game;
-  assert.equal(Game.state.provinces.length,433);
+  assert.equal(Game.state.provinces.length,418);
   const mainland=Game.state.provinces.map((province,index)=>({province,index})).filter(item=>item.province.owner==='esp'&&item.province.lat>36&&item.province.lon<5);
   assert.equal(mainland.length,7);const pending=[mainland[0].index],seen=new Set(pending),valid=new Set(mainland.map(item=>item.index));
   while(pending.length){for(const next of Game.neighbors(pending.pop()))if(valid.has(next)&&!seen.has(next)){seen.add(next);pending.push(next);}}

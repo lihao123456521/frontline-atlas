@@ -35,8 +35,13 @@ test('zero political power and low relations never block a proposal while a host
   assert.equal(Game.diploAction('ally','fra'),true);assert.equal(c.pp,0);assert.equal(Game.isAllied('ger','fra'),false);assert.equal(Game.sovereigntyResponse().outcome,'refused');
   assert.equal(Game.diplomacyAvailability('ally','fra').available,true);
   assert.equal(Game.diploAction('improve','fra'),true);assert.equal(c.pp,0);assert.equal(Game.relation('ger','fra'),-85);
-  Game.state.relations[key('ger','fra')]=0;assert.equal(Game.diploAction('ally','fra'),true);assert.equal(Game.isAllied('ger','fra'),false);
   Game.state.relations[key('ger','fra')]=200;assert.equal(Game.diploAction('ally','fra'),true);assert.equal(Game.isAllied('ger','fra'),true);
+});
+
+test('a neutral recipient can accept an alliance without first grinding political power or relations',()=>{
+  const {Game,key}=setup();Game.country('ger').pp=0;Game.state.relations[key('ger','fra')]=0;
+  assert.equal(Game.diploAction('ally','fra'),true);assert.equal(Game.isAllied('ger','fra'),true);
+  assert.equal(Game.country('ger').pp,0);assert.equal(Game.sovereigntyResponse().outcome,'allied');
 });
 
 test('allies cannot be declared on or damaged by land or amphibious combat',()=>{

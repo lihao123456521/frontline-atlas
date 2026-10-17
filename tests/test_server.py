@@ -6,6 +6,7 @@ import concurrent.futures
 import functools
 import importlib.util
 import pathlib
+import re
 import socket
 import socketserver
 import threading
@@ -47,8 +48,8 @@ class ServerConnectionsTest(unittest.TestCase):
         self.server.server_close()
         self.thread.join(timeout=2)
 
-    def get(self, relative):
-        with urllib.request.urlopen(self.base + "/" + relative + "?cold-test=1", timeout=2) as response:
+    def get(self, relative, timeout=2):
+        with urllib.request.urlopen(self.base + "/" + relative + "?cold-test=1", timeout=timeout) as response:
             actual = response.read()
             self.assertEqual(response.status, 200)
             self.assertEqual(actual, (ROOT / relative).read_bytes())
@@ -73,6 +74,20 @@ class ServerConnectionsTest(unittest.TestCase):
             results = list(pool.map(self.get, assets))
         self.assertEqual(len(results), len(assets))
         self.assertTrue(all(size > 0 for size in results))
+
+    def test_entire_page_asset_burst_fits_the_connection_backlog(self):
+        assets = re.findall(r'(?:src|href)="((?:js|css)/[^"?]+)', (ROOT / "index.html").read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(assets), 35)
+        self.assertGreaterEqual(self.server.request_queue_size, len(assets))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(assets)) as pool:
+            results = list(pool.map(lambda asset: self.get(asset, timeout=10), assets))
+        self.assertEqual(len(results), len(assets))
+        self.assertTrue(all(size > 0 for size in results))
+
+    def test_second_server_cannot_silently_share_the_same_listener(self):
+        with self.assertRaises(OSError):
+            duplicate = DEV_SERVER.Server(self.server.server_address, DEV_SERVER.Handler)
+            duplicate.server_close()
 
 
 if __name__ == "__main__":

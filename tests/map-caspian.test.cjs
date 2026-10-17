@@ -26,14 +26,34 @@ function setup(){
  for(const file of ['data.js','data_world.js','data_provinces.js','data_historical_map.js','data_world_historical.js','data_historical_regions.js','historical_regions.js','history.js','world.js','strategic_regions.js','campaign.js','order_of_battle.js','unrest.js','game.js'])vm.runInContext(load(file),context,{filename:file});
  const Game=vm.runInContext('Game',context);
  Game.init('sov','com',null,'standard','sandbox36',{reinforcedArmy:true});
- vm.runInContext(load('map.js').replace('return { W,H,','return { renderTerritory, W,H,')+';this.map=MapView',context,{filename:'map.js'});
+ vm.runInContext(load('map.js').replace('return { W,H,','return { renderTerritory,getCells:()=>cellHitPolygons,getPolygons:()=>cellPolygons, W,H,')+';this.map=MapView',context,{filename:'map.js'});
  return {Game,map:context.map,layers,source:vm.runInContext('WORLD_HISTORICAL_MAP',context)};
 }
 
 test('real Soviet campaign paints and selects Caspian land with connected army routes and unchanged water',()=>{
  const {Game,map,layers,source}=setup();
- assert.equal(Game.state.provinces.length,433);
+ assert.equal(Game.state.provinces.length,418);
  map.renderTerritory();
+ const positions=Game.state.provinces.map(province=>[province.id,province.x,province.y]);
+ for(let index=0;index<Game.state.provinces.length;index++){
+  const anchor=map.getProvinceAnchor(index);
+  assert.equal(map.provinceUnderPoint(anchor.x,anchor.y),index,Game.province(index).id+' keeps its playable anchor');
+ }
+ const edgeDistance=(point,start,end)=>{
+  const dx=end[0]-start[0],dy=end[1]-start[1],length=dx*dx+dy*dy;
+  const along=Math.max(0,Math.min(1,((point[0]-start[0])*dx+(point[1]-start[1])*dy)/(length||1)));
+  return Math.hypot(point[0]-start[0]-dx*along,point[1]-start[1]-dy*along);
+ };
+ for(const country of ['sov','chn','usa']){
+  const deviations=Game.state.provinces.flatMap((province,index)=>{
+   if((province.shapeOwner||province.originalOwner)!==country)return [];
+   const polygon=map.getPolygons()[index],cell=map.getCells()[index];if(!polygon||!cell)return [];
+   return cell.map(point=>Math.min(...polygon.map((start,edge)=>edgeDistance(point,start,polygon[(edge+1)%polygon.length]))));
+  });
+  assert.ok(Math.max(...deviations)>1.5,country+' has visible shared strategic bends');
+  assert.ok(Math.max(...deviations)<15,country+' stays a restrained strategic subdivision');
+ }
+ assert.equal(JSON.stringify(Game.state.provinces.map(province=>[province.id,province.x,province.y])),JSON.stringify(positions));
  const capital=Game.provinceById('sov_moscow'),reached=new Set([capital]),queue=[capital];
  for(let offset=0;offset<queue.length;offset++)for(const next of Game.neighbors(queue[offset])){
   if(Game.province(next).owner==='sov'&&!reached.has(next)){reached.add(next);queue.push(next);}
