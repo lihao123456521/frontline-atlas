@@ -93,6 +93,7 @@ test('AI uses the same allied corridor and never attacks an allied intermediate 
 });
 test('remote reinforcements keep their real soldiers but cannot add firepower or frontage before arrival',()=>{
   const {Game,from,gate,to}=setup();Game.province(gate).owner='ger';
+  for(const unit of Game.province(gate).garrison)unit.owner='ger';
   assert.equal(Game.doAssault('ger',gate,to,0,1),true);const c=Game.state.activeCombats[0];c.phase='engagement';c.days=4;
   const before=Game.getCombat(c.id),unit=Game.province(from).garrison[0],id=unit.id,hp=unit.hp;
   assert.equal(Game.reinforceCombat(c.id,from,1),true);const added=c.attackers.find(e=>e.unit.id===id);assert.ok(added);assert.ok(added.unit.arrivalDay>Game.state.daysElapsed);
@@ -110,6 +111,7 @@ test('malformed paths and arrival timestamps cannot replace a healthy live save'
 });
 test('arrived reinforcements win, clear transit metadata and survive a save with the same IDs and HP',()=>{
   const {Game,from,gate,to,chain}=setup();Game.province(gate).owner='ger';
+  for(const unit of Game.province(gate).garrison)unit.owner='ger';
   assert.equal(Game.doAssault('ger',gate,to,0,1),true);const c=Game.state.activeCombats[0];
   const unit=Game.province(from).garrison[0],id=unit.id,hp=unit.hp;assert.equal(Game.reinforceCombat(c.id,from,1),true);
   const marching=c.attackers.find(e=>e.unit.id===id);Game.state.daysElapsed=marching.unit.arrivalDay+1;
