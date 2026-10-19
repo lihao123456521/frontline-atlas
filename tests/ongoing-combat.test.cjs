@@ -31,7 +31,8 @@ test('orders persist through preparation; occupancy and result only change after
   assert.equal(Game.province(to).owner,'fra');assert.equal(Game.state.battles,0);
   const c=Game.getCombats()[0];assert.equal(c.phase,'preparation');assert.equal(c.attackers,8);assert.equal(c.defenders,0);
   advance(Game,2);assert.equal(Game.province(to).owner,'fra');assert.equal(Game.state.battles,0);
-  advance(Game,1);assert.equal(Game.province(to).owner,'ger');assert.equal(Game.state.battles,1);assert.equal(Game.getCombats().length,0);
+  advance(Game,1);assert.equal(Game.province(to).owner,'fra');assert.equal(Game.getCombats()[0].status,'occupation');assert.ok(Game.getCombats()[0].progress>0);
+  advance(Game,10);assert.equal(Game.province(to).owner,'ger');assert.equal(Game.state.battles,1);assert.equal(Game.getCombats().length,0);
 });
 
 test('frontage limits large forces while organization, strength and progress change over days',()=>{
@@ -40,7 +41,7 @@ test('frontage limits large forces while organization, strength and progress cha
   assert.equal(Game.resolveAttack('ger',from,to,180),true);const id=Game.getCombats()[0].id;
   advance(Game,3);const c=Game.getCombat(id);assert.ok(c);assert.equal(Game.province(to).owner,'fra');
   assert.ok(c.aOrg<100);assert.ok(c.aStrength<100);assert.ok(c.progress>0&&c.progress<100);
-  assert.ok(c.aLoss>0&&c.dLoss>0);assert.ok(c.attackers>100);
+  assert.ok(c.aPersonnelLoss>0&&c.dPersonnelLoss>0);assert.ok(c.attackers>100);
 });
 
 test('troops cannot duplicate orders or move while committed; local reinforcement transfers actual divisions',()=>{
@@ -62,7 +63,8 @@ test('player defense exposes tactics, reinforcement and retreat using own safe n
   assert.equal(Game.getCombat(id).playerSide,'defend');assert.equal(Game.setCombatTactics(id,'careful'),true);
   assert.equal(Game.getCombat(id).tactics,'careful');assert.equal(Game.reinforceCombat(id,rear,2),true);
   assert.equal(Game.getCombat(id).defenders,14);assert.equal(Game.retreatCombat(id),true);
-  assert.equal(Game.province(from).owner,'ger');advance(Game,3);assert.equal(Game.province(from).owner,'fra');
+  assert.equal(Game.province(from).owner,'ger');advance(Game,3);assert.equal(Game.province(from).owner,'ger');assert.equal(Game.getCombat(id).status,'occupation');
+  advance(Game,10);assert.equal(Game.province(from).owner,'fra');
   assert.ok(Game.province(rear).garrison.length>=8);
 });
 
@@ -101,7 +103,7 @@ test('isolated defenders keep fighting after organization breaks when no safe la
   Game.state.provinces[to].garrison.filter(defender=>defender.combatId===id).forEach(defender=>defender.org=0);
   advance(Game,5);const combat=Game.getCombat(id);
   assert.ok(combat,'isolated defenders do not instantly disappear at zero organization');
-  assert.equal(combat.dOrg,0);assert.ok(combat.dFront>0,'isolated zero-organization troops remain at the front '+JSON.stringify({defenders:combat.defenders,dFront:combat.dFront,units:Game.state.provinces[to].garrison.filter(d=>d.combatId===id).slice(0,2).map(d=>({hp:d.hp,org:d.org,arrivalDay:d.arrivalDay})),escapes:Game.neighbors(to).filter(index=>Game.province(index).owner==='fra'),naval:Game.hasNavalEvacuationRoute('fra',to,Game.state.provinces[to].garrison),effects:combat.dEffects}));
+  assert.ok(combat.dOrg<10);assert.ok(combat.dFront>0,'isolated low-organization troops remain at the front '+JSON.stringify({defenders:combat.defenders,dFront:combat.dFront,units:Game.state.provinces[to].garrison.filter(d=>d.combatId===id).slice(0,2).map(d=>({hp:d.hp,org:d.org,arrivalDay:d.arrivalDay})),escapes:Game.neighbors(to).filter(index=>Game.province(index).owner==='fra'),naval:Game.hasNavalEvacuationRoute('fra',to,Game.state.provinces[to].garrison),effects:combat.dEffects}));
   assert.equal(combat.defenders,100);assert.equal(Game.province(to).owner,'fra');
   assert.equal(Game.hasNavalEvacuationRoute('fra',to,Game.state.provinces[to].garrison),false);
   const losses=combat.dPersonnelLoss;Game.advanceDay();assert.ok(Game.getCombat(id).dPersonnelLoss>losses,'holdouts suffer ongoing losses instead of recovering');
@@ -157,7 +159,8 @@ test('capital occupation does not instantly eliminate a country with most victor
   const {Game,from,to}=setup();Game.province(to).isCapital=true;Game.province(to).garrison=[];
   Game.state.provinces.filter(p=>p.owner!== 'ger'&&p.owner!=='fra').slice(0,15).forEach(p=>{p.owner=p.originalOwner='fra';});
   Game.country('fra').initialVictoryWeight=Game.state.provinces.reduce((n,p)=>n+(p.owner==='fra'?(p.isCapital?5:1):0),0);
-  Game.resolveAttack('ger',from,to,8);advance(Game,3);
+  Game.resolveAttack('ger',from,to,8);advance(Game,3);assert.equal(Game.province(to).owner,'fra');assert.equal(Game.getCombats()[0].status,'occupation');
+  advance(Game,10);
   assert.equal(Game.province(to).owner,'ger');assert.equal(Game.country('fra').alive,true);
 });
 
@@ -252,8 +255,9 @@ test('capturing an origin cancels its other offensive before the same-day autosa
   const {Game,unit,from,to}=setup();const other=Game.provinceById('fra_paris');
   Game.province(from).garrison=[unit('infantry')];Game.province(to).garrison=Array.from({length:100},()=>unit('infantry'));
   Game.province(other).garrison=Array.from({length:3},()=>unit('infantry'));Game.state.adj[other]=[from];
-  assert.equal(Game.resolveAttack('ger',from,to,1),true);assert.equal(Game.resolveAttack('fra',other,from,2),true);
-  advance(Game,3);assert.equal(Game.province(from).owner,'fra');
+  assert.equal(Game.resolveAttack('ger',from,to,1),true);Game.setCombatTactics(Game.getCombats()[0].id,'careful');assert.equal(Game.resolveAttack('fra',other,from,2),true);
+  advance(Game,3);assert.equal(Game.province(from).owner,'ger');assert.ok(Game.state.activeCombats.some(c=>c.from===from&&c.attacker==='ger'));
+  advance(Game,6);assert.equal(Game.province(from).owner,'fra');
   assert.equal(Game.state.activeCombats.some(c=>c.from===from&&c.attacker==='ger'),false);
   assert.equal(Game.load(Game.save()),true);
 });

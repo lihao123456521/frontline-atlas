@@ -297,6 +297,35 @@ const History = (() => {
     }
     return [...pairs.values()];
   }
+  const straitDefinitions=[
+    {id:'gibraltar',name:'直布罗陀海峡',shores:[{shapeOwner:'esp',lon:-5.6,lat:36.05},{shapeOwner:'esp',lon:-5.4,lat:35.9}]},
+    {id:'messina',name:'墨西拿海峡',shores:[{shapeOwner:'ita',lon:15.65,lat:38.22},{shapeOwner:'ita',lon:15.54,lat:38.2}]},
+    {id:'oresund',name:'厄勒海峡',shores:[{shapeOwner:'dnk',lon:12.6,lat:56.03},{shapeOwner:'swe',lon:12.7,lat:56.05}]},
+    {id:'bosporus',name:'博斯普鲁斯海峡',shores:[{shapeOwner:'tur',lon:28.99,lat:41.1},{shapeOwner:'tur',lon:29.08,lat:41.08}]},
+    {id:'dardanelles',name:'达达尼尔海峡',shores:[{shapeOwner:'tur',lon:26.4,lat:40.2},{shapeOwner:'tur',lon:26.43,lat:40.13}]},
+    {id:'little-belt',name:'小贝尔特海峡',shores:[{shapeOwner:'dnk',lon:9.72,lat:55.52},{shapeOwner:'dnk',lon:9.76,lat:55.5}]},
+    {id:'great-belt',name:'大贝尔特海峡',shores:[{shapeOwner:'dnk',lon:10.8,lat:55.34},{shapeOwner:'dnk',lon:11.08,lat:55.34}]},
+  ];
+  function straitLinks(provinces){
+    const historical=typeof HistoricalRegions!=='undefined'?HistoricalRegions:null;
+    const distance=(first,second)=>{const radians=Math.PI/180,latitude=(second.lat-first.lat)*radians,longitude=(second.lon-first.lon)*radians;
+      return 12742*Math.asin(Math.min(1,Math.sqrt(Math.sin(latitude/2)**2+Math.cos(first.lat*radians)*Math.cos(second.lat*radians)*Math.sin(longitude/2)**2)));};
+    const endpoint=(shore,key)=>{
+      const sample={...shore,id:'strait-'+key,x:(shore.lon+180)/360*1000,y:(90-shore.lat)/180*500};
+      const candidates=provinces.map((province,index)=>({p:province,i:index})).filter(({p})=>(p.shapeOwner||p.originalOwner||p.owner)===shore.shapeOwner&&allowsProvinceLink(p,sample));
+      if(!candidates.length)return null;
+      const actual=historical?.ownerAt(sample.x,sample.y,candidates),administrative=actual&&candidates.find(candidate=>candidate.p.id===actual);
+      return administrative||candidates.sort((first,second)=>distance(first.p,shore)-distance(second.p,shore))[0];
+    };
+    const links=[];
+    for(const definition of straitDefinitions){
+      const first=endpoint(definition.shores[0],definition.id+'-first'),second=endpoint(definition.shores[1],definition.id+'-second');
+      if(!first||!second||first.i===second.i)continue;
+      const crossingKm=distance(...definition.shores),routeKm=distance(first.p,definition.shores[0])+crossingKm+distance(definition.shores[1],second.p);
+      links.push({id:definition.id,name:definition.name,a:first.i,b:second.i,crossingKm,routeKm,preparationDays:Math.max(2,Math.ceil(routeKm/250))});
+    }
+    return links;
+  }
   function apply(s,make){
     s.historyVersion=1;
     const ally=(a,b)=>{if(s.countries[a]&&s.countries[b]){const key=[a,b].sort().join('|');s.alliances[key]=true;s.relations[key]=80;}};
@@ -329,5 +358,5 @@ const History = (() => {
     // Democratic states join threatened allies rather than acquiring random land.
     return !!(proactive||defensive);
   }
-  return {apply,allowsBorder,allowsProvinceLink,buildLandGraph,expandProvinces,administrativeSeaLinks,canAiDeclare,borders};
+  return {apply,allowsBorder,allowsProvinceLink,buildLandGraph,expandProvinces,administrativeSeaLinks,straitLinks,canAiDeclare,borders};
 })();

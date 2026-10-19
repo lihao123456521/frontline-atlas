@@ -40,7 +40,7 @@ test('a later battle taking the route middle cancels an earlier march on the sam
   Game.state.adj[enemy]=[through];Game.state.adj[through].push(enemy);
   assert.equal(Game.doAssault('ger',from,to,0,1),true);const march=Game.state.activeCombats[0],soldier=march.attackers[0].unit,id=soldier.id,hp=soldier.hp;
   assert.equal(Game.doAssault('ita',enemy,through,0,1),true);const cut=Game.state.activeCombats.find(c=>c.attacker==='ita');
-  cut.phase='engagement';cut.days=cut.preparationDays+1;Game.province(through).garrison=[];
+  cut.phase='engagement';cut.days=cut.preparationDays+1;cut.progress=99;Game.province(through).garrison=[];
   Game.advanceDay();assert.equal(Game.province(through).owner,'ita');
   assert.equal(Game.state.activeCombats.some(c=>c.id===march.id),false,'no invalid route remains until the next day');
   assert.ok(Game.province(from).garrison.some(d=>d.id===id&&d.hp===hp));assert.equal(Game.load(Game.save()),true);
@@ -116,7 +116,9 @@ test('arrived reinforcements win, clear transit metadata and survive a save with
   const unit=Game.province(from).garrison[0],id=unit.id,hp=unit.hp;assert.equal(Game.reinforceCombat(c.id,from,1),true);
   const marching=c.attackers.find(e=>e.unit.id===id);Game.state.daysElapsed=marching.unit.arrivalDay+1;
   c.phase='engagement';c.days=c.preparationDays+1;Game.province(to).garrison=[];const land=Game.armyTotals('ger').land;
-  Game.advanceDay();assert.equal(Game.province(to).owner,'ger');assert.equal(Game.armyTotals('ger').land,land);
+  Game.advanceDay();assert.equal(Game.province(to).owner,'pol');assert.equal(Game.getCombat(c.id).status,'occupation');
+  for(let day=0;day<10&&Game.state.activeCombats.some(combat=>combat.id===c.id);day++)Game.advanceDay();
+  assert.equal(Game.province(to).owner,'ger');assert.equal(Game.armyTotals('ger').land,land);
   assert.equal(Game.load(Game.save()),true);const stationed=Game.province(to).garrison.find(d=>d.id===id);assert.ok(stationed);
   assert.equal(stationed.hp,hp);assert.equal(stationed.combatId,undefined);assert.equal(stationed.arrivalDay,undefined);assert.equal(stationed.routePath,undefined);
   const legacy=JSON.parse(Game.save()),oldUnit=legacy.provinces[to].garrison.find(d=>d.id===id);oldUnit.arrivalDay=legacy.daysElapsed;oldUnit.routePath=chain;

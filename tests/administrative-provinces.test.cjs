@@ -108,6 +108,8 @@ test('Bavarian Palatinate and Oldenburg enclaves remain individually controllabl
   const attackingId=Game.province(border).garrison.find(d=>d.kind==='land').id,mainlandOwner=Game.province(bavaria).owner;
   Game.province(pfalz).garrison=[];assert.equal(Game.doAssault('fra',border,pfalz,0,1),true);const c=Game.state.activeCombats.find(b=>b.to===pfalz);
   c.phase='engagement';c.days=c.preparationDays+1;Game.advanceDay();
+  assert.equal(Game.province(pfalz).owner,'ger');assert.equal(Game.getCombat(c.id).status,'occupation');
+  for(let day=0;day<7&&Game.state.activeCombats.some(combat=>combat.id===c.id);day++)Game.advanceDay();
   assert.equal(Game.province(pfalz).owner,'fra');assert.equal(Game.province(bavaria).owner,mainlandOwner,'capturing a western enclave does not capture Bavaria');
   assert.ok(Game.province(pfalz).garrison.some(d=>d.id===attackingId));assert.equal(Game.load(Game.save()),true);
   const birkenfeld=R.nodes.find(n=>n.regionId==='ger_regis_130_1_340'&&n.lon<8&&n.lat<51);assert.ok(birkenfeld);

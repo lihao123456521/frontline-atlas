@@ -39,7 +39,9 @@ test('islands and East Prussia stay separate from homeland land routes',()=>{
 test('occupation changes control without granting a shortcut over an intervening province',()=>{
   const {Game}=setup('ger','barbarossa41'),i=id=>Game.provinceById(id);
   assert.equal(Game.province(i('fra_paris')).owner,'ger');
-  assert.equal(Game.moveUnits(i('ger_rhine'),i('fra_paris'),1),false);
+  const route=Game.movementRoute(i('ger_rhine'),i('fra_paris'),'ger');assert.ok(route&&route.path.length>2);
+  assert.equal(Game.moveUnits(i('ger_rhine'),i('fra_paris'),1),true);
+  assert.ok(Game.state.redeployments.some(movement=>movement.to===i('fra_paris')),'occupied friendly departments allow timed multi-province redeployment without a direct shortcut');
   assert.equal(Game.neighbors(i('fra_paris')).includes(i('fra_normandy')),false,'Paris and Normandy are separate nonadjacent departments');
   assert.ok(Game.landRoute(i('fra_paris'),i('fra_normandy'),'ger'),'occupied French territory retains a legal multi-department route');
 });

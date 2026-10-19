@@ -7,7 +7,7 @@ function setup(scenario,player='ger'){
   for(const file of core)vm.runInContext(fs.readFileSync(file,'utf8'),ctx,{filename:file});
   const Game=vm.runInContext('Game',ctx);Game.init(player,'fas',null,'standard',scenario);return Game;
 }
-const units=G=>G.state.provinces.flatMap(p=>p.garrison).concat(G.state.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)));
+const units=G=>G.state.provinces.flatMap(p=>p.garrison).concat(G.state.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)),(G.state.redeployments||[]).flatMap(movement=>movement.units));
 for(const scenario of ['sandbox36','poland39','barbarossa41'])test(scenario+' sustains independent AI wars without any player offensive',()=>{
   const G=setup(scenario),seen=new Set(),operations=[],initialOwners=G.state.provinces.map(province=>province.owner),days=scenario==='sandbox36'?180:scenario==='barbarossa41'?30:90;assert.equal(G.state.provinces.length,418);
   let diplomacyDay=-3;const warDays={};
@@ -21,7 +21,9 @@ for(const scenario of ['sandbox36','poland39','barbarossa41'])test(scenario+' su
     for(const c of G.state.activeCombats){
       if(!seen.has(c.id)){seen.add(c.id);operations.push({attacker:c.attacker,defender:c.defender});}
       if(c.kind==='land')for(let k=1;k<c.routePath.length;k++){
-        assert.ok(G.neighbors(c.routePath[k-1]).includes(c.routePath[k]));
+        const from=c.routePath[k-1],to=c.routePath[k],strait=(G.state.straitLinks||[]).some(link=>link.a===from&&link.b===to||link.b===from&&link.a===to);
+        const friendly=index=>G.province(index).owner===c.attacker||G.isAllied(c.attacker,G.province(index).owner);
+        assert.ok(G.neighbors(from).includes(to)||strait&&friendly(from)&&friendly(to),'each route segment is real land or a friendly-shore short strait; hostile straits require amphibious orders');
         if(k<c.routePath.length-1){const owner=G.province(c.routePath[k]).owner;assert.ok(owner===c.attacker||G.isAllied(owner,c.attacker),'no hostile intermediate territory');}
       }
     }

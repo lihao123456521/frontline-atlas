@@ -38,6 +38,9 @@
 #startScreen.start-screen .country-choice:hover{border-color:#b4b28a;background:#2b3935;color:#f2e9ce}
 #startScreen.start-screen .country-choice[aria-pressed="true"]{background:#dac596;color:#17282a;border-color:#ead4a3;box-shadow:none;font-weight:700}
 #startScreen.start-screen .country-choice:disabled{opacity:.55;cursor:default}
+#startScreen.start-screen .difficulty-field{margin-top:18px;display:grid;grid-template-columns:68px minmax(0,1fr);align-items:center;gap:4px 10px}
+#startScreen.start-screen .difficulty-field label{margin:0}
+#startScreen.start-screen .difficulty-field .diff-desc{grid-column:2;padding-top:0}
 #startScreen.start-screen label{display:block;margin:0 0 7px;font-size:12px;font-weight:500;line-height:1.5;letter-spacing:0;color:#b3c2bb}
 #startScreen.start-screen .country-select-field{display:grid;grid-template-columns:68px minmax(0,1fr);align-items:center;gap:10px}
 #startScreen.start-screen .country-select-field label{margin:0}

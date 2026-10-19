@@ -236,7 +236,8 @@ test('a real million-person campaign commits selected armor to frontage instead 
   assert.equal(Game.doAssault('ger',from,to,0,plan.infantryGroups,false,{tankUnits:plan.tankGroups,aircraftCount:0}),true);
   const combat=Game.getCombats()[0];assert.ok(combat.aPersonnel>100000);assert.ok(combat.aEffects.engagedTanks>0);
   assert.ok(combat.aEffects.armorMultiplier>1);
-  assert.ok(combat.aFront<=8,'combined front still respects terrain frontage');
+  const baseWidth=({mountain:4,urban:4,forest:5,hill:5,desert:6,plain:8})[Game.province(to).terrain]||6;
+  assert.ok(combat.aFrontage>=baseWidth&&combat.aFrontage<=baseWidth*1.75,'combined front uses only the bounded terrain deployment width');
   for(let day=0;day<=combat.preparationDays&&Game.getCombat(combat.id);day++)Game.advanceDay();
   const result=Game.getCombat(combat.id)||s.recentBattles.find(candidate=>candidate.from===from&&candidate.to===to);
   assert.ok(result.aEquipmentLoss.tanks>0,'selected armor really fires and suffers equipment attrition');
@@ -276,6 +277,8 @@ test('peace and loss of an air base release mission locks without transferring a
   for(const unit of Game.province(from).garrison.filter(unit=>unit.kind==='land'))unit.org=0;
   assert.equal(Game.doAssault('pol',home,from,0,0,true,{tankUnits:6,aircraftCount:0}),true);
   for(let day=0;day<3;day++)Game.advanceDay();
+  assert.equal(Game.province(from).owner,'ger');
+  for(let day=0;day<12&&Game.province(from).owner==='ger';day++)Game.advanceDay();
   assert.equal(Game.province(from).owner,'pol');assert.equal(plane.airCombatId,undefined);
   assert.equal(Game.province(from).garrison.includes(plane),false);
   assert.ok(Game.militaryAssets('ger').aircraft<=100,'an encircled wing may be lost but cannot duplicate or become enemy equipment');

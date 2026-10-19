@@ -22,7 +22,7 @@ const Unrest=(()=>{
     if(!state.unrest)state.unrest={serial:0,countries:{},conflicts:[],lastResponses:{}};
     if(!state.unrest.occupations)state.unrest.occupations={};
     for(const country of Object.values(state.countries)){
-      const spanishDivision=country.id==='esp'&&state.date.year<=1937&&!country.rebellionOf;
+      const spanishDivision=country.id==='esp'&&state.date.year>=1936&&state.date.year<=1937&&!country.rebellionOf;
       if(state.unrest.countries[country.id]){
         const record=state.unrest.countries[country.id];
         if(spanishDivision&&record.lastDay===0&&record.pressure===44&&record.division===.45&&

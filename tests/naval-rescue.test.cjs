@@ -101,7 +101,7 @@ test('capturing East Prussia preserves a transit survivor and retreats its fleet
   assert.equal(state.provinces.length,418);
   const attackerFrom=Game.neighbors(target).find(index=>state.provinces[index].owner==='pol');assert.ok(attackerFrom>=0);
   const port=Game.province(target),attackerPort=Game.province(attackerFrom);
-  const defenders=Array.from({length:2},(_,index)=>({...Game.makeDivision('infantry',100),id:'port-defense-'+index,owner:'ger'}));
+  const defenders=Array.from({length:4},(_,index)=>({...Game.makeDivision('infantry',100),id:'port-defense-'+index,owner:'ger'}));
   defenders.forEach(unit=>{unit.hp=unit.maxHp*.45;unit.org=unit.maxOrg*.35;});
   const evacuating={...Game.makeDivision('infantry'),id:'port-transit-survivor',owner:'ger',hp:Game.makeDivision('infantry').maxHp*.5};
   const escorts=Array.from({length:20},(_,index)=>({...Game.makeDivision('navy'),id:'port-escort-'+index,owner:'ger'}));

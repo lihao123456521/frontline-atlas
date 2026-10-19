@@ -101,6 +101,8 @@ test('major outcomes create persistent structured events once; old and malformed
   assert.equal(Game.doAssault('ger',0,1,0,4),true);
   assert.equal(s.worldEvents.length,1);assert.equal(s.worldEvents[0].kind,'war');
   for(let day=0;day<5&&!s.over&&Game.province(1).owner==='fra';day++)Game.advanceDay();
+  assert.equal(Game.province(1).owner,'fra');assert.equal(Game.getCombats()[0].status,'occupation');assert.deepEqual(Array.from(s.worldEvents,e=>e.kind),['war']);
+  for(let day=0;day<7&&!s.over&&Game.province(1).owner==='fra';day++)Game.advanceDay();
   assert.equal(Game.province(1).owner,'ger');
   assert.deepEqual(Array.from(s.worldEvents,e=>e.kind),['war','capture','capitulation']);
   assert.ok(s.worldEvents.every(e=>/^e\d+$/.test(e.id)&&/^\d{4}-\d{2}-\d{2}$/.test(e.day)&&Array.isArray(e.countryIds)));

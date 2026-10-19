@@ -11,6 +11,7 @@ function setup(){
     setAttribute(k,v){this.attributes[k]=String(v);}
     change(value){this.value=value;this.listeners.change();}
     click(){this.listeners.click();}
+    set textContent(value){this.text=String(value);this.children=[];}
   }
   const elements={},created=[];const get=id=>elements[id]||(elements[id]=new Element());
   get('selDifficulty').value='standard';
@@ -29,13 +30,13 @@ function setup(){
   const source=fs.readFileSync(path.join(__dirname,'../js/ui.js'),'utf8').replace('return { init, refresh,','return { initStartScreen, bindMapNavigation, init, refresh,');
   vm.runInContext(source,ctx);return {UI:vm.runInContext('UI',ctx),get,calls};
 }
-test('global supported countries and Pacific scenario are selectable; fixed scenarios bind their country',()=>{
+test('the lightweight homepage fallback keeps global countries free and hides legacy fixed campaigns',()=>{
   const {UI,get}=setup();UI.initStartScreen();
   assert.deepEqual(get('selCountry').children.map(e=>e.value),['ger','jpn','usa','bra']);
-  assert.deepEqual(get('selScenario').children.map(e=>e.value),['sandbox36','pacific42']);
+  assert.deepEqual(get('selScenario').children.map(e=>e.value),['sandbox36']);
   assert.equal(get('selCountry').value,'ger');assert.equal(get('selCountry').disabled,false);
-  get('selScenario').change('pacific42');assert.equal(get('selCountry').value,'jpn');assert.equal(get('selCountry').disabled,true);
-  get('selScenario').change('sandbox36');assert.equal(get('selCountry').disabled,false);
+  get('selCountry').change('jpn');assert.equal(get('selCountry').value,'jpn');assert.equal(get('selCountry').disabled,false);
+  get('selScenario').change('sandbox36');assert.equal(get('selCountry').value,'jpn');assert.equal(get('selCountry').disabled,false);
 });
 test('region selector dispatches each region and global/player controls without advancing gameplay',()=>{
   const {UI,get,calls}=setup();UI.bindMapNavigation();

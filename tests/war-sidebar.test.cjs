@@ -183,7 +183,14 @@ test('movement preserves a fractional thumb position after touch release and sen
   const range=descendants(panel).find(n=>n.attributes['aria-label']==='调动兵力数量');assert.ok(range);assert.equal(range.step,'any');
   emit(range,'pointerdown',{pointerType:'touch'});range.value='5.6';emit(range,'input');range.value='5.7';emit(range,'input');UI.refresh();assert.ok(descendants(panel).includes(range));assert.match(panel.textContent,/派出 6 支 · 留守 2 支/);
   emit(range,'pointerup',{pointerType:'touch'});flush();const restored=descendants(panel).find(n=>n.attributes['aria-label']==='调动兵力数量');assert.equal(+restored.value,5.7);
-  click(button('确认调动'));assert.equal(Game.province(to).garrison.length,6);assert.equal(Game.province(from).garrison.length,2);assert.equal(new Set([...Game.province(from).garrison,...Game.province(to).garrison].map(u=>u.id)).size,8);
+  click(button('确认调动'));assert.equal(Game.province(to).garrison.length,0);assert.equal(Game.province(from).garrison.length,2);
+  const movement=Game.state.redeployments.find(order=>order.from===from&&order.to===to);assert.ok(movement);assert.equal(movement.units.length,6);
+  const sentIds=Array.from(movement.units,unit=>unit.id).sort(),allUnits=()=>[...Game.province(from).garrison,...Game.province(to).garrison,...(Game.state.redeployments||[]).flatMap(order=>order.units)];
+  assert.equal(new Set(allUnits().map(unit=>unit.id)).size,8);
+  while(Game.state.daysElapsed<movement.arrivalDay)Game.advanceDay();
+  assert.equal(Game.state.redeployments.length,0);assert.equal(Game.province(to).garrison.length,6);
+  assert.deepEqual(Array.from(Game.province(to).garrison,unit=>unit.id).sort(),sentIds);
+  Game.advanceDay();assert.equal(Game.province(to).garrison.length,6);assert.equal(new Set(allUnits().map(unit=>unit.id)).size,8);
 });
 
 test('reinforcement keeps raw drag state across renders and commits six actual units from the chosen source',()=>{

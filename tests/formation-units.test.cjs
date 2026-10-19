@@ -38,7 +38,7 @@ test('split formations preserve integer nominal divisions, people, health and ob
   assert.equal(Game.province(from).garrison[0].name,'缩编步兵师');assert.equal(Game.province(from).garrison[1].name,'步兵驻防分队');
 });
 
-test('small units have proportional real strength and width never displaces a full division',()=>{
+test('small units have proportional strength and readiness, rather than object size, determines frontage rotation',()=>{
   const {Game}=setup(),full=Game.makeDivision('infantry'),small=Game.makeDivision('infantry',40);
   assert.equal(small.maxHp,2);assert.equal(small.maxOrg,full.maxOrg);
   const strength=unit=>Game.testStrength([unit],'atk','plain',[],false);
@@ -46,7 +46,9 @@ test('small units have proportional real strength and width never displaces a fu
   const fragments=Array.from({length:30},()=>Game.makeDivision('infantry',40));
   full.org=25;
   const front=Game.testFront([...fragments,full],1);
-  assert.equal(front.length,1);assert.equal(front[0].id,full.id);
+  assert.equal(front.length,25);assert.ok(front.every(unit=>fragments.includes(unit)));assert.equal(Game.formationTotal(front),1);
+  full.org=full.maxOrg;const equalReadiness=Game.testFront([...fragments,full],1);
+  assert.equal(equalReadiness.length,1);assert.equal(equalReadiness[0].id,full.id);
   const fragmentsFront=Game.testFront(fragments,1);
   assert.equal(fragmentsFront.length,25);assert.equal(Game.formationTotal(fragmentsFront),1);
 });
@@ -132,11 +134,14 @@ test('scaled attackers preserve division totals and identity across combat saves
   assert.equal(Game.doAssault('ger',from,to,0,1),true);assert.equal(Game.armyTotals('ger').engaged,.04);
   assert.equal(Game.load(Game.save()),true);assert.equal(Game.armyTotals('ger').land,before);
   for(let i=0;i<3;i++)Game.advanceDay();
+  assert.equal(Game.province(to).owner,'fra');assert.equal(Game.getCombats()[0].status,'occupation');
+  for(let day=0;day<7&&Game.province(to).owner!=='ger';day++)Game.advanceDay();
   assert.equal(Game.province(to).garrison.find(d=>d.id===id).maxHp,2);
   assert.equal(Game.load(Game.save()),true);assert.equal(Game.armyTotals('ger').land,before);
   Game.province(from).garrison=[Game.makeDivision('infantry',40)];Game.province(to).owner='fra';Game.province(to).garrison=[Game.makeDivision('infantry')];
   const retreatId=Game.province(from).garrison[0].id;assert.equal(Game.doAssault('ger',from,to,0,1),true);
-  assert.equal(Game.retreatCombat(Game.state.activeCombats[0].id),true);
+  const retreating=Game.state.activeCombats.find(combat=>combat.from===from&&combat.to===to&&combat.attacker==='ger');assert.ok(retreating);
+  assert.equal(Game.retreatCombat(retreating.id),true);
   assert.equal(Game.province(from).garrison.find(d=>d.id===retreatId).maxHp,2);assert.equal(Game.load(Game.save()),true);
 });
 
@@ -169,6 +174,8 @@ test('scaled remote troops on a real land corridor save, arrive, win or safely r
   assert.equal(Game.load(JSON.stringify(blocked)),true);assert.equal(Game.province(source).garrison.find(d=>d.id===id).hp,hp);
   assert.equal(Game.load(JSON.stringify(valid)),true);combat=Game.state.activeCombats.find(c=>c.id===combat.id);incoming=combat.attackers.find(e=>e.unit.id===id);
   Game.state.daysElapsed=incoming.unit.arrivalDay+1;combat.phase='engagement';combat.days=combat.preparationDays+1;Game.province(target).garrison=[];
-  Game.advanceDay();assert.equal(Game.province(target).owner,'ger');assert.equal(Game.load(Game.save()),true);
+  Game.advanceDay();assert.equal(Game.province(target).owner,'pol');assert.equal(Game.getCombat(combat.id).status,'occupation');
+  for(let day=0;day<7&&Game.state.activeCombats.some(battle=>battle.id===combat.id);day++)Game.advanceDay();
+  assert.equal(Game.province(target).owner,'ger');assert.equal(Game.load(Game.save()),true);
   const stationed=Game.province(target).garrison.find(d=>d.id===id);assert.equal(stationed.hp,hp);assert.equal(stationed.maxHp,2);assert.equal(stationed.formationPermille,40);assert.equal(stationed.arrivalDay,undefined);assert.equal(stationed.routePath,undefined);
 });

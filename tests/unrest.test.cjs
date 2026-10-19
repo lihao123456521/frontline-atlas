@@ -279,13 +279,16 @@ function occupyWithSmallRealGuard(Game,Unrest){
     Game.neighbors(index).some(next=>Game.province(next).owner==='fra')&&Game.neighbors(index).some(next=>Game.province(next).owner==='ger'));
   assert.ok(index>=0);const province=Game.province(index),home=Game.neighbors(index).find(next=>Game.province(next).owner==='fra');
   Game.province(home).garrison.push(...province.garrison);province.garrison=[];
-  const guards=Game.state.provinces.filter(land=>land.owner==='ger').flatMap(land=>land.garrison.filter(unit=>unit.kind==='land').map(unit=>({land,unit})))
+  const guards=Game.state.provinces.filter(land=>land.owner==='ger').flatMap(land=>land.garrison.filter(unit=>unit.type==='infantry'&&(unit.formationPermille??1000)>20).map(unit=>({land,unit})))
     .sort((first,second)=>Game.unitPersonnel(first.unit)-Game.unitPersonnel(second.unit));
-  const guard=guards[0];assert.ok(guard);assert.ok(Game.unitPersonnel(guard.unit)>=50);
-  guard.land.garrison=guard.land.garrison.filter(unit=>unit!==guard.unit);province.garrison.push(guard.unit);guard.unit.owner='ger';province.owner='ger';
+  const source=guards[0];assert.ok(source);
+  const original=source.unit,formation=original.formationPermille??1000,nominal=original.nominalPersonnel??formation*10;
+  const guard=Game.makeDivision('infantry',20);guard.owner='ger';guard.hp=guard.maxHp*original.hp/original.maxHp;guard.org=original.org;guard.nominalPersonnel=nominal*20/formation;
+  original.formationPermille=formation-20;original.maxHp-=guard.maxHp;original.hp-=guard.hp;original.nominalPersonnel=nominal-guard.nominalPersonnel;
+  assert.ok(Game.unitPersonnel(guard)>=50);province.garrison.push(guard);province.owner='ger';
   const record=Unrest.observeOccupation(Game.state,index);assert.ok(record);assert.ok(record.reserve>=200);
   record.support=0;record.resistance=100;
-  return {index,province,record,guard:guard.unit};
+  return {index,province,record,guard};
 }
 test('occupied provinces retain a finite local population pool, visible public support and repeat-safe free local appeasement',()=>{
   const {Game,Unrest}=setup(),origin=Game.country('fra'),before={...origin.mobilization};

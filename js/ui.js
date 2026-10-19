@@ -67,9 +67,9 @@ const UI = (function(){
     r=Math.max(0,Math.min(255,r));g=Math.max(0,Math.min(255,g));b=Math.max(0,Math.min(255,b));
     return "#"+((r<<16)|(g<<8)|b).toString(16).padStart(6,"0");
   }
-  function flagHTML(cid, size){
+  function flagHTML(cid, size, profile){
     // 游戏未开始时回退到静态国家数据（开始界面预览可用）
-    const c = (Game.state && Game.state.countries[cid]) || COUNTRIES.find(x => x.id === cid);
+    const c = profile || (Game.state && Game.state.countries[cid]) || COUNTRIES.concat(typeof MINOR_COUNTRIES==='undefined'?[]:MINOR_COUNTRIES).find(x => x.id === cid);
     if(!c) return "";
     size = size||22;
     const h = Math.round(size*20/28);
@@ -289,22 +289,13 @@ const UI = (function(){
   /* ---------- 开始界面 ---------- */
   function initStartScreen(){
     const sel = $("selCountry");
-    // 使用引擎支持的全球国家列表。
-    var startDefs = (typeof PLAYABLE_COUNTRIES !== "undefined")
-      ? COUNTRIES.concat(MINOR_COUNTRIES||[]).filter(function(c){ return PLAYABLE_COUNTRIES.indexOf(c.id) >= 0; })
-      : COUNTRIES;
-    startDefs.forEach(c => {
-      const o = document.createElement("option");
-      o.value = c.id; o.textContent = c.name;
-      sel.appendChild(o);
-    });
+    const sc = $("selScenario");
+    const entries=typeof ScenarioSetup!=='undefined'?ScenarioSetup.entries():SCENARIOS.filter(s=>s.id==='sandbox36');
+    let startDefs=[];
+    sc.textContent='';
+    entries.forEach(s=>{const option=el('option',null,s.name);option.value=s.id;sc.appendChild(option);});
+    sc.value='sandbox36';
     const choices = $("countryChoices");
-    ['ger','sov','uk','fra','usa','jpn','chn','ita'].forEach(id=>{
-      const c=startDefs.find(x=>x.id===id);if(!c||!choices)return;
-      const b=el('button','country-choice',c.name);b.type='button';b.dataset.country=id;
-      b.setAttribute('aria-pressed','false');
-      b.addEventListener('click',()=>{if(sel.disabled)return;sel.value=id;updateCountry();});choices.appendChild(b);
-    });
     // 国家预览仅给规模与方向，其他数据进入游戏后按需查看。
     function updateCountry(){
       const c = startDefs.find(x => x.id === sel.value);
@@ -312,9 +303,9 @@ const UI = (function(){
       if(!c || !box) return;
       const scenario=SCENARIOS.find(s=>s.id===$("selScenario").value)||SCENARIOS[0];
       const army=typeof OrderOfBattle!=='undefined'?OrderOfBattle.preview?.(scenario.id,c.id,{reinforcedArmy:true}):null;
-      const role={ger:'机动作战',sov:'纵深防御',uk:'海上战线',fra:'边境防御',usa:'工业动员',jpn:'岛屿战线',chn:'持久作战',ita:'地中海战线'}[c.id]||'区域作战';
+      const role=scenario.id==='ww1_1914'?'步兵主力 · 早期航空':{ger:'机动作战',sov:'纵深防御',uk:'海上战线',fra:'边境防御',usa:'工业动员',jpn:'岛屿战线',chn:'持久作战',ita:'地中海战线'}[c.id]||'区域作战';
       box.innerHTML = `
-        <div class="cp-head">${flagHTML(c.id, 40)}
+        <div class="cp-head">${flagHTML(c.id, 40, c)}
           <div class="cp-intro"><div class="cp-name">${c.name}</div><div class="cp-desc">${role} · 增强兵力</div></div>
         </div>
         <div class="cp-stats">
@@ -324,7 +315,7 @@ const UI = (function(){
       if(army?.personnel>=1000000)box.appendChild(el('p','cp-balance-note','百万兵力 · 游戏配置 · 按真实编制计算'));
       else if(army?.targetMultiplier)box.appendChild(el('p','cp-balance-note','增强兵力 · 游戏配置'));
       document.querySelectorAll('.country-choice').forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.country===c.id));b.disabled=!!scenario.player;});
-      const cap=PROVINCES_DEF.find(p=>p.id===c.capital),map=$("startMapPreview");
+      const cap=c.capitalLocation||PROVINCES_DEF.find(p=>p.id===c.capital),map=$("startMapPreview");
       if(cap&&map&&typeof WORLD_HISTORICAL_MAP!=='undefined'){
         const center=proj(cap.lon,cap.lat),width=['sov','usa','can','chn','bra','aus'].includes(c.id)?330:220;
         const left=clamp(center.x-width/2,0,1000-width),top=clamp(center.y-85,0,330);
@@ -333,18 +324,23 @@ const UI = (function(){
       }
     }
     sel.addEventListener("change", updateCountry);
-    updateCountry();
-    const sc = $("selScenario");
-    SCENARIOS.filter(s => !s.player || startDefs.some(c=>c.id===s.player)).forEach(s => {
-      const o = document.createElement("option");
-      o.value = s.id; o.textContent = s.name;
-      sc.appendChild(o);
-    });
     function updateScen(){
       const s = SCENARIOS.find(x => x.id === sc.value);
-      $("scenDesc").textContent = s ? ({sandbox36:'自由选择国家',poland39:'德国 · 东西两线',barbarossa41:'德国 · 东线战役',pacific42:'日本 · 跨海作战'}[s.id]||'') : "";
-      sel.disabled=!!(s && s.player);
-      if(s && s.player)sel.value=s.player;
+      const previous=sel.value;
+      startDefs=typeof ScenarioSetup!=='undefined'?ScenarioSetup.countries(sc.value):COUNTRIES.concat(MINOR_COUNTRIES||[]);
+      sel.textContent='';
+      startDefs.forEach(c=>{const option=el('option',null,c.name);option.value=c.id;sel.appendChild(option);});
+      sel.value=startDefs.some(c=>c.id===previous)?previous:startDefs.some(c=>c.id==='ger')?'ger':startDefs[0]?.id||'';
+      sel.disabled=false;
+      if(choices){
+        choices.textContent='';
+        ['ger','sov','uk','fra','usa','jpn','chn','ita'].forEach(id=>{
+          const profile=startDefs.find(c=>c.id===id);if(!profile)return;
+          const button=el('button','country-choice',profile.name);button.type='button';button.dataset.country=id;
+          button.addEventListener('click',()=>{sel.value=id;updateCountry();});choices.appendChild(button);
+        });
+      }
+      $("scenDesc").textContent = s ? (s.id==='ww1_1914'?'1914年七月危机 · 全部在场国家可选 · 战略边界近似':'1936年自由开局 · 全部在场国家可选') : '';
       updateCountry();
     }
     sc.addEventListener("change", updateScen);
@@ -437,7 +433,7 @@ const UI = (function(){
     const sc = $("selScenario").value;
     const scenario=SCENARIOS.find(s=>s.id===sc);
     const pid = (scenario && scenario.player) || $("selCountry").value;
-    const definition=COUNTRIES.concat(typeof MINOR_COUNTRIES==='undefined'?[]:MINOR_COUNTRIES).find(c=>c.id===pid);
+    const definition=typeof ScenarioSetup!=='undefined'?ScenarioSetup.countryProfile(sc,pid):COUNTRIES.concat(typeof MINOR_COUNTRIES==='undefined'?[]:MINOR_COUNTRIES).find(c=>c.id===pid);
     const diff = $("selDifficulty").value;
     const tutorial=document.querySelector?.('input[name="startMode"]:checked')?.value==='tutorial';
     const button=$('btnStart'),label=button.innerHTML;startingGame=true;button.disabled=true;button.textContent='战役准备中…';
@@ -720,22 +716,25 @@ const UI = (function(){
     let commandCount=null,strengthDetail=null,attack=null,allBtn=null;
     const targetAtWar=!toP.owner||Game.isAtWar(s.player,toP.owner);
     const box=el('section','rp-section fade-in battle-plan-summary');
-    box.appendChild(el('h3',null,isAmphib?'出征 · 两栖登陆':'出征'));
+    const strait=(s.straitLinks||[]).find(link=>link.a===from&&link.b===to||link.a===to&&link.b===from);
+    box.appendChild(el('h3',null,isAmphib?(strait?'跨海峡出征 · '+strait.name:'出征 · 两栖登陆'):'出征'));
     box.appendChild(el('p','battle-route',`${fromP.name} → ${toP.name}${toP.isCapital?' ★':''}`));
-    const comparison=el('div','battle-win-box'),risk=el('p','battle-risk');
+    const comparison=el('div','battle-win-box'),risk=el('p','battle-risk'),readiness=el('p','battle-readiness task-status');
     const attackPeople=renderForceMetrics(available.sendingAssets),defensePeople=el('span'),advantage=el('small','battle-advantage');
     comparison.appendChild(attackPeople);comparison.appendChild(defensePeople);comparison.appendChild(advantage);box.appendChild(comparison);
     let estimateFor=null,lastEstimate=null,selection=available;
     if(!targetAtWar)box.appendChild(el('p','war-status','将宣战 · 紧张度 +18，稳定度 −8'));
-    box.appendChild(risk);
+    box.appendChild(risk);box.appendChild(readiness);
     function updateEstimate(){
       selection=Game.assaultOptions(from,to,sending,isAmphib,compositionOptions(attackComposition));
       const estimateKey=JSON.stringify([sending,attackComposition.tankUnits,attackComposition.aircraftCount]);
       if(estimateKey!==estimateFor){lastEstimate=Game.battlePreview(from,to,sending,isAmphib,compositionOptions(attackComposition));if(!selection.totalGroups)lastEstimate={...lastEstimate,aStr:0,win:0};estimateFor=estimateKey;}
       const preview=lastEstimate,risks=[];
+      readiness.textContent=preview.aFrontPersonnel!==undefined?`前沿 ${people(preview.aFrontPersonnel)} · 后备 ${people(preview.aReservePersonnel)} · 组织 ${Math.round(preview.aFrontOrg)}%`:'';
       updateForceMetrics(attackPeople,selection.sendingAssets);defensePeople.textContent='敌军 '+people(Game.personnelOf(toP.garrison.filter(d=>d.kind==='land')));advantage.textContent=battleAdvantage(preview);
       if(strengthDetail)strengthDetail.textContent=`进攻 ${Math.round(preview.aStr)} / 防御 ${Math.round(preview.dStr)}`;
       if(preview.win<.4)risks.push('敌方防守占优，建议增援或等待部队休整');
+      if(preview.aFrontOrg<25)risks.push('前沿组织不足，建议先休整；人数多不代表已经展开');
       if(selection.totalGroups>=available.infantryGroups+available.tankGroups)risks.push('出发地不留驻军，可能被敌军反攻');
       risk.textContent=risks.length?'注意：'+risks.join('；')+'。':'';risk.classList.toggle('hidden',!risks.length);
       if(commandCount)commandCount.textContent=`出击 ${people(selection.sendingPersonnel)} · 留守 ${people(selection.remainingAssets.personnel)}（${selection.totalGroups} / ${available.infantryGroups+available.tankGroups} ${unitCountLabel(availableTroops(from))}）`;
@@ -809,13 +808,15 @@ const UI = (function(){
     const {from,to,unitKind}=pendingMove;
     const origin=Game.province(from), target=Game.province(to);
     const total=availableTroops(from,unitKind||'land').length;
-    const defaultSend=total>=2?total-1:1;
+    const defaultSend=total>=2?total-1:total;
     const box=el("div","rp-section fade-in command-status");
     box.appendChild(el("h3",null,"确认调动部队"));
     box.appendChild(el("p",null,`${origin.name} → ${target.name} · ${unitKind==="air"?"飞机转场":unitKind==="naval"?"舰队转移":"陆军调动"}`));
+    const route=(unitKind||'land')==='land'?Game.movementRoute?.(from,to):null;
+    if(route)box.appendChild(el('p','task-status',`${route.type==='strait'?'海峡通行 · '+route.name:'沿连续陆路'} · 预计 ${route.days} 天 · 途中不能出征或防守`));
     const label=el("div","task-status");
     let confirm=null;
-    function updateLabel(){ const n=moveCount??defaultSend; label.textContent=`派出 ${n} 支 · 留守 ${total-n} 支 · ${people(orderPersonnel(from,n,unitKind||'land'))}`;if(confirm)confirm.disabled=n===0; }
+    function updateLabel(){ const n=clamp(moveCount??defaultSend,0,total); label.textContent=`派出 ${n} 支 · 留守 ${total-n} 支 · ${people(orderPersonnel(from,n,unitKind||'land'))}`;if(confirm)confirm.disabled=n===0; }
     if(total>1){
       const range=el("input"); range.type="range"; range.min=0; range.max=total; range.step='any'; range.value=clamp(moveSliderValue??(moveCount??defaultSend),0,total);
       range.setAttribute("aria-label","调动兵力数量");
@@ -824,17 +825,19 @@ const UI = (function(){
       box.appendChild(range);box.appendChild(bounds);
     }
     updateLabel(); box.appendChild(label);
-    confirm=commandButton(el("button","rp-btn primary","确认调动"));confirm.disabled=moveCount===0;
+    confirm=commandButton(el("button","rp-btn primary","确认调动"));confirm.disabled=clamp(moveCount??defaultSend,0,total)===0;
     confirm.addEventListener("click",()=>{
       if(origin.owner!==Game.state.player || target.owner!==Game.state.player || !origin.garrison.some(d=>d.kind===(unitKind||"land"))){
         toast("调动条件已变化，请重新选择。","war"); clearCommand(); refresh(); return;
       }
       const count=moveCount??defaultSend;if(!count)return;
-      clearCommand(); Game.moveUnits(from,to,count,unitKind); sfx("click"); refresh();
+      clearCommand();
+      if(!Game.moveUnits(from,to,count,unitKind)){toast('调动未执行，路线或可用部队已变化。','war');refresh();return;}
+      sfx("click"); refresh();resumePlanning();
     });
     box.appendChild(confirm);
     const cancel=el("button","rp-btn","取消命令");
-    cancel.addEventListener("click",()=>{ clearCommand(); refresh(); }); box.appendChild(cancel);
+    cancel.addEventListener("click",()=>{ clearCommand(); refresh();resumePlanning(); }); box.appendChild(cancel);
     rp.appendChild(box);
   }
 
@@ -988,6 +991,8 @@ const UI = (function(){
     force.appendChild(el('span',null,detachments===land.length&&detachments?'驻防分队':detachments?'野战部队 '+(land.length-detachments)+' · 驻防分队 '+detachments:'驻军 · '+land.length+' '+unitCountLabel(land)));card.appendChild(force);
     const transports=p.garrison.filter(unit=>unit.rescueArrivalDay>s.daysElapsed);
     if(transports.length)card.appendChild(el('p','naval-transit-status','海运撤离中 · '+people(Game.personnelOf(transports))+' · 约 '+Math.max(...transports.map(unit=>unit.rescueArrivalDay-s.daysElapsed))+' 天后抵达，暂不可出征'));
+    const incoming=(s.redeployments||[]).filter(movement=>movement.owner===s.player&&movement.to===idx);
+    if(incoming.length)card.appendChild(el('p','naval-transit-status','调动在途 · '+people(incoming.reduce((sum,movement)=>sum+Game.personnelOf(movement.units),0))+' · '+(incoming.some(movement=>movement.blocked)?'通道被围，等待解围':Math.max(...incoming.map(movement=>movement.arrivalDay-s.daysElapsed))+' 天后抵达')+' · 不计守军'));
     if(own){const aircraft=Game.assaultOptions(idx,idx,0,false,{tankUnits:0,aircraftCount:0}).maxAircraft;if(aircraft>0)card.appendChild(el('p','task-status','附近可支援 '+assetCount(aircraft,'架飞机')));}
     const occupation=own&&Game.occupationStatus?.(idx);
     if(occupation){
@@ -1393,7 +1398,8 @@ const UI = (function(){
     for(const technology of TECHS.filter(tech=>researchBranch(tech)===selectedResearchBranch)){
       const done=!!c.researched[technology.id],running=active.includes(technology.id),slot=s.research.slots.indexOf(null);
       const prerequisites=technology.pre.filter(id=>!c.researched[id]);
-      const reason=technology.year>s.date.year?technology.year+' 年开放':prerequisites.length?'先研发 '+prerequisites.map(id=>TECHS.find(tech=>tech.id===id).name).join('、'):slot<0?'科研槽已满':'';
+      const year=Game.techUnlockYear?.(technology.id)||technology.year||0;
+      const reason=year>s.date.year?year+' 年开放':prerequisites.length?'先研发 '+prerequisites.map(id=>TECHS.find(tech=>tech.id===id).name).join('、'):slot<0?'科研槽已满':'';
       const card=el('article','technology-card'+(done?' complete':''));
       card.appendChild(el('p','technology-state',done?'✓ 已完成':running?'研发中':reason?'待解锁':technology.cost+' RP'));
       card.appendChild(el('h4',null,technology.name));card.appendChild(el('p','technology-effect',technology.desc));
@@ -1553,19 +1559,22 @@ const UI = (function(){
       select.addEventListener('focus',()=>pauseForPlanning());
       select.addEventListener('change',()=>{if(select.value==='plan'){planningOffensive=true;refresh();$("rightPanel").scrollTop=0;}else focusCombat(select.value);});box.appendChild(select);
     }
-    const marching=b.phase==='preparation'||b.phase==='naval';
+    const marching=b.phase==='preparation'||b.phase==='naval',occupying=b.status==='occupation';
     const stages=el('ol','combat-stages');
-    [['行军接敌',marching?'current':'done'],['攻城交战',marching?'':'current'],['占领目标','']].forEach(([name,cls],i)=>{
+    [['行军接敌',marching?'current':'done'],['攻城交战',marching?'':occupying?'done':'current'],['占领目标',occupying?'current':'']].forEach(([name,cls],i)=>{
       const step=el('li',cls);step.appendChild(el('span',null,String(i+1)));step.appendChild(el('b',null,name));
       if(i===2)step.appendChild(el('small',null,'尚未占领'));stages.appendChild(step);
     });
     const marchDays=Math.max(1,(b.preparationDays||2)-(b.days||0));
-    box.appendChild(el('p','combat-phase',marching?(b.phase==='naval'?'争夺海路 · 陆军尚未登陆':b.playerSide==='defend'?`敌军接近 · 预计 ${marchDays} 天后交战`:`正在行军 · 预计 ${marchDays} 天后接敌`):b.holdout?'包围坚守':b.playerSide==='defend'?'守城交战':'正在攻城'));
+    box.appendChild(el('p','combat-phase',marching?(b.phase==='naval'?'争夺海路 · 陆军尚未登陆':b.playerSide==='defend'?`敌军接近 · 预计 ${marchDays} 天后交战`:`正在行军 · 预计 ${marchDays} 天后接敌`):b.holdout?'包围坚守':occupying?'清扫占领':b.status|| (b.playerSide==='defend'?'守城交战':'正在攻城')));
     if(!marching){
       const progress=el('progress','combat-progress');progress.max=100;progress.value=b.progress;progress.setAttribute('aria-label','攻击方突破进度');box.appendChild(progress);
       box.appendChild(el('p','combat-breakthrough',`${b.playerSide==='defend'?'敌军突破':'突破'} ${Math.round(b.progress)}%`));
     }
     if(b.holdout)box.appendChild(el('p','combat-status',b.playerSide==='defend'?'无陆路退路，持续抵抗；有舰队时可尝试海运撤离':'守军仍在抵抗，尚未占领'));
+    if(!marching&&b.statusDetail)box.appendChild(el('p','combat-status',b.statusDetail));
+    const ownPrefix=b.playerSide==='defend'?'d':'a';
+    if(!marching&&b[ownPrefix+'FrontPersonnel']!==undefined)box.appendChild(el('p','combat-frontage task-status',`我方前沿 ${people(b[ownPrefix+'FrontPersonnel'])} · 后备 ${people(b[ownPrefix+'ReservePersonnel'])} · 组织 ${Math.round(b[ownPrefix+'FrontOrg'])}%`));
     const details=el('details','combat-details');details.open=combatDetailsOpen;
     details.appendChild(el('summary',null,'详细战况'));
     details.addEventListener('toggle',()=>{if(details.isConnected===false||activeCombatId!==b.id||combatDetailsOpen===details.open)return;combatDetailsOpen=details.open;if(details.open)pauseForPlanning();});
@@ -1776,8 +1785,7 @@ const UI = (function(){
     const totalBattles = s.battles || 0;
     const wonBattles = s.recentBattles ? s.recentBattles.filter(b=>b.won).length : 0;
     const dateStr = typeof fmtDate === "function" ? fmtDate(s.date) : "";
-    const months = (s.date.year - 1936) * 12 + (s.date.month - 1);
-    const years = (months / 12).toFixed(1);
+    const years = ((s.daysElapsed||0) / 365.25).toFixed(1);
     const m = el("div");
     m.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:300;animation:fadeIn .5s";
     const box = el("div");
@@ -1813,8 +1821,8 @@ const UI = (function(){
           if(idx===from) return;
           if(kind==="move"){
             if(p.owner!==s.player){ toast("调动目标必须是己方省份。","war"); return; }
-            const linked=unitKind==="air" || (unitKind==="naval"?Game.seaAdj(from).includes(idx)&&Game.coastalOf(idx):Game.neighbors(from).includes(idx));
-            if(!linked){toast(unitKind==="naval"?"舰队需要海路连接的己方港口。":"陆军需要相邻己方省份。","war");return;}
+            const linked=unitKind==="air" || (unitKind==="naval"?Game.seaAdj(from).includes(idx)&&Game.coastalOf(idx):Game.movementRoute?!!Game.movementRoute(from,idx):Game.neighbors(from).includes(idx));
+            if(!linked){toast(unitKind==="naval"?"舰队需要海路连接的己方港口。":"陆军需要连续的己方/盟友陆路或友方海峡通道。","war");return;}
             pauseForPlanning();pendingMove={from,to:idx,unitKind}; targetMode=null; moveCount=null;moveSliderValue=null; refresh(); return;
           }
           if(!Game.landCount(from)){toast("出发地没有可占领领土的陆军。","war");return;}
@@ -1823,7 +1831,7 @@ const UI = (function(){
           const land=!!landRouteTo(from,idx);
           const amphib=Game.seaAdj(from).includes(idx) && Game.coastalOf(from) && Game.coastalOf(idx);
           if(!land && !amphib){ toast("没有可通行路线，途中必须是我方或盟国领土。","war"); return; }
-          if(!land && !origin.garrison.some(d=>d.kind==="naval")){ toast("两栖登陆需要出发地有海军。","war"); return; }
+          if(!land && !origin.garrison.some(d=>d.kind==="naval")){const crossing=(s.straitLinks||[]).find(link=>link.a===from&&link.b===idx||link.a===idx&&link.b===from);toast(crossing?crossing.name+'敌岸需舰队护航；友方两岸可直接海峡通行。':"两栖登陆需要出发地有海军。","war"); return; }
           s.selectedIdx=from;beginBattle(land?"attack":"amphib",idx);return;
         }
         clearCommand();
@@ -1894,7 +1902,7 @@ const UI = (function(){
     if(context){
       context.classList.add("context-hint");
       context.textContent=targetMode
-        ? (targetMode.kind==="move"?"调动命令：点击相邻己方省份。按 Esc 取消。":"进攻命令：点击相邻敌方或中立省份。按 Esc 取消。")
+        ? (targetMode.kind==="move"?"调动命令：选择可沿友方路线抵达的己方省份。Esc 取消。":"进攻命令：选择陆路可达目标；隔海敌岸需要舰队。Esc 取消。")
         : pendingMove?"确认调动数量，或取消返回地图。"
         : pendingBattle?"确认出征，沿路线行军"
         : Game.getCombats().length?(speed>0?"战局正在推进 · 可随时暂停":"时间已暂停 · 布置战术或增援") : "选择部队，下达出征命令";

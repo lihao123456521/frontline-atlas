@@ -34,7 +34,13 @@ for(const scenario of ['sandbox36','poland39','barbarossa41','pacific42'])test(s
   assert.equal(JSON.stringify(s.provinces.map(p=>({id:p.id,owner:p.owner,resource:p.resource,oil:p.oil,rare:p.rare,weight:p.administrativeWeight}))),
     JSON.stringify(historical.provinces.map(p=>({id:p.id,owner:p.owner,resource:p.resource,oil:p.oil,rare:p.rare,weight:p.administrativeWeight}))));
   for(const id of Object.keys(s.countries)){
-    const before=inventory(Game,historical,id,types),after=inventory(Game,s,id,types),report=s.orderOfBattle.reinforcedArmy.countries[id];
+    let before=inventory(Game,historical,id,types);
+    const after=inventory(Game,s,id,types),report=s.orderOfBattle.reinforcedArmy.countries[id];
+    if(scenario==='sandbox36'&&!oob.tables[scenario][id]&&before.divisions){
+      const configured=oob.preview(scenario,id);
+      before={...before,divisions:configured.divisions,people:configured.personnel,nominal:configured.nominalPersonnel,
+        composition:Object.fromEntries(Object.entries(configured.composition).map(([type,count])=>[type,count*1000]))};
+    }
     assert.ok(report,id+' has an explicit reinforcement budget');
     near(report.before.divisions,before.divisions,id+' reference divisions');near(report.before.personnel,before.people,id+' reference personnel');
     near(report.before.nominalPersonnel,before.nominal,id+' reference nominal');near(report.after.personnel,after.people,id+' enhanced personnel');

@@ -79,6 +79,9 @@ test('annexing a temporary opposition does not erase its parent nationality or p
   assert.equal(Game.diploAction('annex',first.rebels),true);assert.equal(Game.country(first.rebels).alive,false);
   assert.equal(Game.load(Game.save()),true);
   const firstDay=first.startedDay;Game.state.daysElapsed=firstDay+365;Game.state.unrest.countries.esp.pressure=100;
+  const rear=Game.state.provinces.find((province,index)=>province.owner==='esp'&&!province.isCapital&&province.garrison.some(unit=>unit.kind==='land')&&Game.neighbors(index).some(next=>Game.province(next).owner==='esp'));
+  assert.ok(rear);const local=rear.garrison.find(unit=>unit.kind==='land'),capital=Game.province(Game.country('esp').capitalIdx);
+  capital.garrison.push(...rear.garrison.filter(unit=>unit!==local));rear.garrison=[local];
   const next=step(Game,Unrest).started.find(item=>item.parent==='esp');assert.ok(next,'a dead absorbed opposition is not a permanent revolt veto');
   assert.notEqual(next.rebels,first.rebels);assert.ok(Game.armyTotals(next.rebels).landPersonnel>0);
   assert.equal(Game.capitulationProgress(next.rebels),0);assert.equal(Game.load(Game.save()),true);
@@ -112,8 +115,16 @@ test('an unarmed occupation cell cannot fabricate troops or invalid state when a
 });
 test('peaceful reunification preserves the real completion date and label of a paid rebel shipbuilding order',()=>{
   const {Game,Unrest}=setup(),government=Game.country('esp');government.equipment=500;government.res=500;government.oil=100;government.manpower=100;
+  const capital=Game.province(government.capitalIdx);
+  for(const province of Game.state.provinces.filter((province,index)=>province.owner==='esp'&&province!==capital&&!Game.coastalOf(index))){capital.garrison.push(...province.garrison);province.garrison=[];}
   Game.state.unrest.countries.esp.pressure=100;const conflict=step(Game,Unrest).started.find(item=>item.parent==='esp');assert.ok(conflict);
+  assert.ok(Game.state.provinces.some((province,index)=>province.owner===conflict.rebels&&Game.coastalOf(index)),'the paid shipbuilding fixture needs a real rebel-held port');
+  const rebels=Game.country(conflict.rebels),cost={equipment:22,res:14,oil:7,manpower:6},stocks={};
+  for(const [field,needed]of Object.entries(cost)){
+    const transfer=Math.max(0,needed-rebels[field]);assert.ok(government[field]>=transfer);government[field]-=transfer;rebels[field]+=transfer;stocks[field]=government[field]+rebels[field];
+  }
   Game.state.player=conflict.rebels;assert.equal(Game.buildUnit('destroyer'),true);
+  for(const [field,spent]of Object.entries(cost))assert.ok(Math.abs(government[field]+rebels[field]+spent-stocks[field])<1e-7,field+' is paid once from finite stocks');
   const paid=Game.state.buildQueue.pop();assert.ok(Number.isSafeInteger(paid.completionDay));
   Game.state.aiBuildQueue.push({...paid,countryId:conflict.rebels});Game.state.player='esp';government.stability=95;
   assert.equal(Game.unrestAction('negotiate'),true);const transferred=Game.state.buildQueue.find(order=>order.unitType==='destroyer');assert.ok(transferred);

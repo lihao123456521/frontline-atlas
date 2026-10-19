@@ -22,7 +22,36 @@ const OrderOfBattle = (() => {
   });
   const estimated=(composition,note,readiness=.85)=>profile(composition,['estimate'],note,readiness);
   const minor=(infantry,mountain=0,cavalry=0)=>estimated({infantry,...(mountain?{mountain}:{}),...(cavalry?{cavalry}:{})},'区域部队与动员师级规模近似；未核实逐师编制。');
+  const regionalBudgets=Object.freeze({
+    bra:{infantry:32,cavalry:6},arg:{infantry:20,cavalry:4,mountain:3},mex:{infantry:18,cavalry:8},irn:{infantry:12,cavalry:4,mountain:3},eth:{infantry:18,cavalry:3,mountain:4},
+    afg:{infantry:5,cavalry:2,mountain:4},sia:{infantry:7,cavalry:2},egy:{infantry:8,cavalry:2},sau:{infantry:3,cavalry:5},irq:{infantry:5,cavalry:2},
+    chl:{infantry:7,mountain:4},per:{infantry:7,mountain:3},col:{infantry:8,cavalry:2},ven:{infantry:5,cavalry:2},bol:{infantry:4,mountain:3},
+    ecu:{infantry:3,mountain:2},par:{infantry:5,cavalry:2},ury:{infantry:4,cavalry:1},cub:{infantry:4},phi:{infantry:6},
+    nep:{infantry:1,mountain:3},tib:{infantry:2,mountain:2},mon:{infantry:2,cavalry:4},yem:{infantry:2,mountain:3},omn:{infantry:2,cavalry:1},
+    lux:{infantry:1},lib:{infantry:1},iceland:{infantry:1},bhu:{mountain:1},danzig:{infantry:1},alb:{infantry:3,mountain:2},
+    hti:{infantry:2},dom:{infantry:3},gtm:{infantry:3},hnd:{infantry:2},slv:{infantry:2},nic:{infantry:3},cri:{infantry:1},pan:{infantry:2}
+  });
+  function regionalProfile(id,firstWar=false){
+    const composition=regionalBudgets[id]||{infantry:3};
+    return estimated({...composition},(firstWar?'1914 独立配置':'地区兵力配置')+'；按国家规模与地形分组，不是逐日历史统计或人口复原。',firstWar?.8:.85);
+  }
   const tables = Object.freeze({
+    ww1_1914:Object.freeze({
+      ...Object.fromEntries(COUNTRIES.concat(MINOR_COUNTRIES).map(country=>[country.id,regionalProfile(country.id,true)])),
+      ger:estimated({infantry:280,cavalry:18,artillery:8},'1914 游戏平衡配置：步兵与骑兵为核心，火炮独立配属，无坦克。',.9),
+      sov:estimated({infantry:400,cavalry:28,mountain:16,artillery:8},'1914 俄罗斯帝国游戏配置，百万军队分布于欧洲、远东与内陆。',.8),
+      fra:estimated({infantry:235,cavalry:14,mountain:14,artillery:12},'1914 法国游戏配置，不使用二战装甲与机械化序列。',.9),
+      aut:estimated({infantry:200,cavalry:16,mountain:14,artillery:8},'1914 奥匈帝国游戏配置，多战区共同使用有限陆军。',.9),
+      uk:estimated({infantry:96,cavalry:8,artillery:6,marines:4},'1914 英军与殖民地部队的增强游戏配置，自治领军队另列。',.9),
+      ita:estimated({infantry:104,cavalry:8,mountain:14,artillery:6},'1914 意大利王国游戏配置，保持山地部队与海军比重。',.85),
+      tur:estimated({infantry:88,cavalry:10,mountain:10,artillery:6},'1914 奥斯曼军队游戏配置，地域控制为战略近似。',.8),
+      jpn:estimated({infantry:76,cavalry:4,mountain:3,artillery:4},'1914 日本帝国游戏配置，以步兵和舰队为主。',.9),
+      usa:estimated({infantry:52,cavalry:8,marines:4,artillery:3},'1914 美国游戏增强配置，低于欧洲大陆动员强国，保留海军。',.9),
+      chn:estimated({infantry:176,cavalry:18,mountain:8,artillery:6},'1914 中华民国游戏配置，地方部队统一调遣属于抽象。',.7),
+      bel:minor(18),nld:minor(12),yug:minor(30,5,3),rom:minor(34,6,5),bul:minor(22,4,4),grc:minor(16,6,2),
+      esp:minor(32,6,4),prt:minor(8,2),che:minor(14,8),swe:minor(12,3),nor:minor(6,4),dnk:minor(5),
+      can:minor(8,0,2),aus:minor(7,0,2),nzl:minor(3),saf:minor(5,0,3)
+    }),
     sandbox36:Object.freeze({
       ger:profile({infantry:27,armor:3},['ger36'],'战前扩编阶段，1 月规模近似；没有把 1939 年军队提前部署。',.9),
       sov:estimated({infantry:78,cavalry:24,armor:4,mountain:4},'战前红军规模近似；骑兵与轻装步兵占较大比例。',.8),
@@ -81,13 +110,18 @@ const OrderOfBattle = (() => {
   const allied=(s,a,b)=>!!s.alliances?.[[a,b].sort().join('|')];
   const atWar=(s,a,b)=>(s.wars||[]).some(w=>(w.a===a&&w.b===b)||(w.b===a&&w.a===b));
   const equipmentProfiles=Object.freeze({
+    ww1_1914:{ger:[0,260,120],sov:[0,230,70],fra:[0,190,95],aut:[0,100,35],uk:[0,200,210],ita:[0,100,65],tur:[0,35,22],jpn:[0,70,95],usa:[0,100,105],chn:[0,35,18],
+      bel:[0,24,0],nld:[0,18,18],yug:[0,12,0],rom:[0,16,5],bul:[0,8,4],grc:[0,12,15],esp:[0,12,25],prt:[0,8,10],swe:[0,8,15],nor:[0,0,8],dnk:[0,0,8],bra:[0,0,16],arg:[0,0,12],chl:[0,0,10]},
     sandbox36:{ger:[1800,2500,40],sov:[10000,7000,80],uk:[1200,2000,200],fra:[3000,2000,100],usa:[1000,3000,180],jpn:[700,2500,160],ita:[1000,1800,80],chn:[200,400,20]},
     poland39:{ger:[3500,5500,70],sov:[18000,12000,100],uk:[3000,6000,230],fra:[4500,4500,110],usa:[2000,5000,200],jpn:[1800,5000,180],ita:[2000,3500,100],chn:[400,600,15]},
     barbarossa41:{ger:[6000,10000,90],sov:[20000,18000,120],uk:[6000,12000,250],fra:[200,500,20],usa:[8000,15000,250],jpn:[2500,7000,210],ita:[3000,4500,110],chn:[500,800,10]},
     pacific42:{ger:[6500,11000,90],sov:[18000,18000,100],uk:[8000,14000,250],fra:[250,600,25],usa:[12000,20000,280],jpn:[3000,8000,230],ita:[3000,4500,110],chn:[600,1000,12]}
   });
+  const regionalEquipment={pol:[220,400,12],cze:[350,500,0],rom:[160,250,12],hun:[80,150,0],yug:[70,180,15],fin:[40,100,10],bel:[60,180,4],nld:[30,180,35],
+    swe:[80,160,25],nor:[10,60,20],grc:[20,100,15],tur:[80,200,25],aut:[50,100,0],che:[40,100,0],bul:[30,100,10],esp:[100,250,35],prt:[10,70,15],dnk:[10,30,12],
+    can:[30,100,15],aus:[20,80,18],nzl:[0,20,5],saf:[10,40,5],bra:[20,100,25],arg:[20,80,20],mex:[10,60,8],irn:[20,40,6],sia:[10,40,8],egy:[0,30,4]};
   function equipmentProfile(scenario,id){
-    const values=equipmentProfiles[scenario]?.[id];
+    const values=equipmentProfiles[scenario]?.[id]||(scenario==='ww1_1914'?[0,0,0]:scenario==='sandbox36'?regionalEquipment[id]:null);
     return values?{tanks:values[0],aircraft:values[1],ships:values[2],label:'军备游戏配置 · 非历史统计'}:null;
   }
   function configureOpeningEquipment(s,report,makeDivision){
@@ -197,6 +231,7 @@ const OrderOfBattle = (() => {
     if(id==='fra'&&['barbarossa41','pacific42'].includes(scenario))return 0;
     return ['uk','fra','usa','jpn','ita'].includes(id)?4000000:0;
   }
+  function configuration(scenario,id){return tables[scenario]?.[id]||(scenario==='sandbox36'&&COUNTRIES.concat(MINOR_COUNTRIES).some(country=>country.id===id)?regionalProfile(id):null);}
   function reinforcementPlan(scenario,id,composition,readiness){
     const entries=Object.entries(composition).filter(([,count])=>count>0).sort(([a],[b])=>a.localeCompare(b)).map(([type,weight])=>({type,weight}));
     const personnel=type=>nominalFor(scenario,id,type)*Math.max(1,Math.round(UNIT_TYPES[type].hp*readiness))/UNIT_TYPES[type].hp;
@@ -211,11 +246,12 @@ const OrderOfBattle = (() => {
       reinforcementLabel:(reinforcementTarget(scenario,id)?'百万兵力 · ':'')+'游戏兵力配置'};
   }
   function nominalFor(scenario,id,type){
+    if(scenario==='ww1_1914')return UNIT_TYPES[type].man*1500;
     return id==='ger'&&scenario==='barbarossa41'?({infantry:15000,armor:17000,motorized:14000}[type]||UNIT_TYPES[type].man*1000):UNIT_TYPES[type].man*1000;
   }
   function preview(scenario,id,options={}){
-    const config=tables[scenario]?.[id];if(!config)return null;
-    const composition={...config.composition},reinforced=options.reinforcedArmy===true;
+    const config=configuration(scenario,id);if(!config)return null;
+    const composition={...config.composition},reinforced=options.reinforcedArmy===true&&scenario!=='ww1_1914';
     const plan=reinforced?reinforcementPlan(scenario,id,composition,config.readiness):{targetMultiplier:1,targetPersonnel:0,reinforcementLabel:'历史规模近似'};
     if(reinforced)for(const [type,count]of Object.entries(plan.extra))composition[type]+=count;
     const summarize=counts=>Object.entries(counts).reduce((result,[type,count])=>{
@@ -223,9 +259,9 @@ const OrderOfBattle = (() => {
       result.divisions+=count;result.nominalPersonnel+=nominal;result.personnel+=nominal*Math.max(1,Math.round(t.hp*config.readiness))/t.hp;return result;
     },{divisions:0,nominalPersonnel:0,personnel:0});
     const historical=summarize(config.composition),opening=summarize(composition);
-    return {...opening,...(reinforced&&equipmentProfile(scenario,id)?equipmentProfile(scenario,id):{}),historicalDivisions:historical.divisions,historicalPersonnel:historical.personnel,
+    return {...opening,...((reinforced||scenario==='ww1_1914')&&equipmentProfile(scenario,id)?equipmentProfile(scenario,id):{}),historicalDivisions:historical.divisions,historicalPersonnel:historical.personnel,
       historicalNominalPersonnel:historical.nominalPersonnel,composition,reinforced,targetMultiplier:plan.targetMultiplier,
-      targetPersonnel:reinforced?plan.targetPersonnel:historical.personnel,reinforcementLabel:plan.reinforcementLabel,approximate:true};
+      targetPersonnel:reinforced?plan.targetPersonnel:historical.personnel,reinforcementLabel:scenario==='ww1_1914'?'1914 游戏兵力配置 · 非历史统计':plan.reinforcementLabel,approximate:true};
   }
   function landSummary(units){
     const result={objects:units.length,divisions:0,nominalPersonnel:0,personnel:0,composition:{}};
@@ -263,7 +299,7 @@ const OrderOfBattle = (() => {
   function allocations(s,owned,total){
     const id=owned[0].owner;
     const capital=owned.find(p=>p.id===s.countries?.[id]?.capital)||owned.find(p=>p.isCapital)||owned[0];
-    const mainEnemy=({poland39:{ger:'pol',pol:'ger'},barbarossa41:{ger:'sov',sov:'ger'},pacific42:{jpn:'usa',usa:'jpn',chn:'jpn'}})[s.scenario]?.[id];
+    const mainEnemy=({ww1_1914:{ger:'fra',fra:'ger',sov:'aut',aut:'yug',tur:'sov'},poland39:{ger:'pol',pol:'ger'},barbarossa41:{ger:'sov',sov:'ger'},pacific42:{jpn:'usa',usa:'jpn',chn:'jpn'}})[s.scenario]?.[id];
     const capitalIndex=s.provinces.indexOf(capital),homeComponent=new Set([capitalIndex]),queue=[capitalIndex];
     for(let n=0;n<queue.length;n++)for(const next of s.adj[queue[n]]||[]){
       if(s.provinces[next]?.owner===id&&!homeComponent.has(next)){homeComponent.add(next);queue.push(next);}
@@ -425,6 +461,36 @@ const OrderOfBattle = (() => {
       report.countries[id].landCount=owned.reduce((n,p)=>n+land(p).length,0);
     }
   }
+  function distributeBalancedArmies(s,report){
+    const index=new Map(s.provinces.map((province,position)=>[province,position]));
+    for(const id of Object.keys(report.countries)){
+      const owned=s.provinces.filter(province=>province.owner===id),capital=owned.find(province=>province.id===s.countries[id]?.capital)||owned[0];
+      if(!capital)continue;
+      const units=owned.flatMap(province=>province.garrison.filter(isLand));if(!units.length)continue;
+      const home=new Set([index.get(capital)]),queue=[index.get(capital)];
+      for(let position=0;position<queue.length;position++)for(const next of s.adj[queue[position]]||[])if(s.provinces[next]?.owner===id&&!home.has(next)){home.add(next);queue.push(next);}
+      const slots=owned.map(province=>{
+        const neighbors=(s.adj[index.get(province)]||[]).map(next=>s.provinces[next]).filter(Boolean);
+        const enemies=neighbors.some(next=>next.owner&&atWar(s,id,next.owner)),border=neighbors.some(next=>next.owner&&next.owner!==id&&!allied(s,id,next.owner));
+        const distance=Math.hypot((province.lon-capital.lon)*Math.cos(capital.lat*Math.PI/180),province.lat-capital.lat);
+        const mainland=home.has(index.get(province))||distance<16;
+        const weight=(province===capital?2.6:enemies?3.5:border&&mainland?2.3:province.coastal&&mainland?1.35:mainland?1:province.coastal?.35:.18)/(1+distance/70);
+        return {province,weight,count:0,placed:{}};
+      });
+      const allocated=weightedAllocation(slots,units.length);
+      for(const province of owned)province.garrison=province.garrison.filter(unit=>!isLand(unit));
+      const priority={mountain:0,marines:1,artillery:2,armor:3,lightArmor:3,mechanized:3,motorized:4,cavalry:5,infantry:6};
+      units.sort((first,second)=>(priority[first.type]??7)-(priority[second.type]??7)||String(first.id).localeCompare(String(second.id)));
+      for(const unit of units){
+        const available=allocated.filter(slot=>slot.count>0),score=slot=>{
+          const terrain=slot.province.terrain,used=slot.placed[unit.type]||0;
+          return slot.count/slot.weight-used*.3+(unit.type==='mountain'?(terrain==='mountain'?6:terrain==='hill'?3:0):unit.type==='marines'?(slot.province.coastal?5:0):(UNIT_TYPES[unit.type].tanks||0)>0?(terrain==='plain'?4:terrain==='mountain'?-6:0):0);
+        };
+        const chosen=available.reduce((first,second)=>score(second)>score(first)?second:first);
+        chosen.province.garrison.push(unit);chosen.count--;chosen.placed[unit.type]=(chosen.placed[unit.type]||0)+1;
+      }
+    }
+  }
   function splitOpeningBattleGroups(s,makeDivision,report){
     report.battleGroups={};
     for(const id of Object.keys(report.countries)){
@@ -464,14 +530,15 @@ const OrderOfBattle = (() => {
     const table=tables[s.scenario];if(!table)return null;
     const report={version:1,scenario:s.scenario,year:s.date.year,month:s.date.month,approximate:true,
       unitScale:'陆军按师级等效编制近似；战斗群与驻防分队从既有陆军拆出，可独立调遣但不增加全国人数或历史师数。海空编队用于调遣，军备按实际辆、架、艘另计，不能把联队数当作飞机数。',countries:{}};
-    report.configuration=options.reinforcedArmy===true?'reinforced':'historical';
+    report.configuration=s.scenario==='ww1_1914'?'era-balanced':options.reinforcedArmy===true?'reinforced':'historical';
     report.reinforcedArmy={enabled:false};
-    if(options.reinforcedArmy===true)report.unitScale='增强开局主要国家陆军按400万至800万现员目标配置，其余陆军通常 ×2；属于游戏配置，不冒称历史人数。'+report.unitScale;
+    if(s.scenario==='ww1_1914')report.unitScale='1914 独立陆海空游戏配置，以步兵、骑兵与火炮为主；早期航空规模有限，开局无坦克、机械化或航母。不是精确历史人数。'+report.unitScale;
+    else if(options.reinforcedArmy===true)report.unitScale='增强开局主要国家陆军按400万至800万现员目标配置，其余陆军通常 ×2；属于游戏配置，不冒称历史人数。'+report.unitScale;
     // 未列历史估算的小国保持原有师数和类型，只采用相同的地理部署规则。
     const fallback=Object.fromEntries(Object.keys(s.countries).filter(id=>!table[id]).map(id=>{
       const units=s.provinces.filter(p=>p.owner===id).flatMap(p=>p.garrison).filter(isLand);
       const composition={};units.forEach(d=>{composition[d.type]=(composition[d.type]||0)+1;});
-      return [id,estimated(composition,'保留原有师级规模与兵种，按真实边境与港口配置驻军。',1)];
+      return [id,s.scenario==='sandbox36'&&options.reinforcedArmy===true?regionalProfile(id):estimated(composition,'保留原有师级规模与兵种，按真实边境与港口配置驻军。',1)];
     }));
     for(const [id,config]of Object.entries({...table,...fallback})){
       const owned=s.provinces.filter(p=>p.owner===id);
@@ -500,6 +567,7 @@ const OrderOfBattle = (() => {
         };
         const chosen=(required.length?required:available).reduce((a,b)=>roleScore(b)>roleScore(a)?b:a);
         const d=makeDivision(type);
+        if(s.scenario==='ww1_1914')d.nominalPersonnel=nominalFor(s.scenario,id,type);
         if(id==='ger'&&s.scenario==='barbarossa41'){
           const nominal={infantry:15000,armor:17000,motorized:14000}[type];if(nominal)d.nominalPersonnel=nominal;
         }
@@ -509,13 +577,18 @@ const OrderOfBattle = (() => {
         if(chosen.groupRoles)chosen.groupRoles.placed[type]=(chosen.groupRoles.placed[type]||0)+1;
       }
     }
-    if(options.reinforcedArmy===true)reinforceOpeningArmy(s,makeDivision,report);
+    if(options.reinforcedArmy===true&&s.scenario!=='ww1_1914')reinforceOpeningArmy(s,makeDivision,report);
+    if(s.scenario==='ww1_1914'||s.scenario==='sandbox36'&&options.reinforcedArmy===true)distributeBalancedArmies(s,report);
     fillOpeningCoverage(s,makeDivision,report);
     splitOpeningBattleGroups(s,makeDivision,report);
-    if(options.reinforcedArmy===true){
+    if(options.reinforcedArmy===true||s.scenario==='ww1_1914'){
       configureOpeningEquipment(s,report,makeDivision);
       disperseOpeningEquipment(s,report,makeDivision);
       report.unitScale+=' 坦克按辆、飞机按架、舰艇按艘独立配置，随真实单位编制与损失变化，不随陆军人数倍增。';
+    }
+    if(s.scenario==='ww1_1914')for(const province of s.provinces)for(const unit of province.garrison){
+      if(unit.kind==='air'){unit.name=ScenarioSetup.unitName(s.scenario,unit.type);unit.nominalPersonnel=Math.max(1,Math.round((unit.nominalAircraft||0)*6));}
+      if(unit.kind==='naval')unit.name=ScenarioSetup.unitName(s.scenario,unit.type);
     }
     s.orderOfBattleVersion=1;s.orderOfBattle=report;return report;
   }

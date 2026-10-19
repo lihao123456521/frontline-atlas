@@ -34,6 +34,8 @@ test('air and naval forces cannot capture land, and support remains at base afte
   Game.doAssault('ger',own,enemy,0,1);
   assert.equal(Game.province(enemy).owner,owner);
   for(let i=0;i<3;i++)Game.advanceDay();
+  assert.equal(Game.province(enemy).owner,owner);assert.equal(Game.getCombats()[0].status,'occupation');
+  for(let day=0;day<7&&Game.province(enemy).owner!=='ger';day++)Game.advanceDay();
   assert.equal(Game.province(enemy).owner,'ger');
   assert.equal(Game.province(own).garrison.filter(d=>d.kind!=='land').length,2);
   assert.equal(Game.province(enemy).garrison.every(d=>d.kind==='land'),true);
@@ -88,7 +90,9 @@ test('organization affects preview and combat spends it; a month restores readin
   const {Game,unit,own,enemy}=setup();const a=Game.province(own),d=Game.province(enemy);
   a.garrison=[unit('infantry')];d.garrison=[];const full=Game.battlePreview(own,enemy,1).aStr;
   a.garrison[0].org=10;assert.ok(Game.battlePreview(own,enemy,1).aStr<full);
-  a.garrison[0].org=60;Game.doAssault('ger',own,enemy,0,1);for(let i=0;i<3;i++)Game.advanceDay();assert.ok(d.garrison[0].org<60);
+  a.garrison[0].org=45;Game.doAssault('ger',own,enemy,0,1);for(let i=0;i<3;i++)Game.advanceDay();
+  assert.ok(Game.state.activeCombats[0].attackers[0].unit.org<45);assert.equal(Game.getCombats()[0].status,'occupation');
+  for(let day=0;day<7&&Game.province(enemy).owner!=='ger';day++)Game.advanceDay();assert.ok(d.garrison[0].org<45);
   const before=d.garrison[0].org;Game.endTurn();assert.ok(d.garrison[0].org>before);
 });
 test('completed naval production waits without a port and later deploys only at a recovered port',()=>{

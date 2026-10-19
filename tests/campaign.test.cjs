@@ -100,6 +100,8 @@ test('expansion route counts newly held province IDs, not retaken original provi
   targets.forEach(i => { s.provinces[i].garrison = []; Game.doAssault(s.player,home,i,0,1); });
   assert.equal(Game.getCampaign().tasks[0].current,0);
   for(let i=0;i<3;i++)Game.advanceDay();
+  assert.equal(Game.getCampaign().tasks[0].current,0);assert.ok(Game.getCombats().every(combat=>combat.status==='occupation'));
+  for(let day=0;day<7&&targets.some(index=>s.provinces[index].owner!==s.player);day++)Game.advanceDay();
   assert.equal(Game.getCampaign().tasks[0].current,2);
   assert.equal(Game.getCampaign().status,'ready');
   assert.equal(Game.claimCampaignReward(),true);
@@ -227,6 +229,9 @@ test('AI versus AI attacks stay in logs without interrupting the player',()=>{
   assert.equal(notices.length,0);
   assert.match(s.log.at(-1).text,/准备作战/);
   for(let i=0;i<3;i++)Game.advanceDay();
+  assert.ok(!s.log.some(entry=>entry.text.includes('攻占 '+s.provinces[to].name)));
+  const combat=s.activeCombats.find(battle=>battle.from===from&&battle.to===to);assert.ok(combat);assert.equal(combat.phase,'engagement');
+  for(let day=0;day<7&&s.activeCombats.some(battle=>battle.id===combat.id);day++)Game.advanceDay();
   assert.ok(s.log.some(entry=>entry.text.includes('攻占 '+s.provinces[to].name)));
   assert.equal(notices.length,0);
   assert.match(s.log[1].text,/直接进攻未交战国家/);

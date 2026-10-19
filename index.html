@@ -4,24 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>钢铁雄心 · 浏览器版</title>
-<meta name="hoi-version" content="54">
-<link rel="stylesheet" href="css/style.css?v=54">
-<link rel="stylesheet" href="css/command-center.css?v=54">
-<link rel="stylesheet" href="css/historical-map.css?v=54">
-<link rel="stylesheet" href="css/war-command.css?v=54">
-<link rel="stylesheet" href="css/map-fronts.css?v=54">
-<link rel="stylesheet" href="css/map-command.css?v=54">
-<link rel="stylesheet" href="css/start-screen.css?v=54">
-<link rel="stylesheet" href="css/war-focus.css?v=54">
-<link rel="stylesheet" href="css/experience.css?v=54">
-<link rel="stylesheet" href="css/tutorial.css?v=54">
-<link rel="stylesheet" href="css/global-overview.css?v=54">
-<link rel="stylesheet" href="css/military-development.css?v=54">
-<link rel="stylesheet" href="css/core-command.css?v=54">
-<link rel="stylesheet" href="css/force-balance.css?v=54">
+<meta name="hoi-version" content="55">
+<link rel="stylesheet" href="css/style.css?v=55">
+<link rel="stylesheet" href="css/command-center.css?v=55">
+<link rel="stylesheet" href="css/historical-map.css?v=55">
+<link rel="stylesheet" href="css/war-command.css?v=55">
+<link rel="stylesheet" href="css/map-fronts.css?v=55">
+<link rel="stylesheet" href="css/map-command.css?v=55">
+<link rel="stylesheet" href="css/start-screen.css?v=55">
+<link rel="stylesheet" href="css/war-focus.css?v=55">
+<link rel="stylesheet" href="css/experience.css?v=55">
+<link rel="stylesheet" href="css/tutorial.css?v=55">
+<link rel="stylesheet" href="css/global-overview.css?v=55">
+<link rel="stylesheet" href="css/military-development.css?v=55">
+<link rel="stylesheet" href="css/core-command.css?v=55">
+<link rel="stylesheet" href="css/force-balance.css?v=55">
 </head>
 <body>
-<script src="js/runtime.js?v=54"></script>
+<script src="js/runtime.js?v=55"></script>
 
 <!-- 开始界面 -->
 <div id="startScreen" class="start-screen">
@@ -30,7 +30,7 @@
       <div id="startMapPreview" class="start-map-preview" aria-hidden="true"></div>
       <div class="start-map-grid" aria-hidden="true"></div>
       <div class="start-title-group">
-        <div class="start-eyebrow"><span class="start-insignia" aria-hidden="true">✦</span>全球战略 · 1936 — 1945</div>
+        <div class="start-eyebrow"><span class="start-insignia" aria-hidden="true">✦</span>全球战略 · 两个时代</div>
         <h1>钢铁雄心</h1>
         <p class="start-lead">从一条战线，到整个世界。</p>
       </div>
@@ -41,14 +41,12 @@
     </section>
     <section class="panel start-setup" aria-label="战役设置">
       <div class="setup-kicker">作战指挥部 <span>新战役</span></div>
-      <h2><span class="setup-step" aria-hidden="true">01</span>选择国家</h2>
+      <h2><span class="setup-step" aria-hidden="true">01</span>选择时代</h2>
+      <div class="setup-field"><label for="selScenario">战役剧本</label><select id="selScenario"></select><div class="diff-desc" id="scenDesc"></div></div>
+      <h2><span class="setup-step" aria-hidden="true">02</span>选择国家</h2>
       <div id="countryChoices" class="country-choices" aria-label="常用国家"></div>
       <div class="setup-field country-select-field"><label for="selCountry">全部国家</label><select id="selCountry"></select></div>
-      <h2 class="start-conditions"><span class="setup-step" aria-hidden="true">02</span>战役条件</h2>
-      <div class="setup-two-col">
-        <div class="setup-field"><label for="selScenario">战役剧本</label><select id="selScenario"></select><div class="diff-desc" id="scenDesc"></div></div>
-        <div class="setup-field"><label for="selDifficulty">作战难度</label><select id="selDifficulty"><option value="casual">新兵</option><option value="standard" selected>正规</option><option value="hard">老兵</option></select><div class="diff-desc" id="diffDesc"></div></div>
-      </div>
+      <div class="setup-field difficulty-field"><label for="selDifficulty">作战难度</label><select id="selDifficulty"><option value="casual">新兵</option><option value="standard" selected>正规</option><option value="hard">老兵</option></select><div class="diff-desc" id="diffDesc"></div></div>
       <fieldset class="start-mode" aria-label="开局方式">
         <legend>开始方式</legend>
         <label class="start-mode-choice"><input type="radio" name="startMode" value="direct" checked><span><strong>直接指挥</strong><small>进入所选战役</small></span></label>
@@ -56,7 +54,7 @@
       </fieldset>
       <button id="btnStart">进入战区 <span aria-hidden="true">→</span></button>
       <button id="btnContinue" class="btn-continue" style="display:none">继续上次战役</button>
-      <p class="setup-footnote">本地存档 <span id="releaseVersion">版本 v54</span></p>
+      <p class="setup-footnote">本地存档 <span id="releaseVersion">版本 v55</span></p>
     </section>
   </div>
 </div>
@@ -225,25 +223,26 @@
 <!-- 提示框 -->
 <div id="tooltip"></div>
 
-<script src="js/data.js?v=54"></script>
-<script src="js/data_world.js?v=54"></script>
-<script src="js/data_provinces.js?v=54"></script>
-<script src="js/data_historical_map.js?v=54"></script>
-<script src="js/data_world_historical.js?v=54"></script>
-<script src="js/data_historical_regions.js?v=54"></script>
-<script src="js/historical_regions.js?v=54"></script>
-<script src="js/history.js?v=54"></script>
-<script src="js/world.js?v=54"></script>
-<script src="js/strategic_regions.js?v=54"></script>
-<script src="js/campaign.js?v=54"></script>
-<script src="js/order_of_battle.js?v=54"></script>
-<script src="js/unrest.js?v=54"></script>
-<script src="js/game.js?v=54"></script>
-<script src="js/map.js?v=54"></script>
-<script src="js/world-news.js?v=54"></script>
-<script src="js/global-overview.js?v=54"></script>
-<script src="js/ui.js?v=54"></script>
-<script src="js/tutorial.js?v=54"></script>
-<script src="js/main.js?v=54"></script>
+<script src="js/data.js?v=55"></script>
+<script src="js/data_world.js?v=55"></script>
+<script src="js/data_provinces.js?v=55"></script>
+<script src="js/data_historical_map.js?v=55"></script>
+<script src="js/data_world_historical.js?v=55"></script>
+<script src="js/data_historical_regions.js?v=55"></script>
+<script src="js/historical_regions.js?v=55"></script>
+<script src="js/history.js?v=55"></script>
+<script src="js/world.js?v=55"></script>
+<script src="js/strategic_regions.js?v=55"></script>
+<script src="js/campaign_eras.js?v=55"></script>
+<script src="js/campaign.js?v=55"></script>
+<script src="js/order_of_battle.js?v=55"></script>
+<script src="js/unrest.js?v=55"></script>
+<script src="js/game.js?v=55"></script>
+<script src="js/map.js?v=55"></script>
+<script src="js/world-news.js?v=55"></script>
+<script src="js/global-overview.js?v=55"></script>
+<script src="js/ui.js?v=55"></script>
+<script src="js/tutorial.js?v=55"></script>
+<script src="js/main.js?v=55"></script>
 </body>
 </html>

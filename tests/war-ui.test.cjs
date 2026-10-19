@@ -396,6 +396,16 @@ test('province movement uses one persistent unit selector and passes the selecte
   const unavailable=buttons('调动部队')[0];assert.equal(unavailable.disabled,true);assert.match(unavailable.title,/没有可调舰队/);
 });
 
+test('keyboard cancellation resumes prior time and empty movement cannot dispatch fictitious troops',()=>{
+  const {Game,UI,panel,buttons,descendants,get,unit}=setup();get('startScreen').classList.add('hidden');
+  const from=Game.state.provinces.findIndex(province=>province.owner==='ger'),to=Game.state.provinces.findIndex((province,index)=>index!==from&&province.owner==='ger');
+  Game.state.selectedIdx=from;Game.province(from).garrison=[unit('air')];UI.navigate('province-details');UI.setSpeed(2);
+  const picker=descendants(panel).find(element=>element.attributes['aria-label']==='选择调动军种');picker.value='air';picker.listeners.change();
+  buttons('调动部队')[0].click();UI.mapHandlers().provinceClick(to);assert.equal(UI.getSpeed(),0);
+  Game.province(from).garrison=[];UI.refresh();assert.equal(buttons('确认调动')[0].disabled,true);assert.doesNotMatch(panel.textContent,/留守 -1/);
+  buttons('取消命令')[0].click();assert.equal(UI.getSpeed(),2);
+});
+
 test('province construction and bombing are advanced, and army training uses one selector',()=>{
   const {Game,UI,panel,buttons,descendants}=setup();Game.state.selectedIdx=Game.state.provinces.findIndex(p=>p.owner==='ger');UI.navigate('province-details');
   const construction=descendants(panel).find(e=>e.className==='province-development');assert.ok(construction);assert.match(construction.textContent,/修筑要塞/);assert.ok(!construction.open);
@@ -541,6 +551,23 @@ test('encircled holdout explains why breakthrough has not yet changed control',(
   assert.ok(descendants(panel).find(element=>element.className==='combat-progress'&&element.value===95));
   Game.getCombats=()=>[{...combat,phase:'engagement',progress:95,holdout:true,playerSide:'defend'}];UI.refresh();
   assert.match(panel.textContent,/包围坚守/);assert.match(panel.textContent,/无陆路退路，持续抵抗；有舰队时可尝试海运撤离/);
+});
+
+test('battle card explains actual frontage, reserves, readiness and gradual occupation',()=>{
+  const fixture=setup(),{Game,UI,panel,descendants}=fixture,combat=startUiCombat(fixture);
+  Game.getCombats=()=>[{...combat,phase:'engagement',progress:0,aFrontPersonnel:40000,dFrontPersonnel:30000,aReservePersonnel:160000,dReservePersonnel:10000,aFrontOrg:12,dFrontOrg:70,status:'需要休整',statusDetail:'前沿组织不足，后备正在轮换'}];
+  UI.refresh();assert.match(panel.textContent,/前沿.*4\.0 万人.*后备.*16\.0 万人/);assert.match(panel.textContent,/前沿组织不足，后备正在轮换/);
+  Game.getCombats=()=>[{...combat,phase:'engagement',progress:72,status:'occupation',statusDetail:'守军已撤离，正在清扫占领'}];
+  UI.refresh();assert.match(panel.textContent,/清扫占领/);assert.ok(descendants(panel).find(element=>element.className==='combat-progress'&&element.value===72));
+});
+
+test('destination card shows redeployment as incoming rather than defending garrison',()=>{
+  const {Game,UI,panel}=setup(),destination=Game.state.provinces.findIndex(province=>province.owner==='ger');
+  const unit=Game.makeDivision('infantry');unit.owner='ger';
+  Game.state.redeployments=[{owner:'ger',from:destination+1,to:destination,arrivalDay:Game.state.daysElapsed+3,units:[unit]}];
+  Game.state.selectedIdx=destination;UI.navigate('province');
+  assert.match(panel.textContent,/调动在途.*1\.0 万人.*3 天.*不计守军/);
+  assert.ok(!Game.province(destination).garrison.some(soldier=>soldier.id===unit.id));
 });
 
 test('army overview gives personnel tanks and aircraft equal metrics while retaining division details',()=>{
