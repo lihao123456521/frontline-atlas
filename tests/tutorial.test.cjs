@@ -41,6 +41,35 @@ test('direct entry mounts no tutorial; starting and skip do not mutate or save a
   const before=Game.save();guide.start();assert.equal(Game.save(),before);assert.equal(guide.snapshot().step,'select');
   assert.equal(body.children.length,1);buttons().find(b=>b.textContent==='跳过').click();assert.equal(guide.snapshot(),null);assert.equal(body.children[0].hidden,true);assert.equal(Game.save(),before);
 });
+test('tutorial holds time only while a real first order is being prepared',()=>{
+  const {Game,guide}=setup();assert.equal(typeof guide.holdsTime,'function');assert.equal(guide.holdsTime(),false);
+  guide.start();assert.equal(guide.holdsTime(),true);const {from,to}=guide.snapshot().suggestion;
+  guide.action('select',{idx:from});assert.equal(guide.snapshot().step,'dispatch');assert.equal(guide.holdsTime(),true);
+  guide.action('dispatch',{from});assert.equal(guide.snapshot().step,'target');assert.equal(guide.holdsTime(),true);
+  guide.action('plan',{from,to,kind:'attack'});assert.equal(guide.snapshot().step,'tactic');assert.equal(guide.holdsTime(),true);
+  guide.action('tactic',{from,to,mode:'careful'});assert.equal(guide.snapshot().step,'order');assert.equal(guide.holdsTime(),true);
+  assert.equal(Game.resolveAttack(Game.state.player,from,to,Math.max(1,Game.landCount(from)-1)),true);
+  const combat=Game.state.activeCombats.find(combat=>combat.from===from&&combat.to===to);assert.ok(combat);
+  assert.equal(guide.action('order',{combatId:combat.id}),true);assert.equal(guide.snapshot().step,'advance');assert.equal(guide.holdsTime(),false);
+  Game.advanceDay();guide.refresh();assert.equal(guide.snapshot().step,'complete');assert.equal(guide.holdsTime(),false);
+  guide.reset();assert.equal(guide.holdsTime(),false);
+  Game.state.adj=Game.state.adj.map(()=>[]);Game.state.landRouteKm={};guide.start();assert.equal(guide.snapshot().step,'unavailable');assert.equal(guide.holdsTime(),false);
+});
+test('tutorial directions use visible map city labels and retain the province identity',()=>{
+  const {Game,guide,body}=setup();guide.start();const {from,to}=guide.snapshot().suggestion;
+  Game.province(from).cityName='教程起点城';Game.province(to).cityName='教程目标城';guide.refresh();
+  assert.ok(body.textContent.includes('教程起点城（'+Game.province(from).name+'）'));
+  guide.action('select',{idx:from});assert.ok(body.textContent.includes('教程起点城（'+Game.province(from).name+'）'));
+  guide.action('dispatch',{from});assert.ok(body.textContent.includes('教程目标城（'+Game.province(to).name+'）'));
+  Game.province(to).cityName=Game.province(to).name;guide.refresh();assert.ok(body.textContent.includes('点击地图上的 '+Game.province(to).name+'，'));
+});
+test('only a user tutorial exit notifies the UI after clearing the guide',()=>{
+  const fixture=setup(),{Game,guide,ctx,buttons}=fixture,exits=[];
+  ctx.UI.tutorialEnd=()=>{exits.push(guide.snapshot());};guide.start();guide.reset();assert.equal(exits.length,0);
+  guide.start();buttons().find(button=>button.textContent==='跳过').click();assert.deepEqual(exits,[null]);
+  order(fixture);Game.advanceDay();guide.refresh();assert.equal(guide.snapshot().step,'complete');buttons().find(button=>button.textContent==='继续指挥').click();assert.deepEqual(exits,[null,null]);
+  Game.state.adj=Game.state.adj.map(()=>[]);Game.state.landRouteKm={};guide.start();buttons().find(button=>button.textContent==='退出教程').click();assert.deepEqual(exits,[null,null,null]);
+});
 for(const scenario of ['sandbox36','poland39','barbarossa41','pacific42'])test(scenario+' recommends an actual legal land route with real divisions',()=>{
   const {Game,guide}=setup(scenario,scenario==='pacific42'?'jpn':'ger');guide.start();const pick=guide.snapshot().suggestion;assert.ok(pick,scenario);
   assert.equal(Game.province(pick.from).owner,Game.state.player);assert.ok(Game.landCount(pick.from)>0);assert.ok(Game.landTargets(pick.from).includes(pick.to));assert.ok(Game.landRoute(pick.from,pick.to));

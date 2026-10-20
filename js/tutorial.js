@@ -3,6 +3,7 @@ const WarTutorial = (() => {
   let session=null, card=null, title=null, message=null, locate=null, leave=null, done=null;
   const steps={select:1,dispatch:2,target:3,tactic:4,order:5,advance:6,complete:6,unavailable:1};
   function state(){return typeof Game==='undefined'?null:Game.state;}
+  function holdsTime(){return !!session&&state()===session.state&&!state()?.over&&['select','dispatch','target','tactic','order'].includes(session.step);}
   function defaultSend(n){return n>=2?Math.min(n-1,Math.max(1,Math.floor(n*.8))):1;}
   function targets(from){
     const s=state(),p=s?.provinces[from];
@@ -30,12 +31,12 @@ const WarTutorial = (() => {
     if(card)return;
     card=element('section','war-tutorial');card.id='warTutorial';card.setAttribute('aria-label','实操教程');
     const head=element('div','war-tutorial-head');title=element('span','war-tutorial-progress');
-    leave=element('button','war-tutorial-skip','跳过');leave.type='button';leave.addEventListener('click',reset);head.appendChild(title);head.appendChild(leave);card.appendChild(head);
+    leave=element('button','war-tutorial-skip','跳过');leave.type='button';leave.addEventListener('click',end);head.appendChild(title);head.appendChild(leave);card.appendChild(head);
     message=element('p','war-tutorial-message');message.setAttribute('role','status');message.setAttribute('aria-live','polite');card.appendChild(message);
     const actions=element('div','war-tutorial-actions');locate=element('button','war-tutorial-locate');locate.type='button';locate.addEventListener('click',()=>{
       if(!session)return;const idx=locateIndex();
       if(Number.isInteger(idx)&&typeof UI!=='undefined'&&UI.tutorialLocate)UI.tutorialLocate(idx);
-    });done=element('button','war-tutorial-done','继续指挥');done.type='button';done.addEventListener('click',reset);actions.appendChild(locate);actions.appendChild(done);card.appendChild(actions);
+    });done=element('button','war-tutorial-done','继续指挥');done.type='button';done.addEventListener('click',end);actions.appendChild(locate);actions.appendChild(done);card.appendChild(actions);
     document.body.appendChild(card);
   }
   function locateIndex(){
@@ -46,12 +47,13 @@ const WarTutorial = (() => {
     const modal=document.getElementById('eventModal');
     return !!(modal&&!modal.classList.contains('hidden'))||(state()?.worldEvents||[]).some(e=>e.kind==='invasion'&&!e.acknowledged);
   }
+  function provinceLabel(province){const label=province.cityName||province.name;return label!==province.name?label+'（'+province.name+'）':label;}
   function copy(){
     const t=session,p=Game.province(t.from??t.suggestion?.from),q=Game.province(t.to??t.suggestion?.to);
     if(t.feedback)return t.feedback;
-    if(t.step==='select')return p?'点击地图上的 '+p.name+'，选中我方部队。':'选择一处有陆军的我方省区。';
-    if(t.step==='dispatch')return '已选中 '+p.name+'；点击右侧「出征」。';
-    if(t.step==='target')return q?'点击地图上的 '+q.name+'，选择进攻目标。':'点击地图上可到达的境外省区。';
+    if(t.step==='select')return p?'点击地图上的 '+provinceLabel(p)+'，选中我方部队。':'选择一处有陆军的我方省区。';
+    if(t.step==='dispatch')return '已选中 '+provinceLabel(p)+'；点击右侧「出征」。';
+    if(t.step==='target')return q?'点击地图上的 '+provinceLabel(q)+'，选择进攻目标。':'点击地图上可到达的境外省区。';
     if(t.step==='tactic')return t.combatId?'部队已出发；在战场卡点击一种战术。':'目标已选定；点击一种战术。';
     if(t.step==='order')return '战术已选定；点击「确认进攻」'+(!q?.owner||Game.isAtWar(state().player,q.owner)?'。':'（将宣战），按正常代价开战。');
     if(t.step==='advance'){
@@ -83,6 +85,10 @@ const WarTutorial = (() => {
     session=null;if(card)card.hidden=true;
     if(typeof MapView!=='undefined')MapView.setTutorialFocus?.(-1);
     if(typeof document!=='undefined'){document.body.classList.remove('war-tutorial-active');document.body.style.removeProperty('--tutorial-bottom');}
+  }
+  function end(){
+    if(!session)return;
+    reset();if(typeof UI!=='undefined')UI.tutorialEnd?.();
   }
   function start(){
     reset();const s=state();if(!s||s.over)return false;
@@ -144,5 +150,5 @@ const WarTutorial = (() => {
     draw();
   }
   if(typeof window!=='undefined'&&window.addEventListener)window.addEventListener('resize',position);
-  return {start,reset,action,refresh,snapshot:()=>session?{step:session.step,from:session.from,to:session.to,suggestion:session.suggestion?{from:session.suggestion.from,to:session.suggestion.to}:null,combatId:session.combatId}:null};
+  return {start,reset,action,refresh,holdsTime,snapshot:()=>session?{step:session.step,from:session.from,to:session.to,suggestion:session.suggestion?{from:session.suggestion.from,to:session.suggestion.to}:null,combatId:session.combatId}:null};
 })();

@@ -37,6 +37,7 @@ const MapView = (() => {
   let movePrevPath = null;
   let battlePlan = null;
   let attackableFrom = -1;
+  let moveTargets = null;
   let handlers = {};
   let unitHits = [];
   let provHits = [];
@@ -47,6 +48,8 @@ const MapView = (() => {
   let focused = false;
   let wrap = null;
   let handledCombatClick = null;
+  let handledMovementClick = null;
+  let redeploymentLayer = null;
 
   function proj(lon, lat){ return { x:(lon+180)/360*W, y:(90-lat)/180*H }; }
   const worldMode = typeof WORLD_HISTORICAL_MAP !== "undefined";
@@ -784,6 +787,53 @@ const MapView = (() => {
     const a=route.points[index],b=route.points[index+1],t=clamp(remaining/(route.lengths[index]||1),0,1);
     return {x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,dx:b.x-a.x,dy:b.y-a.y,index,fraction};
   }
+  function redeploymentPosition(movement){
+    const route=movement.path,state=Game.state;
+    if(!Array.isArray(route)||route.length<2||route[0]!==movement.from||route.at(-1)!==movement.to||!route.every(index=>state.provinces[index]))return null;
+    const points=route.map(index=>({...displayCenter(state.provinces[index])}));
+    for(let index=1;index<points.length;index++)if(worldMode)points[index].x+=Math.round((points[index-1].x-points[index].x)/W)*W;
+    if(movement.blocked){const index=clamp(Number(movement.position)||0,0,points.length-1);return {...points[index],index};}
+    const lengths=points.slice(1).map((point,index)=>Math.hypot(point.x-points[index].x,point.y-points[index].y));
+    const fraction=clamp((state.daysElapsed-movement.startDay)/Math.max(1,movement.arrivalDay-movement.startDay),0,1);
+    let remaining=lengths.reduce((total,length)=>total+length,0)*fraction,index=0;
+    while(index<lengths.length-1&&remaining>=lengths[index])remaining-=lengths[index++];
+    const start=points[index],end=points[index+1],along=clamp(remaining/(lengths[index]||1),0,1);
+    return {x:start.x+(end.x-start.x)*along,y:start.y+(end.y-start.y)*along,index};
+  }
+  function renderRedeployments(){
+    const state=Game.state,movements=(state.redeployments||[]).filter(movement=>movement.owner===state.player&&movement.units?.length);
+    if(!redeploymentLayer&&movements.length){redeploymentLayer=document.createElementNS(NS,'g');redeploymentLayer.setAttribute('id','layerRedeployments');L.effects.appendChild(redeploymentLayer);}
+    if(!redeploymentLayer)return;
+    const focusedMovementId=redeploymentLayer.contains?.(document.activeElement)?document.activeElement?.getAttribute?.('data-movement-id'):null;
+    redeploymentLayer.innerHTML='';
+    const zoom=visibleAnchor().k;
+    for(const movement of movements){
+      const position=redeploymentPosition(movement);if(!position)continue;
+      const point=screenPoint(position.x,position.y),personnel=personnelOf(movement.units),remaining=Math.max(0,Math.ceil(movement.arrivalDay-state.daysElapsed));
+      const status=movement.blocked?'被围':'调动',destination=state.provinces[movement.to],group=document.createElementNS(NS,'g');
+      group.setAttribute('class','redeployment-marker'+(movement.blocked?' blocked':''));
+      group.setAttribute('data-movement-id',movement.id);group.setAttribute('data-movement-to',movement.to);
+      group.setAttribute('data-route-segment',position.index);group.setAttribute('data-position',`${position.x},${position.y}`);
+      group.setAttribute('data-route-type',movement.type);group.setAttribute('data-personnel',personnel);
+      group.setAttribute('transform',`translate(${point.vx},${position.y}) scale(${1/zoom})`);
+      group.setAttribute('role','button');group.setAttribute('tabindex','0');
+      group.setAttribute('aria-label',`${destination.cityName||destination.name}：${status}，${movement.blocked?'原定':''}剩余${remaining}天，${formatPersonnel(personnel)}${movement.blocked?'，等待解围':''}；回车定位目的地`);
+      const hit=document.createElementNS(NS,'rect');hit.setAttribute('class','redeployment-hit');hit.setAttribute('x','-55');hit.setAttribute('y','5');hit.setAttribute('width','110');hit.setAttribute('height','44');hit.setAttribute('fill','transparent');group.appendChild(hit);
+      const badge=document.createElementNS(NS,'rect');badge.setAttribute('class','redeployment-box');badge.setAttribute('x','-48');badge.setAttribute('y','11');badge.setAttribute('width','96');badge.setAttribute('height','32');badge.setAttribute('rx','5');group.appendChild(badge);
+      const dot=document.createElementNS(NS,'circle');dot.setAttribute('class','redeployment-dot');dot.setAttribute('r','3');group.appendChild(dot);
+      const label=document.createElementNS(NS,'text');label.setAttribute('class','redeployment-label');label.setAttribute('y','24');label.textContent=`${status} · 余${remaining}天`;group.appendChild(label);
+      const force=document.createElementNS(NS,'text');force.setAttribute('class','redeployment-personnel');force.setAttribute('y','37');force.textContent=formatPersonnel(personnel);group.appendChild(force);
+      const title=document.createElementNS(NS,'title');title.textContent=`${movement.name||'调动'} → ${destination.cityName||destination.name} · ${status} · ${remaining}天 · ${formatPersonnel(personnel)} · 点击定位目的地`;group.appendChild(title);
+      const focus=event=>{
+        event.stopPropagation();
+        if(event.type==='click'&&event.detail!==0&&handledMovementClick?.id===movement.id&&Date.now()-handledMovementClick.time<700){handledMovementClick=null;return;}
+        if(handlers.provinceClick)handlers.provinceClick(movement.to,{movementId:movement.id});
+      };
+      group.addEventListener('click',focus);group.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();focus(event);}});
+      redeploymentLayer.appendChild(group);
+      if(movement.id===focusedMovementId)group.focus?.({preventScroll:true});
+    }
+  }
   function combatDirection(group,point,dx,dy,kind){
     const marker=document.createElementNS(NS,"g"),k=visibleAnchor().k;
     marker.setAttribute("class","combat-direction combat-direction-"+kind);
@@ -1152,11 +1202,11 @@ const MapView = (() => {
     g.setAttribute("class","order-marker order-"+kind);g.setAttribute("data-province",idx);
     g.setAttribute("transform",`translate(${pt.vx},${p.y}) scale(${1/pt.k})`);
     g.setAttribute("pointer-events","none");
-    const candidate=kind==="candidate",origin=kind==="origin";
+    const moveCandidate=kind==="move-candidate",candidate=kind==="candidate"||moveCandidate,origin=kind==="origin";
     const ring=document.createElementNS(NS,"circle");
     ring.setAttribute("class","order-marker-ring");ring.setAttribute("r",candidate?4:origin?8:11);
-    ring.setAttribute("fill",candidate?"#e8b771":"#172331");ring.setAttribute("fill-opacity",candidate?"0.9":"0.5");
-    ring.setAttribute("stroke",origin?"#84c8e5":"#e8b771");ring.setAttribute("stroke-width",candidate?1:2);
+    ring.setAttribute("fill",moveCandidate?"none":candidate?"#e8b771":"#172331");ring.setAttribute("fill-opacity",candidate?"0.9":"0.5");
+    ring.setAttribute("stroke",origin||moveCandidate?"#84c8e5":"#e8b771");ring.setAttribute("stroke-width",candidate?1:2);
     g.appendChild(ring);
     if(label){
       const text=document.createElementNS(NS,"text");text.setAttribute("class","order-marker-label");
@@ -1175,6 +1225,13 @@ const MapView = (() => {
       const origins=[...new Set(battlePlan.attacks.filter(a=>a.to===target).map(a=>a.from))];
       origins.forEach(i=>orderMarker(L.planHL,i,"origin","出发"));
       orderMarker(L.planHL,target,"target","目标");
+    }else if(moveTargets){
+      const state=Game.state,from=state.provinces[moveTargets.from];
+      if(from?.owner===state.player){
+        const targets=moveTargets.targets.filter(index=>state.provinces[index]?.owner===state.player&&index!==moveTargets.from&&(moveTargets.kind!=="land"||Game.movementRoute?.(moveTargets.from,index,state.player)));
+        if(targets.length)orderMarker(L.planHL,moveTargets.from,"origin","出发");
+        targets.forEach(index=>orderMarker(L.planHL,index,"move-candidate"));
+      }
     }else if(attackableFrom>=0){
       const s=Game.state,from=s.provinces[attackableFrom];
       if(from?.owner===s.player && from.garrison.length){
@@ -1192,9 +1249,11 @@ const MapView = (() => {
   }
   function showMovePreview(path){movePrevPath=path;renderOrders();}
   function clearMovePreview(){movePrevPath=null;L.movePrev.innerHTML="";}
-  function showBattlePlan(plan){battlePlan=plan;attackableFrom=-1;renderOrders();}
-  function showAttackable(fromIdx){battlePlan=null;attackableFrom=fromIdx;renderOrders();}
-  function clearAttackable(){battlePlan=null;attackableFrom=-1;L.planHL.innerHTML="";L.planArr.innerHTML="";}
+  function showMoveTargets(fromIdx,targets,kind="land"){battlePlan=null;attackableFrom=-1;moveTargets={from:fromIdx,kind,targets:[...new Set((targets||[]).filter(Number.isInteger))]};renderOrders();}
+  function clearMoveTargets(){moveTargets=null;renderOrders();}
+  function showBattlePlan(plan){battlePlan=plan;attackableFrom=-1;moveTargets=null;renderOrders();}
+  function showAttackable(fromIdx){battlePlan=null;attackableFrom=fromIdx;moveTargets=null;renderOrders();}
+  function clearAttackable(){battlePlan=null;attackableFrom=-1;renderOrders();}
   function clearBattlePlan(){clearAttackable();}
 
   // ---------- 主渲染 ----------
@@ -1213,6 +1272,7 @@ const MapView = (() => {
     renderProvinces();
     renderFronts();
     renderOrders();
+    renderRedeployments();
     occupiedRectBaseline=occupiedRects.slice();
     renderBattleEffects();
     renderHilight();
@@ -1514,11 +1574,11 @@ const MapView = (() => {
     }
     function down(e){
       if(e.button!==0)return;
-      const combat=usesPointers?e.target?.closest?.('.combat-marker'):null;
-      if(isControl(e) && !combat)return;
+      const combat=usesPointers?e.target?.closest?.('.combat-marker'):null,movement=usesPointers?e.target?.closest?.('.redeployment-marker'):null;
+      if(isControl(e) && !combat && !movement)return;
       cameraMotion++;
       const id=pointerKey(e);
-      pointers.set(id,{x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false,combatId:combat?.getAttribute('data-combat-id')});
+      pointers.set(id,{x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false,combatId:combat?.getAttribute('data-combat-id'),movementId:movement?.getAttribute('data-movement-id')});
       if(usesPointers){wrap.setPointerCapture?.(id);e.preventDefault();}
       if(pointers.size>1)pointers.forEach(p=>{p.moved=true;});
     }
@@ -1563,8 +1623,10 @@ const MapView = (() => {
       const id=pointerKey(e),p=pointers.get(id);if(!p)return;
       pointers.delete(id);release(id);
       if(p.combatId)handledCombatClick={id:p.combatId,time:Date.now()};
+      if(p.movementId)handledMovementClick={id:p.movementId,time:Date.now()};
       if(!cancelled && !p.moved && Math.hypot(e.clientX-p.startX,e.clientY-p.startY)<dragThreshold && e.button===0){
         if(p.combatId){if(window.UI?.focusCombat)window.UI.focusCombat(p.combatId);}
+        else if(p.movementId){const movement=(Game.state.redeployments||[]).find(order=>order.id===p.movementId);if(movement&&handlers.provinceClick)handlers.provinceClick(movement.to,{movementId:movement.id});}
         else selectAt(e);
       }
       // After a pinch, the remaining finger can continue panning without becoming a tap.
@@ -1647,7 +1709,7 @@ const MapView = (() => {
   function isAnimating(){ return battleEffects.length > 0 || floatTexts.length > 0; }
 
   return { W,H,proj,owner,countryColor,render,bind, isAnimating, setTutorialFocus:(idx)=>{tutorialFocusIdx=Number.isInteger(idx)?idx:-1;if(Game.state)render();},
-    showMovePreview,clearMovePreview,showBattlePlan,clearBattlePlan,
+    showMovePreview,clearMovePreview,showMoveTargets,clearMoveTargets,showBattlePlan,clearBattlePlan,
     showAttackable,clearAttackable,
     setHover,setSelect,unitUnderPoint,provinceUnderPoint,
     addFloatText,addCaptureFlash,setMapMode,

@@ -263,6 +263,50 @@ test('navigating away from a tutorial plan returns the guide to a real selectabl
   UI.selectCity(from);click(button('出征'));UI.mapHandlers().provinceClick(to);assert.equal(Tutorial.snapshot().step,'tactic');
 });
 
+test('tutorial planning survives blur and only an explicit exit restores the held clock intent',()=>{
+  const {Game,UI,Tutorial,emit,window}=setup(true),from=Game.provinceById('ger_berlin');
+  UI.refresh();UI.setSpeed(2);Tutorial.start();UI.tutorialLocate(from);emit(window,'blur');
+  assert.equal(Tutorial.snapshot().step,'select');assert.equal(UI.getSpeed(),0);
+  Tutorial.reset();UI.tutorialEnd();assert.equal(UI.getSpeed(),2);
+  Tutorial.start();UI.tutorialLocate(from);UI.pauseForOrders();Tutorial.reset();UI.tutorialEnd();
+  assert.equal(UI.getSpeed(),0,'an explicit pause must not become a stale tutorial resume');
+});
+
+test('closing a tutorial confirmation resets the guide to a selectable city instead of a missing confirm button',()=>{
+  const {Game,UI,Tutorial,button,click,get}=setup(true),from=Game.provinceById('ger_berlin'),to=Game.provinceById('neu_poland');
+  UI.init();Game.state.adj[from]=[to];Game.state.adj[to]=[from];Tutorial.start();UI.selectCity(from);click(button('出征'));UI.mapHandlers().provinceClick(to);click(button('谨慎'));
+  assert.equal(Tutorial.snapshot().step,'order');assert.ok(button('确认进攻（将宣战）'));
+  click(get('rpClose'));assert.equal(Tutorial.snapshot().step,'select');assert.equal(get('rightPanel').classList.contains('collapsed'),true);
+  UI.selectCity(from);click(button('出征'));UI.mapHandlers().provinceClick(to);assert.equal(Tutorial.snapshot().step,'tactic');
+});
+
+test('movement preview and dispatch share tired troops and successful details orders show their real destination transit',()=>{
+  const {Game,UI,panel,button,click}=setup(),from=Game.provinceById('ger_berlin'),to=Game.provinceById('ger_rhine');
+  const tired=Game.makeDivision('infantry'),ready=Game.makeDivision('infantry');tired.owner=ready.owner='ger';tired.hp/=2;tired.org=0;
+  Game.province(from).garrison=[tired,ready];Game.province(to).garrison=[];Game.state.adj[from]=[to];Game.state.adj[to]=[from];
+  UI.selectCity(from);UI.navigate('province-details');click(button('调动部队'));UI.mapHandlers().provinceClick(to);
+  assert.match(panel.textContent,/派出 1 支 · 留守 1 支 · 5,000 人/);
+  click(button('确认调动'));const movement=Game.state.redeployments[0];assert.ok(movement);assert.deepEqual(Array.from(movement.units,unit=>unit.id),[tired.id]);
+  assert.equal(Game.state.selectedIdx,to);assert.match(panel.textContent,/调动在途 · 5,000 人/);assert.match(panel.textContent,/不计守军/);
+});
+
+test('movement destinations offer only reachable friendly targets and picking one opens the same route confirmation',()=>{
+  const {Game,UI,panel,button,click,descendants,emit,ctx}=setup(),from=Game.provinceById('ger_berlin'),to=Game.provinceById('ger_rhine');
+  Game.state.adj=Game.state.provinces.map(()=>[]);Game.state.adj[from]=[to];Game.state.adj[to]=[from];Game.state.straitLinks=[];
+  let highlighted=null;ctx.MapView.showMoveTargets=(source,targets)=>{highlighted={source,targets:Array.from(targets)};};
+  UI.selectCity(from);click(button('调动陆军'));
+  const selector=descendants(panel).find(node=>node.attributes['aria-label']==='调动目的地');assert.ok(selector);assert.match(panel.textContent,/友方路线/);
+  assert.deepEqual(selector.children.filter(node=>node.value!=='').map(node=>+node.value),[to]);assert.deepEqual(highlighted,{source:from,targets:[to]});
+  selector.value=String(to);emit(selector,'change');assert.ok(button('确认调动'));assert.match(panel.textContent,/预计 \d+ 天/);assert.equal((Game.state.redeployments||[]).length,0);
+});
+
+test('clicking a real own movement marker locates its destination without using an active attack command',()=>{
+  const {Game,UI,panel,button,click}=setup(),from=Game.provinceById('ger_berlin'),to=Game.provinceById('ger_rhine');
+  const enemy=Game.provinceById('neu_poland');Game.state.adj[from]=[to,enemy];Game.state.adj[to]=[from];Game.state.adj[enemy]=[from];assert.equal(Game.moveUnits(from,to,1,'land'),true);
+  const movement=Game.state.redeployments[0];UI.selectCity(from);click(button('出征'));assert.match(panel.textContent,/选择进攻目标/);
+  UI.mapHandlers().provinceClick(to,{movementId:movement.id});assert.equal(Game.state.selectedIdx,to);assert.match(panel.textContent,/调动在途/);assert.equal(Game.getCombats().length,0);
+});
+
 test('starting a campaign shows immediate busy feedback, rejects repeat clicks and recovers after an error',()=>{
   const {Game,UI,get,flush}=setup();get('selScenario').value='sandbox36';get('selCountry').value='ger';get('selDifficulty').value='standard';
   const start=get('btnStart');start.innerHTML='进入战区';let attempts=0;Game.init=()=>{attempts++;throw new Error('test startup failure');};

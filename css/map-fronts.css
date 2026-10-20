@@ -8,3 +8,11 @@
 #mapSvg .combat-march-leg{fill:none;stroke:#e9c271;stroke-opacity:.6;stroke-width:calc(1.5px / var(--map-zoom, 1));stroke-dasharray:calc(5px / var(--map-zoom, 1)) calc(4px / var(--map-zoom, 1));vector-effect:non-scaling-stroke}
 #mapSvg .combat-direction path{fill:none;stroke:#ffe3a5;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round;paint-order:stroke}
 #mapSvg .density-fleet-text{font-size:10px;font-weight:650;fill:#a8d9ed;text-anchor:middle;pointer-events:none;stroke:none}
+#mapSvg .redeployment-marker{cursor:pointer;pointer-events:all}
+#mapSvg .redeployment-box{fill:#173848;fill-opacity:.96;stroke:#84c8e5;stroke-width:1.5}
+#mapSvg .redeployment-dot{fill:#b3e6f5;stroke:#173848;stroke-width:1}
+#mapSvg .redeployment-label,#mapSvg .redeployment-personnel{fill:#e4f0ee;stroke:none;text-anchor:middle;font:600 11px var(--font);pointer-events:none}
+#mapSvg .redeployment-personnel{fill:#b9d1d8;font-size:10px;font-weight:500}
+#mapSvg .redeployment-marker.blocked .redeployment-box{stroke:#e3a184;fill:#473632}
+#mapSvg .redeployment-marker:focus{outline:none}
+#mapSvg .redeployment-marker:hover .redeployment-box,#mapSvg .redeployment-marker:focus .redeployment-box{stroke:#edf7dd;stroke-width:2}

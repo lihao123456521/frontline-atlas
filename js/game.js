@@ -475,17 +475,23 @@ const Game = (function(){
     state.selectedIdx = idx;
     if (window.UI){ UI.sfx("click"); UI.refresh(); }
   }
-  function moveUnits(fromIdx, toIdx, sendCount, kind){
+  function movableUnits(fromIdx,toIdx=null,kind='land'){
+    if(!state||!Number.isInteger(fromIdx)||!['land','air','naval'].includes(kind))return [];
+    const from=province(fromIdx),to=toIdx===null?null:Number.isInteger(toIdx)?province(toIdx):null;
+    if(!from||from.owner!==state.player||toIdx!==null&&(!to||to.owner!==state.player))return [];
+    return from.garrison.filter(unit=>(unit.owner||from.owner)===state.player&&unit.kind===kind&&unit.hp>0&&!unit.combatId&&!unit.airCombatId&&
+      unit.rescueArrivalDay===undefined&&!unit.rescueCaptured&&(kind!=='air'||!to||distanceKm(from,to)<=UNIT_TYPES[unit.type]?.range)&&
+      (kind!=='naval'||!shipReservedForRescue(unit)));
+  }
+  function moveUnits(fromIdx, toIdx, sendCount, kind='land'){
+    if(!Number.isInteger(toIdx))return false;
+    const pool=movableUnits(fromIdx,toIdx,kind);
+    if(!pool.length)return false;
     const from = province(fromIdx), to = province(toIdx);
-    kind=kind||'land';
-    if(!from || !to || from.owner!==state.player || to.owner!==state.player)return false;
     if(kind==='naval' && (!coastalOf(fromIdx)||!coastalOf(toIdx)||!seaAdj(fromIdx).includes(toIdx)))return false;
     const route=kind==='land'?movementRoute(fromIdx,toIdx,state.player):null;
     if(kind==='land'&&!route)return false;
     if(sendCount!==undefined&&sendCount!==null&&(!Number.isInteger(sendCount)||sendCount<=0))return false;
-    const pool=from.garrison.filter(d=>(d.owner||from.owner)===state.player&&d.kind===kind && d.hp>0 && !d.combatId && !d.airCombatId && (kind!=='air'||distanceKm(from,to)<=UNIT_TYPES[d.type].range) &&
-      (kind!=='land'||d.rescueArrivalDay===undefined&&!d.rescueCaptured) && (kind!=='naval'||!shipReservedForRescue(d)));
-    if(!pool.length)return false;
     // 派兵数量：显式 sendCount 优先；否则默认留守 1 支，避免后方空虚被偷袭
     let send = pool.length;
     if (typeof sendCount === "number" && sendCount >= 1) send = Math.min(sendCount, pool.length);
@@ -3264,7 +3270,7 @@ const Game = (function(){
     assignResearch:command(assignResearch), cancelResearch, doFocus:command(doFocus), doAssault:command(doAssault,owner=>owner===state?.player),
     diploAction:command(diploAction), surrender:command(surrender), diplomacyAvailability, subjectStatus, sovereigntyResponse, unrestStatus, unrestAction:command(unrestAction), callAlly:command(callAlly), setAutoLogistics, autoLogisticsStatus, setAutoRecruitment, autoRecruitmentStatus, setAutoOffensive, autoOffensiveStatus,
     occupationStatus, appeaseOccupation:command(appeaseOccupation),
-    moveUnits:command(moveUnits), resolveAttack:command(resolveAttack,owner=>owner===state?.player), amphibious:command(amphibious,(_from,_to,_count,owner)=>!owner||owner===state?.player),
+    movableUnits, moveUnits:command(moveUnits), resolveAttack:command(resolveAttack,owner=>owner===state?.player), amphibious:command(amphibious,(_from,_to,_count,owner)=>!owner||owner===state?.player),
     proposePeace:command(proposePeace), resolveEvent, checkScriptedEvents, battlePreview,
     neighbors, landRoute, landTargets, movementRoute, moveTargets, coastalOf, seaAdj, province, provinceById, country, relation, isAtWar,
     intelLevel, canSee, computeWarscore, navalFormation, airFormation, isAllied, incomePreview, nationalMobilizationStatus, nationalMobilizationAction:command(nationalMobilizationAction), acceptPeace:command(acceptPeace), rejectPeace,
