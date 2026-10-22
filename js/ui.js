@@ -77,17 +77,28 @@ const UI = (function(){
   }
   function unitGlyph(type, size, color){
     const col = color || UNIT_GLYPH_COLOR[type] || "#ccc";
-    return `<svg viewBox="0 0 24 24" width="${size||18}" height="${size||18}" fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${UNIT_GLYPH[type]||''}"/></svg>`;
+    const path=Game.state?.theaterId==='anshi_755'&&type==='artillery'?'M5 3Q18 12 5 21M5 3L5 21M5 12H21M17 8L21 12L17 16':UNIT_GLYPH[type]||'';
+    return `<svg viewBox="0 0 24 24" width="${size||18}" height="${size||18}" fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"/></svg>`;
   }
   function pct(v){ return Math.round(v)+"%"; }
   function people(n){n=Math.max(0,Math.round(Number(n)||0));return n>=10000?(n/10000).toFixed(1)+' 万人':n.toLocaleString('zh-CN')+' 人';}
   function assetCount(value,suffix){return Math.max(0,Math.round(Number(value)||0)).toLocaleString('zh-CN')+' '+suffix;}
+  function historicalTheater(){return !!Game.state?.theaterId;}
+  function unitDefinition(type){return Game.unitDefinition?.(type)||UNIT_TYPES[type];}
+  function techDefinition(id){return Game.techDefinition?.(id)||TECHS.find(tech=>tech.id===id);}
+  function eraUnits(){return Object.keys(UNIT_TYPES).filter(type=>!historicalTheater()||HistoricalTheaters.allowedUnit(Game.state.theaterId,type)).map(unitDefinition);}
+  function eraTechs(){return TECHS.filter(tech=>!historicalTheater()||HistoricalTheaters.allowedTech(Game.state.theaterId,tech.id)).map(tech=>techDefinition(tech.id));}
+  function eraText(text){
+    if(!historicalTheater())return text;
+    const names=HistoricalTheaters.theme?.(Game.state.theaterId)?.resources||{equipment:'军械',res:'粮草',oil:'运输储备',rare:'特材'};
+    return String(text).replace(/民用工厂/g,'民用工坊').replace(/军用工厂/g,'军械工坊').replace(/工厂/g,'工坊').replace(/石油|燃油/g,names.oil).replace(/钢铁/g,names.res).replace(/通用装备|装备/g,names.equipment).replace(/稀有/g,names.rare).replace(/工业/g,'生产');
+  }
   function assetsOf(units){
     return units.reduce((total,unit)=>{const assets=Game.unitAssets(unit);for(const key of ['personnel','tanks','aircraft','ships'])total[key]+=assets[key]||0;return total;},{personnel:0,tanks:0,aircraft:0,ships:0});
   }
   function renderForceMetrics(assets,navy=false){
     const grid=el('div','force-metrics');grid.setAttribute('aria-label','实际兵力与装备');
-    for(const [key,title,suffix]of [['personnel','兵员','人'],['tanks','坦克','辆'],['aircraft','飞机','架'],...(navy?[['ships','舰艇','艘']]:[])]){
+    for(const [key,title,suffix]of [['personnel','兵员','人'],...(!historicalTheater()?[['tanks','坦克','辆'],['aircraft','飞机','架']]:[]),...(navy?[['ships',historicalTheater()?'水师战船':'舰艇','艘']]:[])]){
       const cell=el('div','force-metric');cell.dataset.asset=key;cell.appendChild(el('span',null,title));cell.appendChild(el('strong',null,key==='personnel'?people(assets[key]):assetCount(assets[key],suffix)));grid.appendChild(cell);
     }return grid;
   }
@@ -99,6 +110,7 @@ const UI = (function(){
     const settings={tankUnits:null,aircraftCount:null,tankRaw:null,airRaw:null};if(reinforcement)reinforcementComposition=settings;else attackComposition=settings;
   }
   function renderCompositionControls(parent,selection,settings,onChange,prefix='出击'){
+    if(historicalTheater())return null;
     const box=el('div','combined-arms-controls');box.setAttribute('aria-label',prefix+'装备配比');
     for(const [key,raw,max,title,aria,selected]of [['tankUnits','tankRaw',selection.tankGroups,'装甲兵力',prefix+'装甲兵力',selection.selectedTankGroups],['aircraftCount','airRaw',selection.maxAircraft,'飞机支援',prefix+'飞机数量',selection.aircraft]]){
       if(key==='aircraftCount'&&settings[key]===null)settings[key]=Math.round(selected||0);
@@ -110,7 +122,7 @@ const UI = (function(){
     }
     box.appendChild(el('p','task-status','装甲按现有编制调遣；飞机仅使用航程内未占用的机队。'));parent.appendChild(box);return box;
   }
-  function unitCountLabel(units){return units.some(d=>(d.formationPermille??1000)!==1000||!UNIT_TYPES[d.type]?.name.endsWith('师'))?'支部队':'师';}
+  function unitCountLabel(units){return units.some(d=>(d.formationPermille??1000)!==1000||!unitDefinition(d.type)?.name.endsWith('师'))?'支部队':'师';}
   function availableTroops(idx,kind='land'){const source=Game.province(idx);return (source?.garrison||[]).filter(unit=>(unit.owner||source.owner)===source.owner&&unit.kind===kind&&!unit.combatId&&unit.hp>0&&!(unit.rescueArrivalDay>Game.state.daysElapsed)&&(kind!=='land'||unit.org>=(unit.maxOrg||60)*.15));}
   function orderPersonnel(idx,count,kind='land'){return Game.personnelOf(availableTroops(idx,kind).slice(0,count));}
   function updateClockLabel(){
@@ -184,18 +196,18 @@ const UI = (function(){
     const card=el("section","rp-section campaign-card fade-in");
     const h=el("h3",null,`战役任务 · ${campaign.title}`);
     card.appendChild(h);
-    const desc=el("p",null); desc.textContent=campaign.description; card.appendChild(desc);
+    const desc=el("p",null); desc.textContent=eraText(campaign.description); card.appendChild(desc);
     campaign.tasks.forEach(task=>{
       const row=el("div","campaign-task");
       row.classList.toggle("done",task.done);
-      const title=el("div",null); title.textContent=task.title; row.appendChild(title);
+      const title=el("div",null); title.textContent=eraText(task.title); row.appendChild(title);
       const detail=el("div","task-status");
       detail.textContent=`${task.done?"已完成":"进行中"} · ${Math.min(task.current,task.total)}/${task.total}`;
       row.appendChild(detail);
       const progress=el("progress","campaign-progress");
       progress.max=Math.max(1,task.total); progress.value=Math.min(task.total,Math.max(0,task.current));
       progress.setAttribute("aria-label",`${task.title}进度`); row.appendChild(progress);
-      const explanation=el("div","campaign-detail"); explanation.textContent=task.detail; row.appendChild(explanation);
+      const explanation=el("div","campaign-detail"); explanation.textContent=eraText(task.detail); row.appendChild(explanation);
       if(!task.done && task.view){
         const link=el("button","rp-btn",`前往${({research:"研究",production:"军队",province:"省份",diplo:"同盟",focus:"国策",war:"前线"})[task.view]||"查看"}`);
         link.addEventListener("click",()=>navigate(task.view)); row.appendChild(link);
@@ -213,7 +225,7 @@ const UI = (function(){
       });
       card.appendChild(route);
     }
-    const reward=el("p","task-status"); reward.textContent=`阶段奖励：${campaign.reward}`; card.appendChild(reward);
+    const reward=el("p","task-status"); reward.textContent=eraText(`阶段奖励：${campaign.reward}`); card.appendChild(reward);
     if(campaign.status==="ready"){
       const claim=el("button","rp-btn primary","领取阶段奖励");
       claim.addEventListener("click",()=>{
@@ -302,25 +314,34 @@ const UI = (function(){
       const box = $("countryPreview");
       if(!c || !box) return;
       const scenario=SCENARIOS.find(s=>s.id===$("selScenario").value)||SCENARIOS[0];
-      const army=typeof OrderOfBattle!=='undefined'?OrderOfBattle.preview?.(scenario.id,c.id,{reinforcedArmy:true}):null;
-      const role=scenario.id==='ww1_1914'?'步兵主力 · 早期航空':{ger:'机动作战',sov:'纵深防御',uk:'海上战线',fra:'边境防御',usa:'工业动员',jpn:'岛屿战线',chn:'持久作战',ita:'地中海战线'}[c.id]||'区域作战';
+      const theater=typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(scenario.id);
+      const profile=theater?HistoricalTheaters.countryProfile?.(scenario.id,c.id)||c:c;
+      const army=theater?HistoricalTheaters.preview(scenario.id,c.id):typeof OrderOfBattle!=='undefined'?OrderOfBattle.preview?.(scenario.id,c.id,{reinforcedArmy:true}):null;
+      const role=theater?profile.role||army?.role||'步军、骑兵与水师':scenario.id==='ww1_1914'?'步兵主力 · 早期航空':{ger:'机动作战',sov:'纵深防御',uk:'海上战线',fra:'边境防御',usa:'工业动员',jpn:'岛屿战线',chn:'持久作战',ita:'地中海战线'}[c.id]||'区域作战';
       box.innerHTML = `
         <div class="cp-head">${flagHTML(c.id, 40, c)}
-          <div class="cp-intro"><div class="cp-name">${c.name}</div><div class="cp-desc">${role} · 增强兵力</div></div>
+          <div class="cp-intro"><div class="cp-name">${c.name}</div><div class="cp-desc">${role} · ${theater?'主题战役':'增强兵力'}</div></div>
         </div>
         <div class="cp-stats">
           ${army?`<span>陆军 <b>约 ${people(army.personnel)}</b></span>`:'<span>陆军 <b>增强编制</b></span>'}
-          ${army?.tanks!==undefined?`<span>坦克 <b>约 ${assetCount(army.tanks,'辆')}</b></span><span>飞机 <b>约 ${assetCount(army.aircraft,'架')}</b></span>`:`<span>军工 <b>${c.startMil||3}</b></span>`}
+          ${theater?`<span>水师 <b>${assetCount(army?.ships||0,'艘')}</b></span>`:army?.tanks!==undefined?`<span>坦克 <b>约 ${assetCount(army.tanks,'辆')}</b></span><span>飞机 <b>约 ${assetCount(army.aircraft,'架')}</b></span>`:`<span>军工 <b>${c.startMil||3}</b></span>`}
         </div>`;
-      if(army?.personnel>=1000000)box.appendChild(el('p','cp-balance-note','百万兵力 · 游戏配置 · 按真实编制计算'));
+      if(theater){
+        const briefing=el('section','cp-faction-brief');briefing.setAttribute('aria-label','初始势力局势');briefing.appendChild(el('strong',null,'军政势力 · 初始局势'));
+        const names=ids=>(ids||[]).map(id=>startDefs.find(country=>country.id===id)?.name||HistoricalTheaters.countryProfile?.(scenario.id,id)?.name||id).join('、')||'暂无';
+        briefing.appendChild(el('p','cp-initial-allies','初始盟友 · '+names(profile.allies||army?.allies)));
+        briefing.appendChild(el('p','cp-initial-enemies','初始敌手 · '+names(profile.enemies||army?.enemies)));box.appendChild(briefing);
+        box.appendChild(el('p','cp-balance-note','战略战区近似 · 非古代边界复原 · 非史实军力统计'));
+      }
+      else if(army?.personnel>=1000000)box.appendChild(el('p','cp-balance-note','百万兵力 · 游戏配置 · 按真实编制计算'));
       else if(army?.targetMultiplier)box.appendChild(el('p','cp-balance-note','增强兵力 · 游戏配置'));
       document.querySelectorAll('.country-choice').forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.country===c.id));b.disabled=!!scenario.player;});
       const cap=c.capitalLocation||PROVINCES_DEF.find(p=>p.id===c.capital),map=$("startMapPreview");
       if(cap&&map&&typeof WORLD_HISTORICAL_MAP!=='undefined'){
         const center=proj(cap.lon,cap.lat),width=['sov','usa','can','chn','bra','aus'].includes(c.id)?330:220;
         const left=clamp(center.x-width/2,0,1000-width),top=clamp(center.y-85,0,330);
-        map.innerHTML=`<svg viewBox="${left} ${top} ${width} 170" focusable="false">${WORLD_HISTORICAL_MAP.shapes.map(s=>`<path class="${s.id===c.id?'preview-selected':'preview-land'}" d="${s.d}"/>`).join('')}<circle class="preview-pin" cx="${center.x}" cy="${center.y}" r="2.2"/></svg>`;
-        $("startTheater").textContent=cap.lon>60?'亚洲 / 太平洋':cap.lon< -30?'美洲战区':cap.lat<0?'南半球战区':'欧洲 / 非洲';
+        map.innerHTML=`<svg viewBox="${left} ${top} ${width} 170" focusable="false">${WORLD_HISTORICAL_MAP.shapes.map(s=>`<path class="${s.id===(theater?'chn':c.id)?'preview-selected':'preview-land'}" d="${s.d}"/>`).join('')}<circle class="preview-pin" cx="${center.x}" cy="${center.y}" r="2.2"/></svg>`;
+        $("startTheater").textContent=theater?'中国主题战区':cap.lon>60?'亚洲 / 太平洋':cap.lon< -30?'美洲战区':cap.lat<0?'南半球战区':'欧洲 / 非洲';
       }
     }
     sel.addEventListener("change", updateCountry);
@@ -334,13 +355,13 @@ const UI = (function(){
       sel.disabled=false;
       if(choices){
         choices.textContent='';
-        ['ger','sov','uk','fra','usa','jpn','chn','ita'].forEach(id=>{
+        (typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(sc.value)?startDefs.map(country=>country.id):['ger','sov','uk','fra','usa','jpn','chn','ita']).forEach(id=>{
           const profile=startDefs.find(c=>c.id===id);if(!profile)return;
           const button=el('button','country-choice',profile.name);button.type='button';button.dataset.country=id;
           button.addEventListener('click',()=>{sel.value=id;updateCountry();});choices.appendChild(button);
         });
       }
-      $("scenDesc").textContent = s ? (s.id==='ww1_1914'?'1914年七月危机 · 全部在场国家可选 · 战略边界近似':'1936年自由开局 · 全部在场国家可选') : '';
+      $("scenDesc").textContent = s ? (typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(s.id)?startDefs.length+' 方军政势力均可选择 · 中国战略近似战区 · 非古代边界复原':s.id==='ww1_1914'?'1914年七月危机 · 全部在场国家可选 · 战略边界近似':'1936年自由开局 · 全部在场国家可选') : '';
       updateCountry();
     }
     sc.addEventListener("change", updateScen);
@@ -514,6 +535,14 @@ const UI = (function(){
   function renderTopbar(){
     const s = Game.state; if(!s) return;
     const c = Game.country(s.player);
+    if($('mapRegionSelector'))$('mapRegionSelector').hidden=historicalTheater();
+    if($('zoomReset'))$('zoomReset').title=historicalTheater()?'查看整个中国战区':'查看全球地图';
+    if($('btnWorldOverview'))$('btnWorldOverview').textContent=historicalTheater()?'战区总览':'全球总览';
+    for(const [id,label]of [['tbTanks','坦克'],['tbAircraft','飞机'],['tbShips',historicalTheater()?'水师':'舰艇'],['tbEquip',historicalTheater()?'军械':'通用装备']]){
+      const chip=$(id)?.parentElement;if(!chip)continue;
+      chip.hidden=historicalTheater()&&['tbTanks','tbAircraft'].includes(id);
+      const caption=chip.querySelector('span');if(caption)caption.textContent=label;
+    }
     $("topBarFlag").innerHTML = flagHTML(s.player, 30);
     $("topBarName").textContent = c.name;
     const inc = Game.incomePreview();
@@ -619,7 +648,7 @@ const UI = (function(){
     rememberPanelDetails(rp);
     rp.innerHTML = "";
     try{
-    if($('panelTitle'))$('panelTitle').textContent=pendingBattle?'出征命令':pendingMove?'调兵命令':({province:'地区指挥','province-details':'地区详情',cities:'我的领土',war:'前线战局',production:'军队',research:'军事科技',diplo:'外交',news:'世界大事',logistics:'后勤与发展',campaign:'战役任务'})[activeView]||'国家管理';
+    if($('panelTitle'))$('panelTitle').textContent=pendingBattle?'出征命令':pendingMove?'调兵命令':targetMode?.kind==='attack'?'选择进攻目标':({province:'地区指挥','province-details':'地区详情',cities:'我的领土',war:'前线战局',production:'军队',research:'军事科技',diplo:'外交',news:'世界大事',logistics:'后勤与发展',campaign:'战役任务'})[activeView]||'国家管理';
     // The main navigation owns views; this panel only renders the current command.
 
     // AI 求和提议：置顶显示，接受/拒绝
@@ -640,6 +669,7 @@ const UI = (function(){
 
     if(pendingMove){ renderMovePlan(rp); return; }
     if(pendingBattle){ renderBattlePlan(rp); return; }
+    if(targetMode?.kind==='attack'){renderAttackTargetSelection(rp);return;}
     if(targetMode?.kind==='move'){renderMoveDestinations(rp);return;}
 
     if(activeView==="overview") renderCountryOverview(rp);
@@ -784,15 +814,15 @@ const UI = (function(){
         finishBattleOrder(to,accepted);
       });advanced.appendChild(allBtn);
     }
-    const planChoices=el('div','combat-tactic-options');
+    const primaryOrders=el('div','battle-primary-orders'),planChoices=el('div','combat-tactic-options');
     [['careful','谨慎'],['balanced','均衡'],['assault','强攻']].forEach(([mode,name])=>{
       const button=el('button','combat-tactic-choice',name);button.setAttribute('aria-label','选择'+name+'战术');button.setAttribute('aria-pressed',String((pendingBattle.tactics||'balanced')===mode));
       button.title=Game.tacticProfile?.(mode)?.summary||name;
       button.addEventListener('click',()=>{pendingBattle.tactics=mode;tutorialAction('tactic',{from,to,mode});refresh();});planChoices.appendChild(button);
-    });box.appendChild(planChoices);
-    if(Game.tacticProfile)box.appendChild(el('p','combat-tactic-summary',Game.tacticProfile(pendingBattle.tactics||'balanced').summary));
+    });primaryOrders.appendChild(planChoices);
+    if(Game.tacticProfile)primaryOrders.appendChild(el('p','combat-tactic-summary',Game.tacticProfile(pendingBattle.tactics||'balanced').summary));
     const route=isAmphib?null:landRouteTo(from,to);
-    box.appendChild(el('p','combat-status','确认后开始行军'+(route?.preparationDays?' · 约 '+route.preparationDays+' 天接敌':'')+(route?.path?.slice(1,-1).some(i=>Game.province(i).owner!==s.player)?' · 经盟国领土':'')));
+    primaryOrders.appendChild(el('p','combat-status','确认后开始行军'+(route?.preparationDays?' · 约 '+route.preparationDays+' 天接敌':'')+(route?.path?.slice(1,-1).some(i=>Game.province(i).owner!==s.player)?' · 经盟国领土':'')));
     box.appendChild(advanced);rp.appendChild(box);
     const actions=el('div','battle-command-actions');
     commandCount=el('div','battle-command-count');actions.appendChild(commandCount);updateEstimate();
@@ -804,13 +834,19 @@ const UI = (function(){
       const options=compositionOptions(attackComposition),accepted=isAmphib?Game.amphibious(from,to,sending,undefined,undefined,options):Game.resolveAttack(s.player,from,to,sending,options);
       finishBattleOrder(to,accepted);
     });actions.appendChild(attack);
-    const cancel=el('button','rp-btn','取消命令');cancel.addEventListener('click',()=>{tutorialAction('cancel');clearCommand();activeView='war';refresh();resumePlanning();$("rightPanel").scrollTop=0;});actions.appendChild(cancel);rp.appendChild(actions);
+    const cancel=el('button','rp-btn','取消命令');cancel.addEventListener('click',()=>{tutorialAction('cancel');clearCommand();activeView='war';refresh();resumePlanning();$("rightPanel").scrollTop=0;});actions.appendChild(cancel);primaryOrders.appendChild(actions);rp.appendChild(primaryOrders);
   }
 
   function movementTargets(from,kind='land'){
     if(!Game.movableUnits(from,null,kind).length)return [];
     if(kind==='land')return Game.moveTargets(from);
     return Game.state.provinces.map((province,index)=>({province,index})).filter(({province,index})=>index!==from&&province.owner===Game.state.player&&Game.movableUnits(from,index,kind).length&&(kind!=='naval'||Game.coastalOf(from)&&Game.coastalOf(index)&&Game.seaAdj(from).includes(index))).map(({index})=>index);
+  }
+  function renderAttackTargetSelection(rp){
+    const origin=Game.province(targetMode.from),box=el('section','attack-target-selection'),copy=el('p','attack-target-copy');
+    copy.appendChild(el('strong',null,(origin?.cityName||origin?.name||'我方部队')+' 出征'));
+    copy.appendChild(el('span',null,'在地图上选择进攻目标'));box.appendChild(copy);
+    const cancel=el('button','rp-btn','取消命令');cancel.addEventListener('click',()=>{tutorialAction('cancel');clearCommand();refresh();resumePlanning();});box.appendChild(cancel);rp.appendChild(box);
   }
   function renderMoveDestinations(rp){
     const {from,unitKind='land'}=targetMode,targets=movementTargets(from,unitKind),box=el('section','rp-section command-status');
@@ -876,6 +912,7 @@ const UI = (function(){
       <div class="rp-row"><span class="k">📈 稳定度</span><span class="v" style="color:${player.stability>=70?'#7ad27a':player.stability>=40?'#f0ad4e':'#e15a55'}">${Math.round(player.stability)}%</span></div>
       <div class="rp-row"><span class="k">⚔ 战争支援</span><span class="v" style="color:${player.warSupport>=70?'#7ad27a':player.warSupport>=40?'#f0ad4e':'#e15a55'}">${Math.round(player.warSupport)}%</span></div>
     `;
+    if(historicalTheater())box1.innerHTML=eraText(box1.innerHTML);
     rp.appendChild(box1);
 
     // 本月预计收入
@@ -887,6 +924,7 @@ const UI = (function(){
       <div class="rp-row"><span class="k">👤 人力</span><span class="v" style="color:#80c8e0">+${people(inc.mp*1000)}</span></div>
       <div class="rp-row"><span class="k">💠 政治</span><span class="v" style="color:#c4a0ff">+${inc.pp}</span></div>
     `;
+    if(historicalTheater())box2.innerHTML=eraText(box2.innerHTML);
     rp.appendChild(box2);
 
     // 正在进行的战争
@@ -1137,11 +1175,12 @@ const UI = (function(){
         const gr=groups[d.type]; gr.count++;gr.points+=d.formationPermille??1000; gr.personnel+=Game.unitPersonnel(d); gr.hp+=d.hp; gr.maxHp+=d.maxHp; gr.org+=d.org; gr.maxOrg+=d.maxOrg;
       });
       Object.values(groups).forEach(gr=>{
+        const definition=unitDefinition(gr.type);
         const row = el("div","rp-unit"+(selectedUnitKey===idx+"_"+gr.type?" sel":""));
         row.innerHTML = `
           <div class="u-icon">${unitGlyph(gr.type,24)}</div>
-          <div class="u-info"><div class="u-name">${UNIT_TYPES[gr.type].name} · ${people(gr.personnel)}</div>
-          <div class="u-stat">${UNIT_TYPES[gr.type].kind==='air'?'航程 '+UNIT_TYPES[gr.type].range+' km':'单支攻击 '+(UNIT_TYPES[gr.type].atk*gr.points/gr.count/1000).toFixed(1)+' · 防御 '+(UNIT_TYPES[gr.type].def*gr.points/gr.count/1000).toFixed(1)}<br>${gr.count} ${UNIT_TYPES[gr.type].kind==='land'?(gr.points===gr.count*1000&&UNIT_TYPES[gr.type].name.endsWith('师')?'师':'支部队 · 等效 '+gr.points/1000+' 师'):'编队'} · ${UNIT_TYPES[gr.type].role}</div></div>
+          <div class="u-info"><div class="u-name">${definition.name} · ${people(gr.personnel)}</div>
+          <div class="u-stat">${definition.kind==='air'?'航程 '+definition.range+' km':'单支攻击 '+(definition.atk*gr.points/gr.count/1000).toFixed(1)+' · 防御 '+(definition.def*gr.points/gr.count/1000).toFixed(1)}<br>${gr.count} ${definition.kind==='land'?(historicalTheater()?'支部队':gr.points===gr.count*1000&&definition.name.endsWith('师')?'师':'支部队 · 等效 '+gr.points/1000+' 师'):'编队'} · ${definition.role}</div></div>
           <div class="u-bars">
             <div class="mini-bar"><div style="width:${Math.round(gr.hp/gr.maxHp*100)}%;background:${gr.hp/gr.maxHp<0.35?'#d9534f':'#5cb85c'}"></div></div>
             <div class="mini-bar"><div style="width:${Math.round(gr.org/gr.maxOrg*100)}%;background:${gr.org/gr.maxOrg<0.3?'#d9534f':'#5b9bd5'}"></div></div>
@@ -1165,7 +1204,7 @@ const UI = (function(){
       commandButton(infraBtn);infraBtn.addEventListener("click",()=>{ Game.buildProvince("infra"); sfx("click"); });
       build.appendChild(infraBtn);
       actionReason(infraBtn,p.infra>=5?"基建已达 5 级上限":Game.country(s.player).res<(p.infra+1)*15?`资源不足：需要 ${(p.infra+1)*15}`:"");
-      const moveKinds=[['land','陆军调动'],['air','飞机转场'],['naval','舰队转移']];
+      const moveKinds=historicalTheater()?[['land','陆军调动'],['naval','水师转移']]:[['land','陆军调动'],['air','飞机转场'],['naval','舰队转移']];
       const availableKinds=moveKinds.filter(([kind])=>Game.movableUnits(idx,null,kind).length);
       if(selectedMoveProvince!==idx){selectedMoveProvince=idx;selectedMoveUnitKind=availableKinds[0]?.[0]||'land';}
       if(!moveKinds.some(([kind])=>kind===selectedMoveUnitKind))selectedMoveUnitKind=availableKinds[0]?.[0]||'land';
@@ -1194,7 +1233,7 @@ const UI = (function(){
       }
       act.appendChild(build);
       rp.appendChild(act);
-    } else if (c && Game.isAtWar(s.player, p.owner)){
+    } else if (c && Game.isAtWar(s.player, p.owner)&&!historicalTheater()){
       // 特殊行动：对已宣战的敌方省份发动战略空袭（附近需有我方空军）
       const sp = el("details","rp-section");
       sp.appendChild(el("summary",null,"轰炸行动（高级）"));
@@ -1214,7 +1253,7 @@ const UI = (function(){
     const actions=el('div','national-reserve-actions'),details=el('details','reserve-costs');details.appendChild(el('summary',null,'收益与代价'));
     for(const [id,name]of [['mobilize','强制征兵'],['tax','征收赋税']]){
       const action=status.actions[id],cooling=action.cooldownDays&&action.reason.startsWith('还需'),b=el('button','rp-btn',name+(cooling?' · '+action.cooldownDays+'天':''));b.disabled=!action.available;b.title=action.reason;b.setAttribute('aria-label',name);
-      const gain=id==='tax'?'钢铁 +'+action.gains.res+' · 装备 +'+action.gains.equipment:'预备 +'+people(action.gains.manpower*1000);
+      const gain=id==='tax'?eraText('钢铁 +'+action.gains.res+' · 装备 +'+action.gains.equipment):'预备 +'+people(action.gains.manpower*1000);
       commandButton(b);b.addEventListener('click',()=>{pauseForPlanning();if(Game.nationalMobilizationAction(id)){sfx('build');toast(name+'：'+gain,'good');}else{toast(Game.timeStatus?.().blockedReason||Game.nationalMobilizationStatus().actions[id].reason||'暂时无法执行','war');refresh();}});actions.appendChild(b);
       details.appendChild(el('p',null,name+'：'+gain+' · 政治 −'+action.costs.pp+' · 稳定 −'+action.costs.stability+(action.costs.warSupport?' · 战意 −'+action.costs.warSupport:'')));
       if(!action.available&&!cooling)box.appendChild(el('p','action-reason',name+'：'+action.reason));
@@ -1226,10 +1265,10 @@ const UI = (function(){
     const status=Game.autoRecruitmentStatus();
     const box=el('section','rp-section recruitment-status');
     box.appendChild(el('h4',null,'全省自动征兵'));
-    box.appendChild(el('p','task-status',status.summary));
+    box.appendChild(el('p','task-status',eraText(status.summary)));
     if(status.provinceCount!==undefined)box.appendChild(el('p','recruitment-coverage',status.provinceCount+' 个省纳入计划 · '+(status.covered||0)+' 个省正在训练'));
     if(status.queuedPersonnel>0)box.appendChild(el('p','task-status','在训 '+people(status.queuedPersonnel)+' · 消耗全国兵源和装备'));
-    if(status.reason&&status.reason!==status.summary)box.appendChild(el('p','action-reason',status.reason));
+    if(status.reason&&status.reason!==status.summary)box.appendChild(el('p','action-reason',eraText(status.reason)));
     const details=el('details','recruitment-settings');details.appendChild(el('summary',null,'调整自动征兵'));
     const label=el('label','logistics-toggle'),toggle=el('input');toggle.type='checkbox';toggle.checked=status.enabled;toggle.setAttribute('aria-label','自动征兵');
     toggle.addEventListener('change',()=>{Game.setAutoRecruitment({enabled:toggle.checked});refresh();});label.appendChild(toggle);label.appendChild(el('span',null,'自动征兵'));details.appendChild(label);
@@ -1237,7 +1276,7 @@ const UI = (function(){
     [['reserve','保守 · 保留储备'],['balanced','均衡 · 稳步扩军'],['mobilize','积极 · 优先扩军']].forEach(([value,text])=>{const o=el('option',null,text);o.value=value;intensity.appendChild(o);});intensity.value=status.intensity;
     intensity.addEventListener('focus',()=>pauseForPlanning());intensity.addEventListener('change',()=>{Game.setAutoRecruitment({intensity:intensity.value});refresh();});details.appendChild(intensity);
     const type=el('select','rp-select');type.setAttribute('aria-label','自动征兵兵种');
-    Object.values(UNIT_TYPES).filter(t=>t.kind==='land').forEach(t=>{const o=el('option',null,t.name);o.value=t.key;o.disabled=!Game.unitAvailability(t.key).available;type.appendChild(o);});type.value=status.unitType;
+    eraUnits().filter(t=>t.kind==='land').forEach(t=>{const o=el('option',null,t.name);o.value=t.key;o.disabled=!Game.unitAvailability(t.key).available;type.appendChild(o);});type.value=status.unitType;
     type.addEventListener('focus',()=>pauseForPlanning());type.addEventListener('change',()=>{Game.setAutoRecruitment({unitType:type.value});refresh();});details.appendChild(type);
     box.appendChild(details);renderNationalReserves(box);rp.appendChild(box);
   }
@@ -1263,10 +1302,10 @@ const UI = (function(){
     box.appendChild(el('h3',null,'军队训练'));
     const totals=Game.armyTotals(s.player),baseline=s.orderOfBattle?.countries?.[s.player];
     box.appendChild(renderForceMetrics(Game.militaryAssets(s.player)));
-    box.appendChild(el('p','task-status',`舰艇 ${assetCount(totals.ships,'艘')} · 投入陆战 ${people(totals.committedPersonnel)}`));
+    box.appendChild(el('p','task-status',`${historicalTheater()?'水师战船':'舰艇'} ${assetCount(totals.ships,'艘')} · 投入陆战 ${people(totals.committedPersonnel)}`));
     const explanation=el('details','army-explanation');explanation.appendChild(el('summary',null,'编制详情'));
-    explanation.appendChild(el('p','army-totals',`陆军 ${totals.land} 师 · 海军 ${totals.naval} 编队 · 空军 ${totals.air} 联队 · 投入战斗 ${totals.engaged} 师`));
-    explanation.appendChild(el('p',null,'师级规模近似，人数按实际编制与剩余实力计算。新战役采用游戏增强兵力；驻防拆分本身不增加人数。'+(baseline?' 开局约 '+baseline.land+' 师。':'')));
+    explanation.appendChild(el('p','army-totals',historicalTheater()?`陆上军队 ${totals.land} 支 · 水师 ${totals.naval} 支 · 投入战斗 ${totals.engaged} 支`:`陆军 ${totals.land} 师 · 海军 ${totals.naval} 编队 · 空军 ${totals.air} 联队 · 投入战斗 ${totals.engaged} 师`));
+    explanation.appendChild(el('p',null,historicalTheater()?'人数按实际编制与剩余实力计算。兵力为独立游戏配置，并非史实统计；水师仅模拟沿海航渡，不表示已实现内河航运。':'师级规模近似，人数按实际编制与剩余实力计算。新战役采用游戏增强兵力；驻防拆分本身不增加人数。'+(baseline?' 开局约 '+baseline.land+' 师。':'')));
     rp.appendChild(box);
     renderUnitTraining(rp);
     rp.appendChild(explanation);
@@ -1276,42 +1315,45 @@ const UI = (function(){
   }
 
   function trainingBranch(unit){
+    if(historicalTheater())return unit.kind==='naval'?'navy':unit.key;
     if(unit.kind!=='land')return unit.kind==='air'?'air':'navy';
     return ['armor','lightArmor','heavyArmor','mechanized','tankDestroyer'].includes(unit.key)?'armor':'infantry';
   }
 
   function renderUnitTraining(rp,city=false){
     const c=Game.country(Game.state.player),box=el('section','unit-training');
-    if(city&&!['infantry','armor'].includes(selectedTrainingBranch))selectedTrainingBranch='infantry';
+    const branches=historicalTheater()?[['infantry','步军'],['cavalry','骑兵'],['artillery',Game.state.theaterId==='anshi_755'?'弓弩':'炮队'],['navy','水师']]:[['infantry','步兵'],['armor','坦克'],['air','飞机'],['navy','海军']];
+    const cityBranches=historicalTheater()?['infantry','cavalry','artillery']:['infantry','armor'];
+    if(!branches.some(([key])=>key===selectedTrainingBranch)||city&&!cityBranches.includes(selectedTrainingBranch))selectedTrainingBranch='infantry';
     const branch=selectedTrainingBranch,tabs=el('div','training-branches core-branches');tabs.setAttribute('role','group');tabs.setAttribute('aria-label','训练军种');
-    for(const [key,name]of [['infantry','步兵'],['armor','坦克'],['air','飞机'],['navy','海军']].filter(([key])=>!city||['infantry','armor'].includes(key))){
+    for(const [key,name]of branches.filter(([key])=>!city||cityBranches.includes(key))){
       const b=el('button','training-branch'+(branch===key?' on':''),name);b.setAttribute('aria-pressed',String(branch===key));
       b.addEventListener('click',()=>{selectedTrainingBranch=key;selectedTrainingUnit=key==='navy'?'navy':key==='air'?'air':key;pauseForPlanning();refresh();});tabs.appendChild(b);
     }box.appendChild(tabs);
-    const types=Object.values(UNIT_TYPES).filter(t=>!city||t.kind==='land'),select=el('select','rp-select');select.setAttribute('aria-label','选择训练兵种');
+    const types=eraUnits().filter(t=>!city||t.kind==='land'),select=el('select','rp-select');select.setAttribute('aria-label','选择训练兵种');
     const groups={};
     for(const t of types){
-      const family={infantry:'步兵与支援',armor:'坦克与装甲',air:'飞机',navy:'海军'}[trainingBranch(t)];
+      const family=historicalTheater()?t.name:{infantry:'步兵与支援',armor:'坦克与装甲',air:'飞机',navy:'海军'}[trainingBranch(t)];
       if(!groups[family]){groups[family]=el('optgroup');groups[family].label=family;select.appendChild(groups[family]);}
       const option=el('option',null,t.name);option.value=t.key;groups[family].appendChild(option);
     }
-    if(!types.some(t=>t.key===selectedTrainingUnit)||trainingBranch(UNIT_TYPES[selectedTrainingUnit])!==branch)selectedTrainingUnit=branch==='navy'?'navy':branch;
-    select.value=selectedTrainingUnit;select.addEventListener('focus',()=>pauseForPlanning());select.addEventListener('change',()=>{selectedTrainingUnit=select.value;selectedTrainingBranch=trainingBranch(UNIT_TYPES[select.value]);pauseForPlanning();refresh();});
-    const variants=el('details','training-variants');variants.appendChild(el('summary',null,'专业兵种与支援装备'));variants.appendChild(select);
-    const t=UNIT_TYPES[selectedTrainingUnit];if(!t){rp.appendChild(box);return;}
+    if(!types.some(t=>t.key===selectedTrainingUnit)||trainingBranch(unitDefinition(selectedTrainingUnit))!==branch)selectedTrainingUnit=branch==='navy'?'navy':branch;
+    select.value=selectedTrainingUnit;select.addEventListener('focus',()=>pauseForPlanning());select.addEventListener('change',()=>{selectedTrainingUnit=select.value;selectedTrainingBranch=trainingBranch(unitDefinition(select.value));pauseForPlanning();refresh();});
+    const variants=el('details','training-variants');variants.appendChild(el('summary',null,historicalTheater()?'选择兵种':'专业兵种与支援装备'));variants.appendChild(select);
+    const t=unitDefinition(selectedTrainingUnit);if(!t){rp.appendChild(box);return;}
     box.appendChild(el('h4','training-unit-name',t.name));box.appendChild(el('p','training-role',t.role));
     box.appendChild(el('p','training-duration',people(t.man*1000)+' · '+(t.buildDays?t.buildDays+' 天建造':t.time+' 个月训练')));
     const output=[t.tanks?assetCount(t.tanks,'辆坦克'):'',t.aircraft?assetCount(t.aircraft,'架飞机'):'',t.ships?assetCount(t.ships,'艘舰艇'):''].filter(Boolean);
     if(output.length)box.appendChild(el('p','training-output','每批交付 '+output.join(' · ')));
     const costs=el('div','training-costs');
-    for(const [label,need]of [['装备',t.equip],['钢铁',t.res],['石油',t.oil],['稀有',t.rare]])if(need){const chip=el('div','training-cost');chip.appendChild(el('strong',null,String(need)));chip.appendChild(el('span',null,label));costs.appendChild(chip);}box.appendChild(costs);
+    for(const [label,need]of [['装备',t.equip],['钢铁',t.res],['石油',t.oil],['稀有',t.rare]])if(need){const chip=el('div','training-cost');chip.appendChild(el('strong',null,String(need)));chip.appendChild(el('span',null,eraText(label)));costs.appendChild(chip);}box.appendChild(costs);
     const lacks=Game.unitAvailability(t.key).reasons.slice();
-    for(const [label,have,need]of [['装备',c.equipment,t.equip],['钢铁',c.res,t.res],['石油',c.oil,t.oil],['稀有',c.rare,t.rare],['预备兵员',c.manpower,t.man]])if(have<need)lacks.push(label+'缺 '+(label==='预备兵员'?people((need-have)*1000):Math.ceil(need-have)));
+    for(const [label,have,need]of [['装备',c.equipment,t.equip],['钢铁',c.res,t.res],['石油',c.oil,t.oil],['稀有',c.rare,t.rare],['预备兵员',c.manpower,t.man]])if(have<need)lacks.push(eraText(label)+'缺 '+(label==='预备兵员'?people((need-have)*1000):Math.ceil(need-have)));
     const b=el('button','rp-btn primary',city?'确认征兵':'训练 '+t.name);b.disabled=lacks.length>0;b.title=lacks.join('；');
     commandButton(b);b.addEventListener('click',()=>{if(Game.buildUnit(t.key)){if(city)cityAction=null;sfx('build');toast(t.name+' 已加入训练队列','good');}refresh();});box.appendChild(b);
     if(lacks.length)box.appendChild(el('p','action-reason',lacks.join('；')));
     if(t.tech&&!c.researched[t.tech]){
-      const technology=TECHS.find(tech=>tech.id===t.tech),research=el('button','rp-btn training-research','研发 '+technology.name+' →');
+      const technology=techDefinition(t.tech),research=el('button','rp-btn training-research','研发 '+technology.name+' →');
       research.addEventListener('click',()=>{selectedResearchBranch=researchBranch(technology);navigate('research');});box.appendChild(research);
     }
     box.appendChild(variants);
@@ -1319,6 +1361,7 @@ const UI = (function(){
   }
 
   function renderAutoEquipment(rp){
+    if(historicalTheater())return;
     const status=Game.autoEquipmentStatus?.();if(!status)return;
     const box=el('section','auto-equipment');box.appendChild(el('h4',null,'装备后勤 · '+(status.enabled?'自动运行':'手动管理')));box.appendChild(el('p','task-status',status.summary));
     const queued=status.queued||{};box.appendChild(el('p','task-status','训练中：'+assetCount(queued.tanks,'辆坦克')+' · '+assetCount(queued.aircraft,'架飞机')+' · '+assetCount(queued.ships,'艘舰艇')));
@@ -1334,25 +1377,25 @@ const UI = (function(){
     box.appendChild(el('h3',null,'后勤与发展'));
     const label=el('label','logistics-toggle'),toggle=el('input');toggle.type='checkbox';toggle.checked=status.enabled;toggle.setAttribute('aria-label','自动后勤');
     toggle.addEventListener('change',()=>{Game.setAutoLogistics(toggle.checked);refresh();});label.appendChild(toggle);label.appendChild(el('span',null,'自动后勤 · 贸易与研究'));box.appendChild(label);
-    const summary=el('p');summary.textContent=status.summary;box.appendChild(summary);
-    status.reasons.forEach(text=>{const row=el('div','action-reason');row.textContent=text;box.appendChild(row);});
-    box.appendChild(el('p','task-status',`库存：装备 ${Math.round(c.equipment)} · 钢铁 ${Math.round(c.res)} · 油 ${Math.round(c.oil)} · 稀有 ${Math.round(c.rare)} · 预备人力 ${people(c.manpower*1000)}`));
+    const summary=el('p');summary.textContent=eraText(status.summary);box.appendChild(summary);
+    status.reasons.forEach(text=>{const row=el('div','action-reason');row.textContent=eraText(text);box.appendChild(row);});
+    box.appendChild(el('p','task-status',eraText(`库存：装备 ${Math.round(c.equipment)} · 钢铁 ${Math.round(c.res)} · 石油 ${Math.round(c.oil)} · 稀有 ${Math.round(c.rare)} · 预备人力 ${people(c.manpower*1000)}`)));
     renderNationalReserves(box);
     const research=el('button','rp-btn primary','军事科技 →');research.addEventListener('click',()=>navigate('research'));box.appendChild(research);
     renderUnrestStatus(box);rp.appendChild(box);
     renderAutoEquipment(rp);
     const fac = el('details','rp-section administration-details');
-    fac.appendChild(el('summary',null,'工业建设与国家管理'));
+    fac.appendChild(el('summary',null,eraText('工业建设与国家管理')));
     [['focus','国策与决策'],['overview','全国概览']].forEach(([view,title])=>{const b=el('button','rp-btn',title);b.addEventListener('click',()=>navigate(view));fac.appendChild(b);});
-    const cb = el("button","rp-btn",`⚙ 民用工厂（40 资源，3 月）`);
+    const cb = el("button","rp-btn",eraText(`⚙ 民用工厂（40 资源，3 月）`));
     commandButton(cb);cb.addEventListener("click",()=>{ Game.buildFactory("civ"); sfx("build"); });
     fac.appendChild(cb);
     actionReason(cb,c.res<40?`资源不足：还缺 ${Math.ceil(40-c.res)}`:"");
-    const mb = el("button","rp-btn",`🏭 军用工厂（60 资源，3 月）`);
+    const mb = el("button","rp-btn",eraText(`🏭 军用工厂（60 资源，3 月）`));
     commandButton(mb);mb.addEventListener("click",()=>{ Game.buildFactory("mil"); sfx("build"); });
     fac.appendChild(mb);
     actionReason(mb,c.res<60?`资源不足：还缺 ${Math.ceil(60-c.res)}`:"");
-    const tb = el("button","rp-btn",`🔄 贸易：20资源 → 12装备`);
+    const tb = el("button","rp-btn",eraText(`🔄 贸易：20资源 → 12装备`));
     commandButton(tb);tb.addEventListener("click",()=>{ Game.trade(); sfx("click"); });
     fac.appendChild(tb);
     actionReason(tb,c.res<20?`资源不足：还缺 ${Math.ceil(20-c.res)}`:"");
@@ -1365,7 +1408,7 @@ const UI = (function(){
     if(s.buildQueue.length){
       const q=el('details','production-queue');
       const provinces=new Set(s.buildQueue.filter(item=>item.kind==='div').map(item=>item.provinceIdx));
-      const personnel=s.buildQueue.filter(item=>item.kind==='div').reduce((sum,item)=>sum+UNIT_TYPES[item.unitType].man*(item.formationPermille||1000),0);
+      const personnel=s.buildQueue.filter(item=>item.kind==='div').reduce((sum,item)=>sum+unitDefinition(item.unitType).man*(item.formationPermille||1000),0);
       q.appendChild(el('summary',null,'生产队列 · '+s.buildQueue.length+' 项'));
       if(provinces.size)q.appendChild(el('p','task-status',provinces.size+' 个省在训 · '+people(personnel)));
       s.buildQueue.forEach(item=>{
@@ -1378,6 +1421,7 @@ const UI = (function(){
   }
 
   function researchBranch(technology){
+    if(historicalTheater())return /^art/.test(technology.id)?Game.state.theaterId==='anshi_755'?'弓弩':'炮队':({陆军:'步军',海军:'水师',工业:'工坊'})[technology.cat]||technology.cat;
     if(technology.cat==='装甲'||/^arm|^mob|^mech/.test(technology.id))return '坦克';
     if(/^art|^at|^aa/.test(technology.id))return '火炮';
     return ({陆军:'步兵',航空:'飞机'})[technology.cat]||technology.cat;
@@ -1385,6 +1429,8 @@ const UI = (function(){
 
   function renderResearchView(rp){
     const s=Game.state,c=Game.country(s.player),active=s.research.slots.filter(Boolean);
+    const technologies=eraTechs(),coreBranches=historicalTheater()?[...new Set(technologies.map(researchBranch))]:['步兵','坦克','飞机','海军'];
+    if(!technologies.some(technology=>researchBranch(technology)===selectedResearchBranch))selectedResearchBranch=coreBranches[0];
     const output=Math.round((c.civ*.6+3)*(1+c.eff.researchOut)),box=el('section','rp-section research-header');
     box.appendChild(el('div','city-eyebrow','军备发展'));
     box.appendChild(el('h3',null,'军事科技'));
@@ -1394,7 +1440,7 @@ const UI = (function(){
     if(active.length){
       const running=el('section','research-running');running.appendChild(el('h4',null,'正在研发'));
       for(const id of active){
-        const technology=TECHS.find(tech=>tech.id===id),progress=s.research.progress[id]||0;
+        const technology=techDefinition(id),progress=s.research.progress[id]||0;
         const card=el('article','research-project');card.appendChild(el('strong',null,technology.name));
         const percent=Math.min(100,Math.round(progress/technology.cost*100));
         card.appendChild(el('p','task-status',percent+'% · 预计 '+Math.ceil((technology.cost-progress)/(output/active.length))+' 个月'));
@@ -1406,23 +1452,25 @@ const UI = (function(){
       rp.appendChild(running);
     }
     const branches=el('div','research-branches core-branches');branches.setAttribute('role','group');branches.setAttribute('aria-label','科技分支');
-    for(const name of ['步兵','坦克','飞机','海军']){
+    for(const name of coreBranches){
       const button=el('button','research-branch'+(selectedResearchBranch===name?' on':''),name);button.setAttribute('aria-pressed',String(selectedResearchBranch===name));
       button.addEventListener('click',()=>{selectedResearchBranch=name;refresh();});branches.appendChild(button);
     }
     rp.appendChild(branches);
-    const support=el('details','research-support');support.open=['火炮','工业'].includes(selectedResearchBranch);support.appendChild(el('summary',null,'支援装备与工业科技'));
-    for(const name of ['火炮','工业']){const button=el('button','research-branch'+(selectedResearchBranch===name?' on':''),name);button.setAttribute('aria-pressed',String(selectedResearchBranch===name));button.addEventListener('click',()=>{selectedResearchBranch=name;refresh();});support.appendChild(button);}rp.appendChild(support);
+    if(!historicalTheater()){
+      const support=el('details','research-support');support.open=['火炮','工业'].includes(selectedResearchBranch);support.appendChild(el('summary',null,'支援装备与工业科技'));
+      for(const name of ['火炮','工业']){const button=el('button','research-branch'+(selectedResearchBranch===name?' on':''),name);button.setAttribute('aria-pressed',String(selectedResearchBranch===name));button.addEventListener('click',()=>{selectedResearchBranch=name;refresh();});support.appendChild(button);}rp.appendChild(support);
+    }
     const list=el('section','technology-list');list.setAttribute('aria-label',selectedResearchBranch+'科技');
-    for(const technology of TECHS.filter(tech=>researchBranch(tech)===selectedResearchBranch)){
+    for(const technology of technologies.filter(tech=>researchBranch(tech)===selectedResearchBranch)){
       const done=!!c.researched[technology.id],running=active.includes(technology.id),slot=s.research.slots.indexOf(null);
       const prerequisites=technology.pre.filter(id=>!c.researched[id]);
       const year=Game.techUnlockYear?.(technology.id)||technology.year||0;
-      const reason=year>s.date.year?year+' 年开放':prerequisites.length?'先研发 '+prerequisites.map(id=>TECHS.find(tech=>tech.id===id).name).join('、'):slot<0?'科研槽已满':'';
+      const reason=year>s.date.year?year+' 年开放':prerequisites.length?'先研发 '+prerequisites.map(id=>techDefinition(id).name).join('、'):slot<0?'科研槽已满':'';
       const card=el('article','technology-card'+(done?' complete':''));
       card.appendChild(el('p','technology-state',done?'✓ 已完成':running?'研发中':reason?'待解锁':technology.cost+' RP'));
       card.appendChild(el('h4',null,technology.name));card.appendChild(el('p','technology-effect',technology.desc));
-      const units=Object.values(UNIT_TYPES).filter(unit=>unit.tech===technology.id);
+      const units=eraUnits().filter(unit=>unit.tech===technology.id);
       if(units.length)card.appendChild(el('p','technology-unlocks','解锁 '+units.map(unit=>unit.name).join('、')));
       if(!done&&!running){
         const button=commandButton(el('button','rp-btn'+(reason?'':' primary'),'研发 '+technology.name));button.disabled=!!reason;button.title=reason;button.setAttribute('aria-label','研发 '+technology.name);
@@ -1607,9 +1655,9 @@ const UI = (function(){
       row.appendChild(renderForceMetrics({...assets,personnel}));
       if(effects?.summary)row.appendChild(el('p','combat-equipment-effect',marching?'待接敌 · '+effects.summary:effects.summary));
       details.appendChild(el('p','task-status',side+' · '+count+' 师 · 士气 '+Math.round(org)+'%'));
-      if(effects)details.appendChild(el('p','task-status','前沿坦克 '+assetCount(effects.engagedTanks,'辆')+' · 累计出动 '+assetCount(effects.sorties,'架次')));
+      if(effects&&!historicalTheater())details.appendChild(el('p','task-status','前沿坦克 '+assetCount(effects.engagedTanks,'辆')+' · 累计出动 '+assetCount(effects.sorties,'架次')));
       details.appendChild(el('p','combat-loss',side+' · 估算减员 '+people(loss)));
-      if(casualties){details.appendChild(el('p','task-status','估算阵亡 '+people(casualties.killed)+' · 负伤 '+people(casualties.wounded)));details.appendChild(el('p','task-status','坦克损失 '+assetCount(casualties.tanks,'辆')+' · 飞机损失 '+assetCount(casualties.aircraft,'架')+(casualties.ships?' · 舰艇损失 '+assetCount(casualties.ships,'艘'):'')));}
+      if(casualties){details.appendChild(el('p','task-status','估算阵亡 '+people(casualties.killed)+' · 负伤 '+people(casualties.wounded)));if(!historicalTheater())details.appendChild(el('p','task-status','坦克损失 '+assetCount(casualties.tanks,'辆')+' · 飞机损失 '+assetCount(casualties.aircraft,'架')+(casualties.ships?' · 舰艇损失 '+assetCount(casualties.ships,'艘'):'')));else if(casualties.ships)details.appendChild(el('p','task-status','战船损失 '+assetCount(casualties.ships,'艘')));}
       sides.appendChild(row);
     });box.appendChild(sides);
     const incoming=b.playerSide==='attack'?b.incomingAttackPersonnel:b.incomingDefensePersonnel;
@@ -1619,15 +1667,15 @@ const UI = (function(){
       tutorialAction('tactic',{combatId:b.id,mode});
       reinforcementsOpen=false;retreatConfirmId=null;resumeSpeed();
     }
-    const advanceBlocked=battleAdvanceBlocked(),choices=el('div','combat-tactic-options');choices.setAttribute('aria-label','选择战术');
+    const primaryOrders=el('div','combat-primary-orders'),advanceBlocked=battleAdvanceBlocked(),choices=el('div','combat-tactic-options');choices.setAttribute('aria-label','选择战术');
     [['careful','谨慎'],['balanced','均衡'],['assault','强攻']].forEach(([mode,name])=>{
       const button=el('button','combat-tactic-choice',name);button.setAttribute('aria-label',name+'战术');
       button.setAttribute('aria-pressed',String(b.tactics===mode));button.title=Game.tacticProfile?.(mode)?.summary||(mode==='careful'?'保留组织度，稳步推进':mode==='assault'?'加速突破，损耗更高':'均衡推进');
       button.disabled=advanceBlocked;
       button.addEventListener('click',()=>executeTactic(mode));choices.appendChild(button);
-    });box.appendChild(choices);
-    if(Game.tacticProfile)box.appendChild(el('p','combat-tactic-summary',Game.tacticProfile(b.tactics).summary));
-    box.appendChild(el('p','combat-status',advanceBlocked?'先处理前线警报或事件':speed>0?'行军与交战自动推进':'时间已暂停，可从容布置'));
+    });primaryOrders.appendChild(choices);
+    if(Game.tacticProfile)primaryOrders.appendChild(el('p','combat-tactic-summary',Game.tacticProfile(b.tactics).summary));
+    primaryOrders.appendChild(el('p','combat-status',advanceBlocked?'先处理前线警报或事件':speed>0?'行军与交战自动推进':'时间已暂停，可从容布置'));
     const commandDock=el('div','combat-command-dock');
     const wasRunning=speed>0,command=el('button','rp-btn combat-command primary',wasRunning?'暂停布置':'继续作战');
     command.disabled=advanceBlocked;
@@ -1639,7 +1687,7 @@ const UI = (function(){
     tactics.addEventListener('change',()=>executeTactic(tactics.value));label.appendChild(tactics);details.appendChild(label);
     const actions=el('div','combat-actions');
     const reinforce=el('button','rp-btn',reinforcementsOpen?'收起增援':'增援');reinforce.addEventListener('click',()=>{pauseForPlanning();reinforcementsOpen=!reinforcementsOpen;refresh();});actions.appendChild(reinforce);
-    const retreat=el('button','rp-btn danger','撤退');retreat.addEventListener('click',()=>{pauseForPlanning();retreatConfirmId=b.id;refresh();});actions.appendChild(retreat);actionReason(retreat,b.canRetreat?'':'当前战斗无法撤退');commandDock.appendChild(actions);box.appendChild(commandDock);
+    const retreat=el('button','rp-btn danger','撤退');retreat.addEventListener('click',()=>{pauseForPlanning();retreatConfirmId=b.id;refresh();});actions.appendChild(retreat);actionReason(retreat,b.canRetreat?'':'当前战斗无法撤退');commandDock.appendChild(actions);primaryOrders.appendChild(commandDock);box.appendChild(primaryOrders);
     if(retreatConfirmId===b.id){
       const confirm=el('section','combat-retreat-confirm');confirm.appendChild(el('p','war-status','撤退会放弃本次攻势；防守方撤退将放弃该阵地。'));
       const yes=el('button','rp-btn danger','确认撤退');yes.addEventListener('click',()=>{if(!Game.retreatCombat(b.id))toast('当前无法撤退，请刷新战况。','war');retreatConfirmId=null;refresh();});confirm.appendChild(yes);

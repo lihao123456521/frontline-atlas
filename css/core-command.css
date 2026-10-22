@@ -1,4 +1,10 @@
 .core-branches { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 12px 0 16px; }
+#rightPanel:has(.attack-target-selection) #rpContent { padding: 10px 14px; }
+#rpContent .attack-target-selection { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#rpContent .attack-target-copy { margin: 0; min-width: 0; font-size: 13px; line-height: 1.5; }
+#rpContent .attack-target-copy strong, #rpContent .attack-target-copy span { display: block; }
+#rpContent .attack-target-copy span { color: #abc2c6; }
+#rpContent .attack-target-selection > .rp-btn { flex: 0 0 auto; width: auto; margin: 0; min-height: 44px; padding: 8px 10px; font-size: 14px; }
 .core-branches > button { min-height: 46px; padding: 8px 4px; font-size: 14px; font-weight: 700; border-radius: 8px; }
 #rpContent .army-overview { padding: 16px; margin-bottom: 12px; }
 #rpContent .army-overview h3 { margin: 0 0 8px; font-size: 19px; }

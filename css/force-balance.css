@@ -9,6 +9,9 @@
 .supply-popover .resource-chip span { font-size: 12px; }
 .supply-popover .resource-chip strong { font-size: 15px; }
 .force-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.resource-chip[hidden] { display: none; }
+#mapRegionSelector[hidden] { display: none; }
+.force-metrics:not(:has(> :nth-child(3))) { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
 .force-metrics:has(> :nth-child(4)) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .force-metric { min-width: 0; padding: 10px 8px; border-radius: 6px; background: #112c3570; border-top: 2px solid #a58d61; display: flex; flex-direction: column; gap: 7px; }
 #rpContent .force-metric > span { color: #afc7c5; font-size: 12px; }
@@ -71,3 +74,19 @@
 #rpContent .combat-command-dock .combat-command { min-height: 42px; margin: 0; }
 #rpContent .combat-command-dock .combat-actions { position: static; z-index: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 7px 0 0; padding: 0; background: transparent; border: 0; box-shadow: none; }
 #rpContent .combat-command-dock .combat-actions .rp-btn { min-height: 42px; }
+.battle-primary-orders, .combat-primary-orders { display: contents; }
+@media (max-height: 540px) and (min-width: 701px) {
+  #rightPanel:has(.battle-primary-orders), #rightPanel:has(.combat-primary-orders) { max-height: calc(100dvh - 160px); }
+  #rightPanel:has(.battle-primary-orders) #rpContent, #rightPanel:has(.combat-primary-orders) #rpContent { padding: 8px 12px; }
+  #rpContent .battle-primary-orders, #rpContent .combat-primary-orders { position: sticky; bottom: 0; z-index: 5; display: grid; gap: 4px; margin: 8px -4px -8px; padding: 6px 4px 8px; background: #142f3b; border-top: 1px solid #587079; box-shadow: 0 -6px 10px #142f3b; }
+  #rpContent .battle-primary-orders > .combat-tactic-options, #rpContent .combat-primary-orders > .combat-tactic-options { margin: 0; gap: 4px; }
+  #rpContent .battle-primary-orders > .combat-tactic-summary, #rpContent .battle-primary-orders > .combat-status, #rpContent .combat-primary-orders > .combat-tactic-summary, #rpContent .combat-primary-orders > .combat-status { display: none; }
+  #rpContent .battle-primary-orders .battle-command-actions { position: static; gap: 4px; margin: 0; padding: 0; border: 0; box-shadow: none; background: transparent; }
+  #rpContent .battle-primary-orders .battle-command-count { font-size: 11px; line-height: 16px; white-space: nowrap; }
+  #rpContent .combat-primary-orders .combat-command-dock { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 0; padding: 0; border: 0; box-shadow: none; background: transparent; }
+  #rpContent .combat-primary-orders .combat-actions { display: contents; }
+  #rpContent .battle-primary-orders .combat-tactic-choice, #rpContent .battle-primary-orders .battle-command-actions .rp-btn, #rpContent .combat-primary-orders .combat-tactic-choice, #rpContent .combat-primary-orders .combat-command-dock .rp-btn { min-height: 44px; margin: 0; padding: 6px 4px; font-size: 14px; line-height: 1.4; }
+  #rpContent .battle-plan-summary > h3, #rpContent .ongoing-battle-card > h3 { margin-bottom: 4px; font-size: 18px; }
+  #rpContent .battle-plan-summary > .battle-route { margin: 4px 0; font-size: 14px; }
+  #rpContent .battle-plan-summary .force-metric { padding: 4px; gap: 3px; }
+}

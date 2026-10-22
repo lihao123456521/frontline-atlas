@@ -22,10 +22,10 @@ function setup(scenario='ww1_1914',player='ger',reinforcedArmy=true){
   return {Game,api,context,Unrest:vm.runInContext('Unrest',context)};
 }
 const close=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-5,`${actual} != ${expected}`);
-test('the public campaign list contains only 1914 and 1936, both with free country choice',()=>{
+test('the public campaign list keeps both world wars and adds independent Chinese historical theaters',()=>{
   const {api}=setup();
-  assert.deepEqual(Array.from(api.entries(),entry=>entry.id),['ww1_1914','sandbox36']);
-  assert.deepEqual(Array.from(api.entries(),entry=>entry.date.year),[1914,1936]);
+  assert.deepEqual(Array.from(api.entries(),entry=>entry.id),['ww1_1914','sandbox36','taiping_1853','anshi_755']);
+  assert.deepEqual(Array.from(api.entries(),entry=>entry.date.year),[1914,1936,1853,755]);
   assert.ok(api.entries().every(entry=>entry.player===null));
 });
 test('every selectable country really owns land and its capital in both eras, including small world states',()=>{

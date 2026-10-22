@@ -3,9 +3,13 @@
    邻接表 / 经济 / 生产 / 科技 / 国策 / 外交 /
    陆战·空援·海战·两栖登陆·战略轰炸 / AI / 事件 / 存档
    =========================================================== */
-const Game = (function(){
+const Game = (function(UNIT_TYPES){
 
   let state = null;
+  const baseUnitDefinitions=UNIT_TYPES;
+  function unitDefinition(type,scenarioId=state?.scenario){return typeof HistoricalTheaters!=='undefined'?HistoricalTheaters.unitProfile(scenarioId,type)||baseUnitDefinitions[type]:baseUnitDefinitions[type];}
+  UNIT_TYPES=new Proxy(baseUnitDefinitions,{get(_definitions,type){return unitDefinition(type);}});
+  function techDefinition(id,scenarioId=state?.scenario){return typeof ScenarioSetup!=='undefined'?ScenarioSetup.techProfile(scenarioId,id):TECHS.find(tech=>tech.id===id);}
   let playerCommandDepth = 0;
   function timeBlockReason(){
     if(!state)return '尚未开始战役';
@@ -67,10 +71,11 @@ const Game = (function(){
     const unit={ id:'u'+(++state.unitSerial), type:t.key, name:unitName(type,permille), kind:t.kind, atk:t.atk, def:t.def,
              hp:t.hp*permille/1000, maxHp:t.hp*permille/1000, org:t.org, maxOrg:t.org };
     if(permille!==1000)unit.formationPermille=permille;
+    if(state.theaterId)unit.nominalPersonnel=Math.round(t.man*permille);
     return unit;
   }
-  function unitPersonnel(unit){
-    const type=unit&&UNIT_TYPES[unit.type],maxHp=Number(unit?.maxHp),hp=Number(unit?.hp);
+  function unitPersonnel(unit,scenarioId=state?.scenario){
+    const type=unit&&unitDefinition(unit.type,scenarioId),maxHp=Number(unit?.maxHp),hp=Number(unit?.hp);
     if(!type||!Number.isFinite(maxHp)||maxHp<=0||!Number.isFinite(hp))return 0;
     const nominal=Number.isSafeInteger(unit.nominalPersonnel)&&unit.nominalPersonnel>0?unit.nominalPersonnel:type.man*formationPermille(unit);
     return nominal*clamp(hp/maxHp,0,1);
@@ -98,7 +103,7 @@ const Game = (function(){
     if (state.log.length > 240) state.log.shift();
   }
   function recordWorldEvent(kind,title,detail,provinceIdx,countryIds,priority,extra={}){
-    const d=state.date,day=[d.year,String(d.month).padStart(2,'0'),String(d.day||1).padStart(2,'0')].join('-');
+    const d=state.date,day=[String(d.year).padStart(4,'0'),String(d.month).padStart(2,'0'),String(d.day||1).padStart(2,'0')].join('-');
     state.worldEvents.push({id:'e'+(++state.worldEventSerial),kind,title,detail,
       provinceIdx:provinceIdx===undefined?null:provinceIdx,countryIds,day,priority,...extra});
     // 未确认的防御警报不能被同日的世界消息挤掉；普通历史仍保持原有上限。
@@ -113,9 +118,10 @@ const Game = (function(){
   function init(playerId, playerIdeo, playerAdvisor, difficulty, scenarioId, options={}){
     if(typeof StrategicRegions!=='undefined')StrategicRegions.useBalanced();
     const scenario = SCENARIOS.find(s => s.id === scenarioId) || SCENARIOS[0];
-    if(scenario.id==='ww1_1914'&&typeof ScenarioSetup!=='undefined'){
+    const historical=typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(scenario.id);
+    if(typeof ScenarioSetup!=='undefined'&&ScenarioSetup.entries().some(entry=>entry.id===scenario.id)){
       const profile=ScenarioSetup.countryProfile(scenario.id,playerId);
-      if(!profile)throw new Error('该国家不在1914年剧本中');
+      if(!profile)throw new Error('该阵营不在所选剧本中');
       playerIdeo=profile.ideo;
     }
     if(scenario.player && scenario.player!==playerId){
@@ -223,18 +229,20 @@ const Game = (function(){
     Object.keys(state.countries).forEach(cid => { country(cid).capitalIdx = provinceById(country(cid).capital); });
 
     // 初始驻军: 只有首都 3 步兵, 其他非中立省份 1 步兵 (玩家可以主动扩军)
-    state.provinces.forEach(p => {
+    if(!historical)state.provinces.forEach(p => {
       if (!p.owner) return;  // 中立省份不预置
       if (p.isCapital) p.garrison = [makeDivision("infantry"),makeDivision("infantry"),makeDivision("infantry")];
       else p.garrison = [makeDivision("infantry")];
     });
-    applyScenario(scenario);
-    if (typeof History !== "undefined") History.apply(state, makeDivision);
-    if (typeof World !== "undefined") World.apply(state, makeDivision);
+    if(!historical){
+      applyScenario(scenario);
+      if (typeof History !== "undefined") History.apply(state, makeDivision);
+      if (typeof World !== "undefined") World.apply(state, makeDivision);
+    }
     if (typeof ScenarioSetup !== 'undefined') ScenarioSetup.apply(state,makeDivision);
-    if (typeof History !== "undefined" && History.expandProvinces) History.expandProvinces(state);
+    if (!historical&&typeof History !== "undefined" && History.expandProvinces) History.expandProvinces(state);
     buildGraph();
-    if (typeof OrderOfBattle !== "undefined") OrderOfBattle.apply(state,makeDivision,options);
+    if (!historical&&typeof OrderOfBattle !== "undefined") OrderOfBattle.apply(state,makeDivision,options);
     initializeArmyState();
     initializeEquipmentBaseline();
     Object.keys(state.countries).forEach(cid => computeManpower(cid));
@@ -244,6 +252,7 @@ const Game = (function(){
     Object.values(state.countries).forEach(initializeMobilization);
     if(typeof Unrest!=='undefined')Unrest.initialize(state);
     state.campaign = Campaign.create(state);
+    if(historical)for(const war of state.wars)recordWorldEvent('war',country(war.a).name+'与'+country(war.b).name+'交战',scenario.desc,null,[war.a,war.b],3);
 
     log("游戏开始：" + country(playerId).name + "（" + IDEOLOGIES[state.playerIdeo].name + "）登上历史舞台。", "good");
     log("提示：前线选择部队与目标后确认进攻；可先在同盟页宣战，直接进攻未交战国家会自动宣战、稳定度 -8、紧张度额外 +10。", "info");
@@ -312,6 +321,7 @@ const Game = (function(){
     state.straitLinks=typeof History!=='undefined'&&History.straitLinks?History.straitLinks(state.provinces):[];
     for(const link of state.straitLinks)for(const index of [link.a,link.b]){state.coastal[index]=true;state.provinces[index].coastal=true;}
     const seaLinks=SEA_LINKS.concat(typeof History!=='undefined'&&History.administrativeSeaLinks?History.administrativeSeaLinks(state.provinces):[],
+      typeof HistoricalTheaters!=='undefined'&&state.theaterId?HistoricalTheaters.seaLinks(state.provinces,state.scenario):[],
       state.straitLinks.map(link=>[state.provinces[link.a].id,state.provinces[link.b].id]));
     seaLinks.forEach(([a,b])=>{
       const ia=idxById[a], ib=idxById[b];
@@ -324,6 +334,8 @@ const Game = (function(){
   function computeManpower(id){
     let cap = 0;
     state.provinces.forEach(p => { if (p.owner === id){ cap += 3*provinceWeight(p); if (p.isCapital) cap += 8; } });
+    const theaterProfile=typeof HistoricalTheaters!=='undefined'?HistoricalTheaters.countryProfile(state.scenario,id):null;
+    if(Number.isFinite(theaterProfile?.startManpower))cap=theaterProfile.startManpower;
     const c = country(id);
     c.manpowerCap = cap; c.manpower = cap;
   }
@@ -405,7 +417,8 @@ const Game = (function(){
   function intelLevel(playerId, targetId){ return state.intel[relKey(playerId, targetId)] || 0; }
   function setIntel(playerId, targetId, v){ state.intel[relKey(playerId, targetId)] = clamp(Math.round(v), 0, 100); }
   function initIntel(){
-    COUNTRIES.forEach(o => {
+    const targets=state.theaterId?Object.values(state.countries).filter(target=>target.alive):COUNTRIES;
+    targets.forEach(o => {
       if (o.id === state.player) return;
       let lvl = 0;
       if (isAtWar(state.player, o.id)) lvl = 100;
@@ -696,6 +709,12 @@ const Game = (function(){
   }
   function combatEffects(c,owner,units,opposing,stat){
     const target=province(c.to),assets=assetsOf(units),personnel=assets.personnel;
+    if(typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(state.scenario)){
+      const engagedCavalryPersonnel=personnelOf(units.filter(unit=>unit.type==='cavalry')),engagedArtilleryPersonnel=personnelOf(units.filter(unit=>unit.type==='artillery'));
+      const rangedName=state.scenario==='anshi_755'?'弓弩':'炮队';
+      return {engagedTanks:0,armorBonus:0,airBonus:0,aircraft:0,engagedCavalryPersonnel,engagedArtilleryPersonnel,
+        summary:[engagedCavalryPersonnel?'骑兵 '+Math.round(engagedCavalryPersonnel)+' 人':'',engagedArtilleryPersonnel?rangedName+' '+Math.round(engagedArtilleryPersonnel)+' 人':''].filter(Boolean).join(' · ')};
+    }
     const enemy=owner===c.attacker?c.defender:c.attacker,armor=armorMultiplier(units,opposing,target.terrain,stat),air=airSupport(owner,target,opposing,enemy,c);
     const tanks=assets.tanks,enemyTanks=assetsOf(opposing).tanks,armorShare=armorControl(units,opposing),airShare=airControl(c,owner,enemy);
     const protection=personnel?units.reduce((sum,unit)=>sum+unitPersonnel(unit)*(1-tankProtection(unit)),0)/personnel:0;
@@ -1263,6 +1282,20 @@ const Game = (function(){
     const front=[],pool=arrivedUnits(units).filter(d=>d.hp>0&&(holdout||d.org>0)).sort((a,b)=>b.org/b.maxOrg-a.org/a.maxOrg||b.hp/b.maxHp-a.hp/a.maxHp||formationPermille(b)-formationPermille(a));
     const occupiedWidth=unit=>formationPermille(unit)*clamp(unit.hp/unit.maxHp,0,1);
     let remaining=width*1000;
+    if(typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(state.scenario)){
+      const covering=pool.filter(unit=>!['cavalry','artillery','engineer'].includes(unit.type));
+      if(covering.length){
+        const coverWidth=Math.min(...covering.map(occupiedWidth));
+        for(const [type,share]of [['artillery',.3],['cavalry',.2]]){
+          const supporting=pool.filter(unit=>unit.type===type);
+          let supportingWidth=Math.min(remaining-coverWidth,Math.max(supporting.length?Math.min(...supporting.map(occupiedWidth)):0,Math.floor(width*1000*share)));
+          for(const unit of supporting)if(occupiedWidth(unit)<=supportingWidth+1e-7){front.push(unit);supportingWidth-=occupiedWidth(unit);remaining-=occupiedWidth(unit);}
+        }
+        for(const unit of covering)if(occupiedWidth(unit)<=remaining+1e-7){front.push(unit);remaining-=occupiedWidth(unit);}
+      }
+      for(const unit of pool)if(!front.includes(unit)&&occupiedWidth(unit)<=remaining+1e-7){front.push(unit);remaining-=occupiedWidth(unit);}
+      return front;
+    }
     const armored=pool.filter(unit=>(UNIT_TYPES[unit.type].tanks||0)>0&&unitAssets(unit).tanks>0);
     const infantry=pool.filter(unit=>!armored.includes(unit));
     if(armored.length&&infantry.length){
@@ -1654,9 +1687,10 @@ const Game = (function(){
   function unitAvailability(type,ownerId){
     const t=UNIT_TYPES[type],c=country(ownerId||state.player),reasons=[];
     if(!t || !c)return {available:false,reasons:['未知兵种或国家']};
+    if(typeof ScenarioSetup!=='undefined'&&!ScenarioSetup.allowedUnit(state.scenario,type))return {available:false,reasons:['本剧本没有该时代军种']};
     const year=unitUnlockYear(type);
     if(state.date.year<year)reasons.push(year+' 年解锁');
-    if(t.tech && !c.researched[t.tech])reasons.push('需研发 '+TECHS.find(q=>q.id===t.tech).name);
+    if(t.tech && !c.researched[t.tech])reasons.push('需研发 '+techDefinition(t.tech).name);
     if(t.kind==='naval' && !state.provinces.some((p,i)=>p.owner===c.id && coastalOf(i)))reasons.push('需要己方沿海省份');
     return {available:reasons.length===0,reasons};
   }
@@ -1744,7 +1778,8 @@ const Game = (function(){
     for(const item of state.buildQueue.filter(item=>item.kind==='div'))for(const key of Object.keys(queued))queued[key]+=(UNIT_TYPES[item.unitType][key]||0)*(item.formationPermille||1000)/1000;
     const targets={};
     for(const key of Object.keys(queued))targets[key]=Math.ceil(auto.baseline[key]*(1+mode.growth+Math.min(1,(state.monthsElapsed||0)*mode.growth/12)));
-    if(mode.growth){targets.tanks=Math.max(targets.tanks,c.mil>=4?250:0);targets.aircraft=Math.max(targets.aircraft,c.mil>=2?100:0);}
+    if(state.theaterId){targets.tanks=0;targets.aircraft=0;}
+    else if(mode.growth){targets.tanks=Math.max(targets.tanks,c.mil>=4?250:0);targets.aircraft=Math.max(targets.aircraft,c.mil>=2?100:0);}
     const enabled=auto.enabled&&state.autoLogistics.enabled;
     const summary=!auto.enabled?'军备手动生产':!state.autoLogistics.enabled?'综合后勤已暂停':auto.actions.length?auto.actions.join('；'):'自动'+mode.name+' · 按月补损与安排生产';
     return {enabled,configuredEnabled:auto.enabled,intensity:auto.intensity,summary,actions:auto.actions.slice(),reasons:auto.reasons.slice(),targets,queued};
@@ -1763,7 +1798,7 @@ const Game = (function(){
     if(!auto.enabled||!state.autoLogistics.enabled||!c.alive||state.over||auto.lastMonth===month)return;
     auto.lastMonth=month;auto.actions=[];auto.reasons=[];
     const status=autoEquipmentStatus(),totals=armyTotals(state.player),mode=equipmentModes[auto.intensity],reserve=recruitmentReserve(c);
-    const candidates=[['tanks','armor'],['aircraft','air'],['ships','destroyer']].filter(([key])=>totals[key]+status.queued[key]<status.targets[key]);
+    const candidates=(state.theaterId?[['ships','navy']]:[['tanks','armor'],['aircraft','air'],['ships','destroyer']]).filter(([key])=>totals[key]+status.queued[key]<status.targets[key]);
     const capacity=Math.min(mode.limit,Math.floor(c.mil/4)),existing=state.buildQueue.filter(item=>item.autoEquipment).length;
     let orders=0;
     const selected=state.selectedIdx;
@@ -1810,7 +1845,7 @@ const Game = (function(){
       else auto.reasons.push('装备不足，贸易需 20 资源并保留 40 储备');
     }
     processAutoEquipment();
-    const military=TECHS.filter(t=>['陆军','航空','海军'].includes(t.cat));
+    const military=TECHS.map(tech=>techDefinition(tech.id)).filter(tech=>tech&&['陆军','航空','海军'].includes(tech.cat)&&(typeof ScenarioSetup==='undefined'||ScenarioSetup.allowedTech(state.scenario,tech.id)));
     if(!state.research.slots.some(Boolean)){
       const slot=0;
       const next=military.find(t=>canResearch(t.id)&&!state.research.slots.includes(t.id));
@@ -1939,8 +1974,9 @@ const Game = (function(){
 
   /* ---------------- 科技 ---------------- */
   function canResearch(techId){
-    const t = TECHS.find(x => x.id === techId);
+    const t = techDefinition(techId);
     if (!t || country(state.player).researched[techId]) return false;
+    if(typeof ScenarioSetup!=='undefined'&&!ScenarioSetup.allowedTech(state.scenario,techId))return false;
     return state.date.year>=techUnlockYear(techId) && t.pre.every(p => country(state.player).researched[p]);
   }
   function assignResearch(techId, slot, quiet=false){
@@ -1951,7 +1987,7 @@ const Game = (function(){
     if (state.research.slots.includes(techId)){ log("该科技已在其它槽研究。", "war"); if (window.UI&&!quiet) UI.refresh(); return; }
     state.research.slots[slot] = techId; state.research.progress[techId] = 0;
     state.campaign.counters.researchAssigned++;
-    log("开始研发：" + TECHS.find(x=>x.id===techId).name + "。", "info");
+    log("开始研发：" + techDefinition(techId).name + "。", "info");
     if (window.UI&&!quiet) UI.refresh();
     return true;
   }
@@ -1971,7 +2007,10 @@ const Game = (function(){
     if ((state.focusCd[id]||0) > 0){ log("『" + f.name + "』冷却中（剩 " + state.focusCd[id] + " 回合）。", "war"); if (window.UI) UI.refresh(); return; }
     if (c.pp < f.cost){ log("政治权力不足（需" + f.cost + "）。", "war"); if (window.UI) UI.refresh(); return; }
     c.pp -= f.cost;
-    if (f.spy){ COUNTRIES.forEach(o => { if (o.id !== state.player){ setRelation(state.player, o.id, relation(state.player,o.id)+12); setIntel(state.player, o.id, intelLevel(state.player,o.id)+30); } }); }
+    if (f.spy){
+      const targets=state.theaterId?Object.values(state.countries).filter(target=>target.alive):COUNTRIES;
+      targets.forEach(target=>{if(target.id!==state.player){setRelation(state.player,target.id,relation(state.player,target.id)+12);setIntel(state.player,target.id,intelLevel(state.player,target.id)+30);}});
+    }
     else f.apply(c);
     if (!f.repeat) state.focusUsed[id] = true;
     state.focusCd[id] = f.cd;
@@ -2564,7 +2603,7 @@ const Game = (function(){
     const per = rp / active.length;
     active.forEach(tid => {
       state.research.progress[tid] = (state.research.progress[tid] || 0) + per;
-      const t = TECHS.find(x => x.id === tid);
+      const t = techDefinition(tid);
       if (state.research.progress[tid] >= t.cost){
         c.researched[tid] = true;
         state.campaign.counters.researchCompleted++;
@@ -2661,7 +2700,7 @@ const Game = (function(){
   }
   function maybeAiBuild(id){
     const ai=country(id),owned=state.provinces.filter(p=>p.owner===id);
-    if(!isAtWar(id,state.player) && Math.random()>=.7)return;
+    if(!state.theaterId&&!isAtWar(id,state.player) && Math.random()>=.7)return;
     if(!owned.length)return;
     if(state.aiBuildQueue.filter(item=>item.countryId===id).length>=2)return;
     const counts={},countUnit=d=>{if(d.hp>0)counts[d.type]=(counts[d.type]||0)+(d.kind==='land'?formationScale(d):1);};
@@ -2674,7 +2713,12 @@ const Game = (function(){
     const candidates=Object.values(UNIT_TYPES).filter(t=>unitAvailability(t.key,id).available && [['equipment','equip'],['res','res'],['oil','oil'],['rare','rare'],['manpower','man']].every(([a,b])=>ai[a]>=t[b]));
     candidates.sort((a,b)=>(counts[a.key]||0)/desired[a.key]-(counts[b.key]||0)/desired[b.key]);
     const t=candidates[0];if(!t)return;
-    let target=t.kind==='naval'?owned.find(p=>p.coastal):owned.find(p=>neighbors(state.provinces.indexOf(p)).some(n=>province(n).owner && province(n).owner!==id));
+    let target;
+    if(t.kind==='naval')target=owned.find(p=>p.coastal);
+    else{
+      if(state.theaterId)target=owned.find(p=>neighbors(state.provinces.indexOf(p)).some(n=>province(n).owner&&isAtWar(id,province(n).owner)&&!isAllied(id,province(n).owner)));
+      target=target||owned.find(p=>neighbors(state.provinces.indexOf(p)).some(n=>province(n).owner&&province(n).owner!==id&&(!state.theaterId||!isAllied(id,province(n).owner))));
+    }
     target=target||owned[0];
     ai.equipment=Math.max(0,ai.equipment-t.equip);ai.res=Math.max(0,ai.res-t.res);ai.oil=Math.max(0,ai.oil-t.oil);ai.rare=Math.max(0,ai.rare-t.rare);ai.manpower=Math.max(0,ai.manpower-t.man);
     state.aiBuildQueue.push({countryId:id,unitType:t.key,provinceIdx:state.provinces.indexOf(target),turnsLeft:t.time,
@@ -2699,7 +2743,7 @@ const Game = (function(){
       if (cid === state.player || !country(cid).alive) return;
       applyIncome(cid);
       const ai=country(cid);
-      const next=TECHS.find(t=>!ai.researched[t.id] && state.date.year>=techUnlockYear(t.id) && t.pre.every(id=>ai.researched[id]));
+      const next=TECHS.map(tech=>techDefinition(tech.id)).find(tech=>tech&&!ai.researched[tech.id]&&(typeof ScenarioSetup==='undefined'||ScenarioSetup.allowedTech(state.scenario,tech.id))&&state.date.year>=techUnlockYear(tech.id)&&tech.pre.every(id=>ai.researched[id]));
       if(next){ai.researchProgress=(ai.researchProgress||0)+10+ai.civ*.4;if(ai.researchProgress>=next.cost){ai.researchProgress=0;ai.researched[next.id]=true;for(const k in next.eff)ai.eff[k]=(ai.eff[k]||0)+next.eff[k];}}
       maybeAiBuild(cid);
       repairGarrisons(cid);
@@ -2735,6 +2779,10 @@ const Game = (function(){
   function aiAttackEnemies(id){
     const enemy = owner => owner && country(owner)?.alive && !isAllied(id,owner) && isAtWar(id,owner);
     const cooling=(from,to)=>state.recentBattles.some(r=>(r.attacker===id||r.alliedAttackers?.includes(id))&&r.to===to&&r.won===false&&Number.isInteger(r.endedDay??r.autoOffensiveDay)&&state.daysElapsed-(r.endedDay??r.autoOffensiveDay)<14);
+    if(state.theaterId)for(const combat of state.activeCombats.slice())if(combat.attacker===id&&combat.kind==='land'&&combat.phase==='engagement'&&combat.days-(combat.preparationDays||0)>=14&&combat.progress<=1){
+      const situation=describeCombat(combat);
+      if(situation&&situation.pressureRatio<.95)finishCombat(combat,false,'前沿火力持续不足，撤回集结后再战');
+    }
     const aiProv = state.provinces.map((p,i)=>({p,i})).filter(o=>o.p.owner===id);
     aiProv.sort((a,b)=>Number(neighbors(b.i).some(next=>enemy(province(next).owner)))-Number(neighbors(a.i).some(next=>enemy(province(next).owner))));
     aiReinforceFront(id, aiProv);
@@ -2745,6 +2793,19 @@ const Game = (function(){
       const adj = landTargets(o.i,id).map(n => province(n));
       const targets = adj.filter(t => enemy(t.owner)&&!cooling(o.i,state.provinces.indexOf(t)));
       if (targets.length){
+        if(state.theaterId){
+          const pool=availableLand(o.p),sending=pool.slice(0,defaultSend(pool.length));
+          if(pool.length<2||sending.some(unit=>unit.org<(unit.maxOrg||60)*.45))return;
+          const candidates=targets.map(target=>{
+            const to=state.provinces.indexOf(target),estimate=assaultStrength(id,o.i,to,sending,0);
+            return {to,ratio:estimate.aStr/Math.max(1e-9,estimate.dStr)};
+          }).filter(candidate=>candidate.ratio>1.02).sort((first,second)=>Number(neighbors(o.i).includes(second.to))-Number(neighbors(o.i).includes(first.to))||second.ratio-first.ratio||first.to-second.to);
+          const choice=candidates[0];
+          if(choice&&doAssault(id,o.i,choice.to,0,undefined,true)){
+            state.activeCombats[state.activeCombats.length-1].autoOffensiveDay=state.daysElapsed;active++;
+          }
+          return;
+        }
         targets.sort((a,b)=>Number(neighbors(o.i).includes(state.provinces.indexOf(b)))-Number(neighbors(o.i).includes(state.provinces.indexOf(a)))||defendStrength(a)-defendStrength(b));
         const tgt = targets[0];
         const pool=availableLand(o.p),estimate=assaultStrength(id,o.i,state.provinces.indexOf(tgt),pool.slice(0,defaultSend(pool.length)),0);
@@ -2842,6 +2903,11 @@ const Game = (function(){
     const total = EVENTS.reduce((s,e)=>s+e.weight,0);
     let r = Math.random()*total, ev = EVENTS[0];
     for (const e of EVENTS){ if (r < e.weight){ ev = e; break; } r -= e.weight; }
+    if(state.theaterId&&ev.id==='mobilize'){
+      const gained=addManpower(country(state.player),40);
+      log('【事件】民众动员：从有限后备征集 '+Math.round(gained*1000)+' 人。'+(gained?'':'当前预备已满或后备不足。'),'info');
+      return;
+    }
     ev.apply(country(state.player));
     log("【事件】" + ev.name + "：" + ev.text, "info");
   }
@@ -2869,6 +2935,7 @@ const Game = (function(){
 
   /* ---------------- 历史剧本事件链 ---------------- */
   function checkScriptedEvents(){
+    if(state.theaterId)return;
     if (state.over || state.pendingEvent || !country(state.player).alive) return;
     for (const ev of SCRIPTED_EVENTS){
       if (!state.triggeredEvents[ev.id] && typeof ev.trigger==='function' && ev.trigger(country(state.player),state)){
@@ -2895,6 +2962,7 @@ const Game = (function(){
 
   /* ---------------- 胜负 ---------------- */
   function checkVictory(){
+    if(state.theaterId&&typeof HistoricalTheaters!=='undefined'){const result=HistoricalTheaters.victory(state);if(result)endGame(result.win,result.msg);return;}
     const player = state.player;
     let playerLand = 0; const total = state.provinces.reduce((n,p)=>n+provinceWeight(p),0); let aliveMajors = 0;
     Object.keys(state.countries).forEach(cid => { if (cid !== player && country(cid).alive) aliveMajors++; });
@@ -2918,6 +2986,8 @@ const Game = (function(){
   function validSave(s){
     const obj = v => !!v && typeof v === "object" && !Array.isArray(v);
     if (!obj(s) || typeof s.player !== "string" || !obj(s.countries) || !obj(s.countries[s.player])) return false;
+    const historical=typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(s.scenario);
+    if(historical?s.theaterId!==s.scenario:s.theaterId!==undefined)return false;
     if(typeof Unrest!=='undefined'&&!Unrest.valid(s))return false;
     if (!Array.isArray(s.provinces) || !s.provinces.length || !Array.isArray(s.adj) ||
         !Array.isArray(s.coastal) || !Array.isArray(s.seaAdj) ||
@@ -2941,11 +3011,13 @@ const Game = (function(){
     if(s.autoRecruitment!==undefined && (!obj(s.autoRecruitment)||typeof s.autoRecruitment.enabled!=='boolean'||
       (s.autoRecruitment.provincial!==undefined&&typeof s.autoRecruitment.provincial!=='boolean')||
       (s.autoRecruitment.nextProvince!==undefined&&(!Number.isSafeInteger(s.autoRecruitment.nextProvince)||s.autoRecruitment.nextProvince<0))||
+      (historical&&!HistoricalTheaters.allowedUnit(s.scenario,s.autoRecruitment.unitType))||
       !Object.hasOwn(recruitmentModes,s.autoRecruitment.intensity)||!UNIT_TYPES[s.autoRecruitment.unitType]||UNIT_TYPES[s.autoRecruitment.unitType].kind!=='land'||
       !Array.isArray(s.autoRecruitment.actions)||s.autoRecruitment.actions.length>3||s.autoRecruitment.actions.some(a=>typeof a!=='string')||
       typeof s.autoRecruitment.reason!=='string'||(s.autoRecruitment.lastMonth!==null&&typeof s.autoRecruitment.lastMonth!=='string')))return false;
     if(s.aiBuildQueue!==undefined && (!Array.isArray(s.aiBuildQueue)||s.aiBuildQueue.length>Object.keys(s.countries).length*2||
       s.aiBuildQueue.some(item=>!obj(item)||!s.countries[item.countryId]||item.countryId===s.player||!UNIT_TYPES[item.unitType]||
+        (historical&&!HistoricalTheaters.allowedUnit(s.scenario,item.unitType))||
         !Number.isInteger(item.provinceIdx)||item.provinceIdx<0||item.provinceIdx>=s.provinces.length||
          !Number.isInteger(item.turnsLeft)||item.turnsLeft<1||
          (item.formationPermille!==undefined&&(UNIT_TYPES[item.unitType].kind!=='land'||!Number.isInteger(item.formationPermille)||item.formationPermille<1||item.formationPermille>1000))||
@@ -2977,10 +3049,11 @@ const Game = (function(){
         !Number.isSafeInteger(response.day)||response.day<0||response.day>(s.daysElapsed||0)||
         ['subject','overlord'].some(key=>response[key]!==undefined&&!Object.hasOwn(s.countries,response[key])))return false;
     }
-    const techIds = new Set(TECHS.map(t => t.id));
+    const techIds = new Set(TECHS.filter(tech=>!historical||HistoricalTheaters.allowedTech(s.scenario,tech.id)).map(tech=>tech.id));
     if (s.research.slots.some(id => id !== null && !techIds.has(id)) || new Set(s.research.slots.filter(Boolean)).size !== s.research.slots.filter(Boolean).length) return false;
-    if (Object.values(s.research.progress).some(v => !Number.isFinite(v) || v < 0)) return false;
+    if (Object.values(s.research.progress).some(v => !Number.isFinite(v) || v < 0)||historical&&Object.keys(s.research.progress).some(id=>!techIds.has(id))) return false;
     const ids=new Set(),unitValid=d=>{
+      if(historical&&!HistoricalTheaters.allowedUnit(s.scenario,d?.type))return false;
       if(d?.formationPermille!==undefined&&(!Number.isInteger(d.formationPermille)||d.formationPermille<1||d.formationPermille>1000||UNIT_TYPES[d.type]?.kind!=='land'))return false;
       if(d?.formationRole!==undefined&&(d.formationRole!=='battleGroup'||UNIT_TYPES[d.type]?.kind!=='land'||typeof d.formationGroupId!=='string'||!d.formationGroupId||d.formationGroupId.length>128))return false;
       if(d?.nominalPersonnel!==undefined&&(!Number.isSafeInteger(d.nominalPersonnel)||d.nominalPersonnel<=0||d.nominalPersonnel>(UNIT_TYPES[d.type]?.kind==='land'?100000:10000000)))return false;
@@ -2988,7 +3061,7 @@ const Game = (function(){
       if(d?.equipmentCondition!==undefined&&(!obj(d.equipmentCondition)||Object.entries(d.equipmentCondition).some(([key,value])=>!['tanks','aircraft','ships'].includes(key)||!Number.isFinite(value)||value<0||value>1)))return false;
       if(d?.airframeShare!==undefined&&(UNIT_TYPES[d.type]?.kind!=='air'||!Number.isFinite(d.airframeShare)||d.airframeShare<=0||d.airframeShare>1))return false;
       if(d?.airCombatId!==undefined&&(UNIT_TYPES[d.type]?.kind!=='air'||typeof d.airCombatId!=='string'||!/^c[1-9]\d*$/.test(d.airCombatId)))return false;
-      if(d?.rescueArrivalDay!==undefined&&(!Number.isSafeInteger(d.rescueArrivalDay)||d.rescueArrivalDay<=(s.daysElapsed||0)||d.rescueArrivalDay>(s.daysElapsed||0)+365||UNIT_TYPES[d.type]?.kind!=='land'||!Array.isArray(d.rescueRoute)||d.rescueRoute.length<2||!d.rescueRoute.every(index=>Number.isInteger(index)&&index>=0&&index<s.provinces.length)||!s.coastal[d.rescueRoute[0]]||!s.coastal[d.rescueRoute.at(-1)]||d.rescueDestination!==d.rescueRoute[d.rescueRoute.length-1]||!Array.isArray(d.rescueShipIds)||!d.rescueShipIds.length||d.rescueShipIds.some(id=>typeof id!=='string')||!Number.isFinite(d.rescuePersonnel)||d.rescuePersonnel<=0||d.rescuePersonnel>unitPersonnel(d)+1e-7||!Number.isFinite(d.rescueInterceptionRisk)||d.rescueInterceptionRisk<0||d.rescueInterceptionRisk>.55))return false;
+      if(d?.rescueArrivalDay!==undefined&&(!Number.isSafeInteger(d.rescueArrivalDay)||d.rescueArrivalDay<=(s.daysElapsed||0)||d.rescueArrivalDay>(s.daysElapsed||0)+365||UNIT_TYPES[d.type]?.kind!=='land'||!Array.isArray(d.rescueRoute)||d.rescueRoute.length<2||!d.rescueRoute.every(index=>Number.isInteger(index)&&index>=0&&index<s.provinces.length)||!s.coastal[d.rescueRoute[0]]||!s.coastal[d.rescueRoute.at(-1)]||d.rescueDestination!==d.rescueRoute[d.rescueRoute.length-1]||!Array.isArray(d.rescueShipIds)||!d.rescueShipIds.length||d.rescueShipIds.some(id=>typeof id!=='string')||!Number.isFinite(d.rescuePersonnel)||d.rescuePersonnel<=0||d.rescuePersonnel>unitPersonnel(d,s.scenario)+1e-7||!Number.isFinite(d.rescueInterceptionRisk)||d.rescueInterceptionRisk<0||d.rescueInterceptionRisk>.55))return false;
       if(d?.rescueArrivalDay===undefined&&['rescueRoute','rescueDestination','rescueShipIds','rescuePersonnel','rescueInterceptionRisk'].some(key=>d?.[key]!==undefined))return false;
       if(d?.rescueCaptured!==undefined&&typeof d.rescueCaptured!=='boolean')return false;
       if(!obj(d)||!UNIT_TYPES[d.type]||!Number.isFinite(d.hp)||!Number.isFinite(d.maxHp)||d.maxHp<=0||d.hp<0||
@@ -3075,7 +3148,7 @@ const Game = (function(){
         s.seaAdj.some(row => !Array.isArray(row) || row.some(i => !Number.isInteger(i) || i < 0 || i >= s.provinces.length))) return false;
     if (s.buildQueue.some(item => !obj(item) || !["div","civ","mil","build"].includes(item.kind) || !Number.isFinite(item.turnsLeft) ||
           (item.autoEquipment!==undefined&&(item.kind!=='div'||typeof item.autoEquipment!=='boolean'))||
-          (item.kind === "div" && !UNIT_TYPES[item.unitType]) ||
+          (item.kind === "div" && (!UNIT_TYPES[item.unitType]||historical&&!HistoricalTheaters.allowedUnit(s.scenario,item.unitType))) ||
           (item.completionDay!==undefined&&(item.kind!=='div'||UNIT_TYPES[item.unitType]?.kind!=='naval'||!Number.isSafeInteger(item.completionDay)||item.completionDay<0||item.completionDay>(s.daysElapsed||0)+365))||
           (item.formationPermille!==undefined&&(item.kind!=='div'||UNIT_TYPES[item.unitType]?.kind!=='land'||!Number.isInteger(item.formationPermille)||item.formationPermille<1||item.formationPermille>1000))||
           ((item.kind === "div" || item.kind === "build") && (!Number.isInteger(item.provinceIdx) || item.provinceIdx < 0 || item.provinceIdx >= s.provinces.length)))) return false;
@@ -3084,6 +3157,7 @@ const Game = (function(){
     if(!validPoliticsDay(s.aiDiplomacyDay)||Object.values(s.countries).some(c=>!validPoliticsDay(c.aiWarDay)))return false;
     const incomeEffects = ["resOut","factoryOut","equip","researchOut"];
     if (Object.values(s.countries).some(c => !obj(c) || !obj(c.eff) || !obj(c.researched) ||
+        historical&&Object.keys(c.researched).some(id=>!techIds.has(id))||
         countryNumbers.some(k => !Number.isFinite(c[k])) || (c.capturedPersonnel!==undefined&&(!Number.isFinite(c.capturedPersonnel)||c.capturedPersonnel<0)) || incomeEffects.some(k => !Number.isFinite(c.eff[k])) || Object.values(c.eff).some(v=>!Number.isFinite(v)) ||
         !Number.isInteger(c.capitalIdx) || c.capitalIdx < -1 || c.capitalIdx >= s.provinces.length)) return false;
     for(const [id,c]of Object.entries(s.countries)){
@@ -3134,7 +3208,7 @@ const Game = (function(){
       const allUnits=candidate.provinces.flatMap(p=>p.garrison).concat(candidate.activeCombats.flatMap(c=>c.attackers.map(e=>e.unit)),(candidate.redeployments||[]).flatMap(movement=>movement.units));
       allUnits.forEach(d=>{const match=/^u(\d+)$/.exec(d.id||'');if(match)candidate.unitSerial=Math.max(candidate.unitSerial,Number(match[1]));});
       const restore=d=>{
-        const t=UNIT_TYPES[d.type],permille=formationPermille(d),healthCap=t.kind==='air'?t.hp*(d.airframeShare??1):t.hp*permille/1000,fresh={...d,id:d.id||'u'+(++candidate.unitSerial),type:t.key,name:unitName(d.type,permille,d.formationRole,candidate.scenario),kind:t.kind,atk:t.atk,def:t.def,hp:healthCap,maxHp:healthCap,org:t.org,maxOrg:t.org};
+        const t=unitDefinition(d.type,candidate.scenario),permille=formationPermille(d),healthCap=t.kind==='air'?t.hp*(d.airframeShare??1):t.hp*permille/1000,fresh={...d,id:d.id||'u'+(++candidate.unitSerial),type:t.key,name:unitName(d.type,permille,d.formationRole,candidate.scenario),kind:t.kind,atk:t.atk,def:t.def,hp:healthCap,maxHp:healthCap,org:t.org,maxOrg:t.org};
         fresh.hp=d.maxHp===fresh.maxHp?Math.max(0,Math.min(d.hp,fresh.maxHp)):Math.max(0,Math.min(1,d.hp/d.maxHp))*fresh.maxHp;
         fresh.org=Number.isFinite(d.org)?(d.maxOrg===fresh.maxOrg?Math.max(0,Math.min(d.org,fresh.maxOrg)):Math.max(0,Math.min(1,d.org/(d.maxOrg||fresh.maxOrg)))*fresh.maxOrg):fresh.maxOrg;
         if(!fresh.combatId){delete fresh.arrivalDay;delete fresh.routePath;delete fresh.returnFrom;}
@@ -3270,10 +3344,10 @@ const Game = (function(){
     assignResearch:command(assignResearch), cancelResearch, doFocus:command(doFocus), doAssault:command(doAssault,owner=>owner===state?.player),
     diploAction:command(diploAction), surrender:command(surrender), diplomacyAvailability, subjectStatus, sovereigntyResponse, unrestStatus, unrestAction:command(unrestAction), callAlly:command(callAlly), setAutoLogistics, autoLogisticsStatus, setAutoRecruitment, autoRecruitmentStatus, setAutoOffensive, autoOffensiveStatus,
     occupationStatus, appeaseOccupation:command(appeaseOccupation),
-    movableUnits, moveUnits:command(moveUnits), resolveAttack:command(resolveAttack,owner=>owner===state?.player), amphibious:command(amphibious,(_from,_to,_count,owner)=>!owner||owner===state?.player),
+    unitDefinition, techDefinition, movableUnits, moveUnits:command(moveUnits), resolveAttack:command(resolveAttack,owner=>owner===state?.player), amphibious:command(amphibious,(_from,_to,_count,owner)=>!owner||owner===state?.player),
     proposePeace:command(proposePeace), resolveEvent, checkScriptedEvents, battlePreview,
     neighbors, landRoute, landTargets, movementRoute, moveTargets, coastalOf, seaAdj, province, provinceById, country, relation, isAtWar,
     intelLevel, canSee, computeWarscore, navalFormation, airFormation, isAllied, incomePreview, nationalMobilizationStatus, nationalMobilizationAction:command(nationalMobilizationAction), acceptPeace:command(acceptPeace), rejectPeace,
     save, load, autosave, hasSave, getCampaign, claimCampaignReward, chooseStrategy,
   };
-})();
+})(UNIT_TYPES);

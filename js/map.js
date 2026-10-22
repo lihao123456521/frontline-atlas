@@ -49,6 +49,7 @@ const MapView = (() => {
   let wrap = null;
   let handledCombatClick = null;
   let handledMovementClick = null;
+  let handledProvinceClick = null;
   let redeploymentLayer = null;
 
   function proj(lon, lat){ return { x:(lon+180)/360*W, y:(90-lat)/180*H }; }
@@ -279,7 +280,7 @@ const MapView = (() => {
   }
   function renderCountryShapes(){
     if(historicalMap){
-      const signature=mapMode+":"+Game.state.provinces.map(p=>`${p.id}:${p.owner}:${geometryCountry(p)}`).join("|")+":"+
+      const signature=(Game.state.theaterId||'world')+":"+mapMode+":"+Game.state.provinces.map(p=>`${p.id}:${p.owner}:${geometryCountry(p)}`).join("|")+":"+
         Object.values(Game.state.countries).map(c=>c.id+":"+c.color).join("|");
       if(signature===historicalFillSignature) return;
       historicalFillSignature=signature;
@@ -291,8 +292,9 @@ const MapView = (() => {
         const controller=majorityOwner(provs);
         const path=document.createElementNS(NS,"path");
         path.setAttribute("d",shape.d); path.setAttribute("fill-rule","evenodd");
-        const fill=mapMode==="political" && controller ? countryColor(controller) : "#5b665d";
-        path.setAttribute("fill",fill); path.setAttribute("class","historical-country");
+        const muted=!!Game.state.theaterId&&!provs.length;
+        const fill=muted?'#25323b':mapMode==="political" && controller ? countryColor(controller) : "#5b665d";
+        path.setAttribute("fill",fill);path.setAttribute('data-country',shape.id);path.setAttribute("class","historical-country"+(muted?' theater-muted':''));
         L.countryFills.appendChild(path);
       });
       return;
@@ -623,7 +625,7 @@ const MapView = (() => {
     if (!historicalMap && (typeof PROVINCE_POLYS === "undefined" || !PROVINCE_POLYS.length)) return;
     const cells = controlCells();
     if(historicalMap){
-      const signature=cellSignature+":"+mapMode+":"+Game.state.player+":"+
+      const signature=(Game.state.theaterId||'world')+":"+cellSignature+":"+mapMode+":"+Game.state.player+":"+
         Game.state.provinces.map(p=>p.owner+":"+p.terrain).join("|")+":"+
         JSON.stringify(Game.state.wars)+":"+JSON.stringify(Game.state.alliances)+":"+
         Object.values(Game.state.countries).map(c=>c.id+":"+c.color).join("|");
@@ -646,7 +648,7 @@ const MapView = (() => {
       }
       const cid = historicalMap ? geometryCountry(p) : p.originalOwner;
       ensureClip(cid);
-      const path = provinceCellNode(i,historicalMap?"historical-control":"");
+      const path = provinceCellNode(i,historicalMap?"historical-control"+(Game.state.theaterId?' theater-control':''):"");
       path.setAttribute("fill", fill);
       path.setAttribute("opacity", op);
       if (clipReady[cid]) path.setAttribute("clip-path", `url(#${clipIdFor(cid)})`);
@@ -667,7 +669,7 @@ const MapView = (() => {
     }
   }
   function renderBorders(){
-    const borderVersion=typeof HistoricalRegions!=="undefined"?HistoricalRegions.version:'';
+    const borderVersion=(typeof HistoricalRegions!=="undefined"?HistoricalRegions.version:'')+':'+(Game.state.theaterId||'world');
     if(borderVersion!==administrativeBorderVersion){historicalBordersReady=false;administrativeBorderGroups.length=0;administrativeBorderVersion=borderVersion;}
     if(historicalMap && historicalBordersReady){updateAdministrativeBorders();return;}
     L.borders.innerHTML = "";
@@ -678,7 +680,7 @@ const MapView = (() => {
       const nodes=HistoricalRegions.nodes?.length?HistoricalRegions.nodes:null;
       const regions=nodes?nodes.flatMap(node=>HistoricalRegions.regionsFor(node.id).map(region=>({...region,playableProvinceId:node.id}))):HistoricalRegions.regions;
       for(const region of regions){
-        if(!historicalShapes.has(region.shapeOwner))continue;
+        if(!historicalShapes.has(region.shapeOwner)||Game.state.theaterId&&!Game.state.provinces.some(province=>geometryCountry(province)===region.shapeOwner))continue;
         for(const ring of region.rings)for(let index=0;index<ring.length;index++){
           const from=ring[index],to=ring[(index+1)%ring.length];
           const first=from.map(value=>value.toFixed(6)).join(','),second=to.map(value=>value.toFixed(6)).join(',');
@@ -707,7 +709,8 @@ const MapView = (() => {
     }
     historicalMap.shapes.forEach(shape=>{
       const path=document.createElementNS(NS,"path");
-      path.setAttribute("d",shape.d); path.setAttribute("class","historical-border");
+      const muted=Game.state.theaterId&&!Game.state.provinces.some(province=>geometryCountry(province)===shape.id);
+      path.setAttribute("d",shape.d);path.setAttribute("class","historical-border"+(muted?' theater-muted':''));
       path.setAttribute("vector-effect","non-scaling-stroke");
       L.borders.appendChild(path);
     });
@@ -723,9 +726,10 @@ const MapView = (() => {
 
   // ---------- 省份标记和标签 ----------
   function renderProvinces(){
+    const focusedProvince=L.labels.contains?.(document.activeElement)?document.activeElement?.getAttribute?.('data-province-index'):null;
     L.labels.innerHTML=""; provHits=[];
     const state=Game.state, k=visibleAnchor().k;
-      const ranked=state.provinces.map((raw,i)=>{const p=displayProvince(raw);return {p,i,priority:importantProvince(p,i)?100:p.isCapital&&p.owner===state.player?80:p.isCapital?60:p.garrison.length?30:10};}).sort((a,b)=>b.priority-a.priority);
+      const ranked=state.provinces.map((raw,i)=>{const p=displayProvince(raw);return {p,i,priority:i===tutorialFocusIdx?200:importantProvince(p,i)?100:p.isCapital&&p.owner===state.player?80:p.isCapital?60:p.garrison.length?30:10};}).sort((a,b)=>b.priority-a.priority);
     // Labels use screen-pixel sizes and share collision space with the already placed unit counters.
     for(const {p,i,priority} of ranked){
       provHits.push({idx:i,x:p.x,y:p.y});
@@ -743,8 +747,15 @@ const MapView = (() => {
         const t=document.createElementNS(NS,"text");
         t.setAttribute("x",pt.vx);t.setAttribute("y",p.y+(dy+font*.34)/k);
         t.setAttribute("class","density-city-label"+(p.isCapital?" capital":""));
+        t.setAttribute('data-province-index',i);t.setAttribute('role','button');t.setAttribute('tabindex','0');t.setAttribute('aria-label','选择 '+label);
         t.setAttribute("font-size",font/k);t.textContent=label;
-        L.labels.appendChild(t);break;
+        const select=event=>{
+          event.stopPropagation();
+          if(event.type==='click'&&event.detail!==0&&handledProvinceClick?.index===i&&Date.now()-handledProvinceClick.time<700){handledProvinceClick=null;return;}
+          if(handlers.provinceClick)handlers.provinceClick(i);
+        };
+        t.addEventListener('click',select);t.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event);}});
+        L.labels.appendChild(t);if(focusedProvince!==null&&+focusedProvince===i)t.focus?.({preventScroll:true});break;
       }
     }
     if(mapMode==="terrain") return;
@@ -967,6 +978,12 @@ const MapView = (() => {
   function renderUnits(){
     L.units.innerHTML="";unitHits=[];occupiedRects=[];
     const state=Game.state, k=visibleAnchor().k, national=k<2.8;
+    let tutorialLabelRect=null;
+    if(state.provinces[tutorialFocusIdx]){
+      const province=displayProvince(state.provinces[tutorialFocusIdx]),point=screenPoint(province.x,province.y),label=province.cityName||province.name,font=13;
+      const width=Math.max(font*2,[...label].reduce((total,character)=>total+(character.charCodeAt(0)>255?font:font*.58),0));
+      for(const offset of [-10,-25,13])if(takeRect(point.x,point.y+offset,width,font+3)){tutorialLabelRect=occupiedRects[occupiedRects.length-1];break;}
+    }
     const candidates=[];
     const provinces=state.provinces.map((p,i)=>({p:{...displayProvince(p),garrison:national?p.garrison:p.garrison.filter(unit=>!(unit.rescueArrivalDay>(state.daysElapsed||0)))},i})).filter(({p})=>p.garrison.length);
     const ownFleets=provinces.filter(({p})=>p.owner===state.player).map(({p})=>fleetShips(p)).filter(Boolean);
@@ -1030,6 +1047,7 @@ const MapView = (() => {
       }
       L.units.appendChild(ge);
     }
+    if(tutorialLabelRect)occupiedRects=occupiedRects.filter(rectangle=>rectangle!==tutorialLabelRect);
   }
 
   // Brief feedback stays at the target; no marching routes or AI-only effects.
@@ -1372,7 +1390,12 @@ const MapView = (() => {
     panY -= (clamp(wy, VB.y, VB.y + VB.h) - wy) * a.k;
     // （VB = 欧洲相机范围，世界坐标）
   }
-  function focusPlayer(){ focusCountry(Game.state.player); }
+  function focusTheater(){
+    const provinces=Game.state.provinces.map(displayProvince);if(!provinces.length)return;
+    const xs=provinces.map(province=>province.x),ys=provinces.map(province=>province.y);
+    fitRegion(Math.min(...xs)-12,Math.min(...ys)-10,Math.max(...xs)+12,Math.max(...ys)+10);focused=true;
+  }
+  function focusPlayer(){if(Game.state.theaterId)focusTheater();else focusCountry(Game.state.player);}
   function focusCountry(cid){
     const ps=Game.state.provinces.filter(p=>p.owner===cid).map(displayProvince);
     if(!ps.length) return;
@@ -1426,10 +1449,18 @@ const MapView = (() => {
   function commandViewport(bounds){
     const area={left:bounds.left,top:bounds.top,right:bounds.right,bottom:bounds.bottom};
     const panel=document.getElementById('rightPanel');
-    if(!panel||panel.classList?.contains('collapsed')||!panel.getBoundingClientRect)return area;
-    const r=panel.getBoundingClientRect();if(!r.width||!r.height)return area;
-    if(bounds.width<=700)area.bottom=Math.max(area.top+110,Math.min(area.bottom,r.top-12));
-    else area.right=Math.max(area.left+200,Math.min(area.right,r.left-18));
+    if(panel&&!panel.classList?.contains('collapsed')&&panel.getBoundingClientRect){
+      const rectangle=panel.getBoundingClientRect();
+      if(rectangle.width&&rectangle.height){
+        if(bounds.width<=700)area.bottom=Math.max(area.top,Math.min(area.bottom,rectangle.top-12));
+        else area.right=Math.max(area.left+200,Math.min(area.right,rectangle.left-18));
+      }
+    }
+    const tutorial=document.getElementById('warTutorial');
+    if(tutorial&&!tutorial.hidden&&tutorial.getBoundingClientRect){
+      const rectangle=tutorial.getBoundingClientRect();
+      if(rectangle.width&&rectangle.height&&rectangle.left<area.right&&rectangle.right>area.left&&rectangle.top<area.bottom&&rectangle.bottom>area.top)area.bottom=Math.max(area.top,Math.min(area.bottom,rectangle.top-12));
+    }
     return area;
   }
   function focusProvince(idx, animate){
@@ -1468,6 +1499,7 @@ const MapView = (() => {
         && sy >= area.top + margin && sy <= area.bottom - margin;
   }
   function resetView(){
+    if(Game.state.theaterId){focusTheater();return;}
     cameraMotion++;
     // The global overview remains available at every stage of a campaign.
     scale = worldMode ? 1 : 6.5;
@@ -1561,9 +1593,10 @@ const MapView = (() => {
     }
     window.addEventListener('resize',resizeView);
     if(typeof window.ResizeObserver==='function')new window.ResizeObserver(resizeView).observe(wrap);
-    function selectAt(e){
+    function selectAt(e,provinceIndex=null){
       const r=wrap.getBoundingClientRect();
       if(e.clientX<r.left || e.clientX>r.right || e.clientY<r.top || e.clientY>r.bottom)return;
+      if(provinceIndex!==null){if(handlers.provinceClick)handlers.provinceClick(provinceIndex);return;}
       const pt=clientToSvg(e.clientX,e.clientY),ukey=unitUnderPoint(pt.x,pt.y,e.pointerType==='touch'?44:0);
       if(ukey){if(handlers.unitClick)handlers.unitClick(ukey);}
       else if(handlers.provinceClick)handlers.provinceClick(provinceUnderPoint(pt.x,pt.y));
@@ -1574,25 +1607,26 @@ const MapView = (() => {
     }
     function down(e){
       if(e.button!==0)return;
-      const combat=usesPointers?e.target?.closest?.('.combat-marker'):null,movement=usesPointers?e.target?.closest?.('.redeployment-marker'):null;
-      if(isControl(e) && !combat && !movement)return;
+      const combat=usesPointers?e.target?.closest?.('.combat-marker'):null,movement=usesPointers?e.target?.closest?.('.redeployment-marker'):null,label=e.target?.closest?.('[data-province-index]');
+      if(isControl(e) && !combat && !movement&&!label)return;
       cameraMotion++;
       const id=pointerKey(e);
-      pointers.set(id,{x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false,combatId:combat?.getAttribute('data-combat-id'),movementId:movement?.getAttribute('data-movement-id')});
+      pointers.set(id,{x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false,combatId:combat?.getAttribute('data-combat-id'),movementId:movement?.getAttribute('data-movement-id'),provinceIndex:label?+label.getAttribute('data-province-index'):null});
       if(usesPointers){wrap.setPointerCapture?.(id);e.preventDefault();}
       if(pointers.size>1)pointers.forEach(p=>{p.moved=true;});
     }
     function hover(e){
       // Touch has no hover. Desktop hover is confined to the map, excluding its tools.
       if(usesPointers && e.pointerType!=='mouse' && e.pointerType!=='pen')return;
-      if(isControl(e) || (wrap.contains && !wrap.contains(e.target))){
+      const label=e.target?.closest?.('[data-province-index]');
+      if(isControl(e)&&!label || (wrap.contains && !wrap.contains(e.target))){
         hoverUnitKey=null;
         if(hoverIdx!==-1){hoverIdx=-1;if(handlers.provinceHover)handlers.provinceHover(-1);render();}
         updateTooltip(e.clientX,e.clientY,null,-1);return;
       }
-      const pt=clientToSvg(e.clientX,e.clientY),ukey=unitUnderPoint(pt.x,pt.y);
+      const pt=clientToSvg(e.clientX,e.clientY),ukey=label?null:unitUnderPoint(pt.x,pt.y);
       hoverUnitKey=ukey;
-      const idx=ukey?+ukey.split('_')[0]:provinceUnderPoint(pt.x,pt.y);
+      const idx=label?+label.getAttribute('data-province-index'):ukey?+ukey.split('_')[0]:provinceUnderPoint(pt.x,pt.y);
       updateTooltip(e.clientX,e.clientY,ukey,ukey?-1:idx);
       if(idx!==hoverIdx){
         hoverIdx=idx;highlightSeaLinks(idx);
@@ -1624,10 +1658,11 @@ const MapView = (() => {
       pointers.delete(id);release(id);
       if(p.combatId)handledCombatClick={id:p.combatId,time:Date.now()};
       if(p.movementId)handledMovementClick={id:p.movementId,time:Date.now()};
+      if(p.provinceIndex!==null)handledProvinceClick={index:p.provinceIndex,time:Date.now()};
       if(!cancelled && !p.moved && Math.hypot(e.clientX-p.startX,e.clientY-p.startY)<dragThreshold && e.button===0){
         if(p.combatId){if(window.UI?.focusCombat)window.UI.focusCombat(p.combatId);}
         else if(p.movementId){const movement=(Game.state.redeployments||[]).find(order=>order.id===p.movementId);if(movement&&handlers.provinceClick)handlers.provinceClick(movement.to,{movementId:movement.id});}
-        else selectAt(e);
+        else selectAt(e,p.provinceIndex);
       }
       // After a pinch, the remaining finger can continue panning without becoming a tap.
       pointers.forEach(other=>{other.startX=other.x;other.startY=other.y;other.moved=true;});

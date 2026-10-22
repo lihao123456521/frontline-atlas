@@ -3,7 +3,9 @@
 #mapSvg .historical-land{fill:#657469;stroke:#829083;stroke-width:.65;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round;filter:none;pointer-events:none}
 #mapSvg .historical-country{stroke:none;filter:none;pointer-events:none}
 #mapSvg .historical-control{stroke:none;filter:none;transition:fill .25s ease;pointer-events:none}
+#mapSvg .historical-control.theater-control{stroke:#23394b;stroke-opacity:.52;stroke-width:calc(.8px / var(--map-zoom,1));stroke-linejoin:round;vector-effect:non-scaling-stroke}
 #mapSvg .historical-border{fill:none;stroke:#182831;stroke-width:1.05;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke;pointer-events:none}
+#mapSvg .historical-border.theater-muted{stroke:#33434d;opacity:.28}
 #mapSvg .historical-cell-selected{fill:rgba(244,220,156,.15);stroke:#ffe7a2;stroke-width:1.8;stroke-linejoin:round;pointer-events:none}
 #mapSvg .historical-cell-hover{fill:rgba(245,244,220,.12);stroke:#d6e2cf;stroke-width:1;stroke-linejoin:round;pointer-events:none}
 #mapSvg .country-label{fill:#ece9d9;stroke:#1b2831;stroke-width:.18;paint-order:stroke fill;letter-spacing:.35px;font-weight:600;filter:none}
@@ -13,6 +15,8 @@
 #mapSvg .density-city-dot.selected{fill:#fff1b5;stroke:#f7d47b}
 #mapSvg .density-city-label,#mapSvg .density-country-label{fill:#f4eee0;stroke:#1b2b37;stroke-width:.65;vector-effect:non-scaling-stroke;paint-order:stroke fill;text-anchor:middle;font-family:system-ui,"Microsoft YaHei",sans-serif;pointer-events:none;filter:none;letter-spacing:0}
 #mapSvg .density-country-label{fill:#dfdfcf;font-weight:600}
+#mapSvg .density-city-label{pointer-events:all;cursor:pointer}
+#mapSvg .density-city-label:focus{outline:none;fill:#fff1b5;stroke:#121f2b;stroke-width:1.2}
 #mapSvg .density-city-label.capital{fill:#fff0c8}
 #mapSvg .density-unit-box{fill:#253946;stroke:#80949d;stroke-width:1}
 #mapSvg .density-unit-box.player{fill:#274552;stroke:#bda371}

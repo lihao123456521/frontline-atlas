@@ -32,13 +32,14 @@ const ScenarioSetup = (() => {
     armor:1916,lightArmor:1917,heavyArmor:1918,motorized:1920,mechanized:1930,antiTank:1918,antiAir:1915,tankDestroyer:1939,carrier:1922};
   const techYears={inf1:1914,inf2:1915,art1:1914,mob1:1917,arm1:1916,arm2:1918,mech1:1930,at1:1918,aa1:1915,
     ind1:1914,ind2:1916,res1:1914,sci1:1914,air1:1914,air2:1916,air3:1935,air4:1944,nav1:1914,nav2:1915,nav3:1922};
-  function entries(){return [SCENARIOS.find(scenario=>scenario.id==='ww1_1914'),secondWar];}
+  function entries(){return [SCENARIOS.find(scenario=>scenario.id==='ww1_1914'),secondWar,...(typeof HistoricalTheaters!=='undefined'?HistoricalTheaters.entries():[])];}
   function ownerFor(scenarioId,province){
     const scenario=SCENARIOS.find(entry=>entry.id===scenarioId),source=province.strategicSourceId||province.strategicProvinceId||province.id;
     const owner=scenario?.owner?.[province.id]||scenario?.owner?.[source]||province.owner;
     return scenarioId==='ww1_1914'?(specificOwners[province.id]||specificOwners[source]||sharedOwners[owner]||(owner==='pol'?'sov':owner)):owner;
   }
   function countries(scenarioId){
+    if(typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(scenarioId))return HistoricalTheaters.countries(scenarioId);
     const definitions=PROVINCES_DEF.concat(scenarioId==='ww1_1914'?extraProvinces:[]),owned=new Map();
     for(const province of definitions){const id=ownerFor(scenarioId,province);if(!id)continue;if(!owned.has(id))owned.set(id,[]);owned.get(id).push(province);}
     return COUNTRIES.concat(MINOR_COUNTRIES).filter(country=>owned.has(country.id)).map(country=>{
@@ -49,10 +50,14 @@ const ScenarioSetup = (() => {
     });
   }
   function countryProfile(scenarioId,id){return countries(scenarioId).find(country=>country.id===id)||null;}
-  function unitYear(scenarioId,type){return scenarioId==='ww1_1914'?(unitYears[type]??UNIT_TYPES[type]?.year??1936):(UNIT_TYPES[type]?.year||1936);}
-  function techYear(scenarioId,id){return scenarioId==='ww1_1914'?(techYears[id]??TECHS.find(tech=>tech.id===id)?.year??1936):(TECHS.find(tech=>tech.id===id)?.year||1936);}
-  function unitName(scenarioId,type){return scenarioId==='ww1_1914'?(type==='air'?'早期航空分队':UNIT_TYPES[type]?.kind==='naval'?'1914 主力舰队':UNIT_TYPES[type]?.name):UNIT_TYPES[type]?.name;}
-  function apply(state){
+  function unitYear(scenarioId,type){return typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(scenarioId)?HistoricalTheaters.unitYear(scenarioId,type):scenarioId==='ww1_1914'?(unitYears[type]??UNIT_TYPES[type]?.year??1936):(UNIT_TYPES[type]?.year||1936);}
+  function techYear(scenarioId,id){return typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(scenarioId)?HistoricalTheaters.techYear(scenarioId,id):scenarioId==='ww1_1914'?(techYears[id]??TECHS.find(tech=>tech.id===id)?.year??1936):(TECHS.find(tech=>tech.id===id)?.year||1936);}
+  function unitName(scenarioId,type){return typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(scenarioId)?HistoricalTheaters.unitName(scenarioId,type):scenarioId==='ww1_1914'?(type==='air'?'早期航空分队':UNIT_TYPES[type]?.kind==='naval'?'1914 主力舰队':UNIT_TYPES[type]?.name):UNIT_TYPES[type]?.name;}
+  function allowedUnit(scenarioId,type){return typeof HistoricalTheaters==='undefined'||!HistoricalTheaters.has(scenarioId)||HistoricalTheaters.allowedUnit(scenarioId,type);}
+  function allowedTech(scenarioId,id){return typeof HistoricalTheaters==='undefined'||!HistoricalTheaters.has(scenarioId)||HistoricalTheaters.allowedTech(scenarioId,id);}
+  function techProfile(scenarioId,id){return typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(scenarioId)?HistoricalTheaters.techProfile(scenarioId,id):TECHS.find(tech=>tech.id===id);}
+  function apply(state,makeDivision){
+    if(typeof HistoricalTheaters!=='undefined'&&HistoricalTheaters.has(state.scenario))return HistoricalTheaters.apply(state,makeDivision);
     if(state.scenario!=='ww1_1914')return false;
     const originalCountries=Object.fromEntries(Object.entries(state.countries).map(([id,country])=>[id,{...country}]));
     const originalOwners=new Map(state.provinces.map(province=>[province.id,province.owner]));
@@ -98,5 +103,5 @@ const ScenarioSetup = (() => {
     for(const id of ['can','aus','nzl','saf'])ally('uk',id);
     state.eraSetupVersion=1;state.eraMapBasis='1914 strategic approximation using existing country geometry; not exact historical administrative boundaries';return true;
   }
-  return {entries,countries,countryProfile,apply,unitYear,techYear,unitName};
+  return {entries,countries,countryProfile,apply,unitYear,techYear,unitName,allowedUnit,allowedTech,techProfile};
 })();

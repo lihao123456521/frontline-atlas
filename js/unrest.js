@@ -5,17 +5,18 @@ const Unrest=(()=>{
   const pair=(first,second)=>[first,second].sort().join('|');
   const stockFields=['civ','mil','res','equipment','oil','rare','pp','manpower','manpowerCap'];
   const arrived=(state,unit)=>(unit.rescueArrivalDay??0)<=(state.daysElapsed||0);
-  function personnel(unit){
-    const definition=typeof UNIT_TYPES!=='undefined'?UNIT_TYPES[unit.type]:null;
+  function unitDefinition(state,type){return (typeof HistoricalTheaters!=='undefined'?HistoricalTheaters.unitProfile(state.scenario,type):null)||(typeof UNIT_TYPES!=='undefined'?UNIT_TYPES[type]:null);}
+  function personnel(state,unit){
+    const definition=unitDefinition(state,unit.type);
     const nominal=unit.nominalPersonnel||((definition?.man||0)*(unit.formationPermille??1000));
     return nominal*limit(unit.hp/(unit.maxHp||1),0,1);
   }
   function forces(state,id){
     let people=0;
     for(const province of state.provinces)for(const unit of province.garrison)
-      if((unit.owner||province.owner)===id&&unit.kind==='land'&&arrived(state,unit))people+=personnel(unit);
+      if((unit.owner||province.owner)===id&&unit.kind==='land'&&arrived(state,unit))people+=personnel(state,unit);
     for(const combat of state.activeCombats||[])for(const entry of combat.attackers)
-      if(entry.owner===id&&entry.unit.kind==='land'&&arrived(state,entry.unit))people+=personnel(entry.unit);
+      if(entry.owner===id&&entry.unit.kind==='land'&&arrived(state,entry.unit))people+=personnel(state,entry.unit);
     return people;
   }
   function initialize(state){
@@ -56,9 +57,9 @@ const Unrest=(()=>{
     const reserve=fresh?Math.min((origin.mobilization?.reserve||0)*1000,requested):previous.reserve;
     if(fresh&&origin.mobilization){origin.mobilization.reserve=Math.max(0,origin.mobilization.reserve-reserve/1000);origin.mobilization.capacity-=reserve/1000;}
     const consent=Number.isFinite(options.consent)?options.consent:0;
-    const stock={};
-    for(const [field,cost]of [['equipment',UNIT_TYPES.infantry.equip],['res',UNIT_TYPES.infantry.res]]){
-      stock[field]=fresh?Math.min(origin[field],reserve/(UNIT_TYPES.infantry.man*1000)*cost):previous[field]||0;
+    const stock={},definition=unitDefinition(state,'infantry');
+    for(const [field,cost]of [['equipment',definition.equip],['res',definition.res]]){
+      stock[field]=fresh?Math.min(origin[field],reserve/(definition.man*1000)*cost):previous[field]||0;
       if(fresh)origin[field]=Math.max(0,origin[field]-stock[field]);
     }
     return records[province.id]={origin:origin.id,controller:province.owner,support:limit(28+(controller.stability-origin.stability)*.12+consent*.5,10,80),
@@ -69,7 +70,7 @@ const Unrest=(()=>{
     const province=state?.provinces?.[index],record=state?.unrest?.occupations?.[province?.id];
     if(!province||!record||province.owner===province.originalOwner||state.countries[province.owner]?.rebellionKind==='occupation'||
       state.countries[province.owner]?.rebellionOf===province.originalOwner)return null;
-    const garrison=province.garrison.filter(unit=>unit.kind==='land'&&unit.hp>0&&arrived(state,unit)).reduce((sum,unit)=>sum+personnel(unit),0);
+    const garrison=province.garrison.filter(unit=>unit.kind==='land'&&unit.hp>0&&arrived(state,unit)).reduce((sum,unit)=>sum+personnel(state,unit),0);
     const required=Math.max(1000,record.capacity*.45),suppression=garrison/required;
     return {support:Math.round(record.support),resistance:Math.round(record.resistance),reserve:Math.round(record.reserve),
       label:record.resistance>=75?'抵抗高涨':record.resistance>=45?'民意不稳':'逐渐安定',garrison:Math.round(garrison),required:Math.ceil(required),
@@ -87,7 +88,7 @@ const Unrest=(()=>{
     if(!context.makeDivision||province.garrison.some(unit=>unit.kind==='land'&&unit.hp>0&&arrived(state,unit))||
       province.garrison.some(unit=>unit.hp>0&&arrived(state,unit))&&!context.returnTroop||(state.activeCombats||[]).some(combat=>combat.to===index||combat.from===index)||
       record.reserve<200||state.unrest.conflicts.length>=64)return null;
-    const definition=UNIT_TYPES.infantry,budget=Math.min(20000,record.reserve,(record.equipment||0)/definition.equip*definition.man*1000,
+    const definition=unitDefinition(state,'infantry'),budget=Math.min(20000,record.reserve,(record.equipment||0)/definition.equip*definition.man*1000,
       (record.res||0)/definition.res*definition.man*1000),scale=Math.min(1000,Math.floor((budget+1e-7)/(definition.man*2)));
     if(scale<1)return null;
     const serial=++state.unrest.serial,rebelsId=record.origin+'_resistance_'+serial,rebels=JSON.parse(JSON.stringify(government));
@@ -100,7 +101,7 @@ const Unrest=(()=>{
     state.countries[rebelsId]=rebels;
     if(context.declareWar&&!context.declareWar(rebelsId,government.id)){delete state.countries[rebelsId];state.unrest.serial--;return null;}
     const troops=[context.makeDivision('infantry',scale),context.makeDivision('infantry',scale)];
-    const spent=troops.reduce((sum,unit)=>sum+personnel(unit),0);record.reserve=Math.max(0,record.reserve-spent);record.consumed+=spent;
+    const spent=troops.reduce((sum,unit)=>sum+personnel(state,unit),0);record.reserve=Math.max(0,record.reserve-spent);record.consumed+=spent;
     record.equipment=Math.max(0,record.equipment-definition.equip*scale/500);record.res=Math.max(0,record.res-definition.res*scale/500);
     for(const field of ['equipment','res']){rebels[field]=record[field];record[field]=0;}
     for(const unit of troops){unit.owner=rebelsId;unit.org*=.65;}
@@ -130,11 +131,11 @@ const Unrest=(()=>{
       record.resistance=limit(record.resistance+(50-record.support)*.02+shortage*.12+(war?.06:0)-Math.min(3,suppression)*.9,0,100);
       if(record.resistance>=80&&suppression<1&&record.reserve>0){
         const guards=province.garrison.filter(unit=>unit.kind==='land'&&unit.hp>0&&!unit.combatId&&arrived(state,unit));
-        const people=guards.reduce((sum,unit)=>sum+personnel(unit),0),loss=Math.min(people,Math.max(3,people*.06)*(1-suppression),record.reserve*.08);
+        const people=guards.reduce((sum,unit)=>sum+personnel(state,unit),0),loss=Math.min(people,Math.max(3,people*.06)*(1-suppression),record.reserve*.08);
         if(people&&loss>0){
           for(const unit of guards)unit.hp=Math.max(0,unit.hp-unit.maxHp*(loss/people)*(unit.hp/unit.maxHp));
           record.losses+=loss;const exhausted=Math.min(record.reserve,Math.max(1,loss*.35));record.reserve-=exhausted;record.consumed+=exhausted;
-          for(const unit of guards)if(unit.hp<=unit.maxHp*.01){record.losses+=personnel(unit);unit.hp=0;}
+          for(const unit of guards)if(unit.hp<=unit.maxHp*.01){record.losses+=personnel(state,unit);unit.hp=0;}
           province.garrison=province.garrison.filter(unit=>unit.hp>unit.maxHp*.01||unit.kind!=='land'||unit.combatId);
           if(Math.floor(record.losses/100)!==Math.floor((record.losses-loss)/100))context.log?.(province.name+'抵抗活动持续损耗小股守军；增援或安抚可降低风险。','war');
         }
@@ -223,7 +224,7 @@ const Unrest=(()=>{
     const backed=activeSponsors(state,id).length>0;
     const currentPersonnel=forces(state,id),budget=currentPersonnel*(kind==='civilWar'?(backed?.28:.15):.07);
     const maximum=currentPersonnel*(kind==='civilWar'?(backed?.30:.18):.08);
-    const strength=province=>province.garrison.filter(unit=>unit.kind==='land'&&arrived(state,unit)).reduce((sum,unit)=>sum+personnel(unit),0);
+    const strength=province=>province.garrison.filter(unit=>unit.kind==='land'&&arrived(state,unit)).reduce((sum,unit)=>sum+personnel(state,unit),0);
     const landCount=province=>province.garrison.filter(unit=>unit.kind==='land'&&unit.hp>0&&!unit.combatId&&arrived(state,unit)).length;
     candidates.sort((first,second)=>{
       const firstDomestic=capital?Math.hypot(first.province.lon-capital.lon,first.province.lat-capital.lat)<15:false;
@@ -269,7 +270,7 @@ const Unrest=(()=>{
   }
   function mobilizeRebels(state,rebels,capital,target,context){
     if(!context.makeDivision)return;
-    const definition=UNIT_TYPES.infantry,remaining=Math.max(0,target-forces(state,rebels.id));
+    const definition=unitDefinition(state,'infantry'),remaining=Math.max(0,target-forces(state,rebels.id));
     const budget=Math.min(remaining/definition.man,(rebels.manpower+(rebels.mobilization?.reserve||0))*1000/definition.man,
       rebels.equipment/definition.equip*1000,rebels.res/definition.res*1000);
     let permille=Math.max(0,Math.floor(budget+1e-7));
@@ -365,7 +366,7 @@ const Unrest=(()=>{
     }
     if(state.aiBuildQueue){
       const queue=state.aiBuildQueue.filter(order=>order.countryId===rebels.id);state.aiBuildQueue=state.aiBuildQueue.filter(order=>order.countryId!==rebels.id);
-      if(government.id===state.player)state.buildQueue.push(...queue.map(order=>({...order,kind:'div',label:order.label||UNIT_TYPES[order.unitType].name+' → '+state.provinces[order.provinceIdx].name})));
+      if(government.id===state.player)state.buildQueue.push(...queue.map(order=>({...order,kind:'div',label:order.label||unitDefinition(state,order.unitType).name+' → '+state.provinces[order.provinceIdx].name})));
       else state.aiBuildQueue.push(...queue.map(order=>({...order,countryId:government.id})));
     }
     rebels.alive=false;rebels.subjectOf=null;rebels.capitalIdx=-1;

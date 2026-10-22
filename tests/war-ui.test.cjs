@@ -657,7 +657,7 @@ test('active battle only shows core commands and new planning is an explicit sep
   const fixture=setup(),{Game,UI,panel,buttons,descendants}=fixture,combat=startUiCombat(fixture);
   Game.state.provinces.forEach((p,i)=>{if(p.owner==='pol'&&i!==combat.to&&i%4===1)p.owner='fra';});Game.state.wars.push({a:'ger',b:'fra',since:'1936-1'});UI.refresh();
   const first=panel.children.find(e=>e.className.includes('ongoing-battle-card'));assert.ok(first);
-  const commandDock=first.children.find(e=>e.className==='combat-command-dock');assert.ok(commandDock);
+  const commandDock=descendants(first).find(e=>e.className==='combat-command-dock');assert.ok(commandDock);
   assert.equal(commandDock.children[0].className,'rp-btn combat-command primary');
   const actions=commandDock.children[1];assert.equal(actions.className,'combat-actions');
   assert.deepEqual(actions.children.filter(e=>e.tagName==='button').map(e=>e.textContent),['增援','撤退']);
