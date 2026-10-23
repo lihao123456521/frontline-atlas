@@ -6,6 +6,14 @@
 
 本项目为独立浏览器游戏，玩法灵感来自《Hearts of Iron》，不是 Paradox Interactive 的官方产品。
 
+## 30 秒演示
+
+[![Frontline Atlas 游戏演示：点击观看或下载完整视频](docs/media/demo-cover.jpg)](https://github.com/lihao123456521/frontline-atlas/releases/download/v57-demo/frontline-atlas-demo-v57.mp4)
+
+**[▶ 观看／下载 MP4](https://github.com/lihao123456521/frontline-atlas/releases/download/v57-demo/frontline-atlas-demo-v57.mp4)** · [Release 页面](https://github.com/lihao123456521/frontline-atlas/releases/tag/v57-demo)
+
+30 秒 · 1080p · 静音中文字幕。来自正式版实际运行画面，部分片段加速，字幕为后期叠加；展示战线推进、四个剧本、军备配比、调兵与同盟。完整视频作为 Release 附件分发，避免增加源码克隆体积；[制作与来源说明](docs/demo-video.md)。
+
 ## 战役剧本
 
 | 剧本 | 可选对象 | 战场特点 |
