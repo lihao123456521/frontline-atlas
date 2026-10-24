@@ -2,7 +2,7 @@
 
 一款以**地图和战争指挥为中心**的中文历史战略游戏。选择国家或军政势力，组织进攻、调动与增援，争取盟友，并在不断变化的战局中管理有限兵源和军备。战斗按日推进，不是点击后立即结算；后勤可以自动安排，复杂管理按需展开。
 
-**[在线试玩](https://gangtiexiongxin-game.netlify.app/)** · [GitHub 仓库](https://github.com/lihao123456521/frontline-atlas) · [v57 中国历史战场说明](docs/2026-10-21-historical-theaters-v57.md)
+**[在线试玩](https://gangtiexiongxin-game.netlify.app/)** · [GitHub 仓库](https://github.com/lihao123456521/frontline-atlas) · [v58 地图与占领](docs/2026-10-24-smooth-capture-v58.md) · [v57 中国历史战场说明](docs/2026-10-21-historical-theaters-v57.md)
 
 本项目为独立浏览器游戏，玩法灵感来自《Hearts of Iron》，不是 Paradox Interactive 的官方产品。
 

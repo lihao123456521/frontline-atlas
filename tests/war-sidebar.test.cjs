@@ -449,6 +449,34 @@ test('city and army recruitment controls change real automatic settings and pres
   assert.equal(control('征兵强度').value,'mobilize');assert.equal(control('自动征兵兵种').value,'mountain');
 });
 
+test('an allied battle replaces impossible duplicate attack recommendations with its real operation status',()=>{
+  const {Game,UI,panel,button,descendants}=setup(),from=Game.provinceById('ger_berlin'),allyFrom=Game.provinceById('fra_paris'),to=Game.provinceById('neu_poland');
+  Game.state.adj=Game.state.provinces.map(()=>[]);Game.state.adj[from]=[to];Game.state.adj[allyFrom]=[to];Game.state.adj[to]=[from,allyFrom];
+  Game.state.alliances.ger=['fra'];Game.state.alliances.fra=['ger'];
+  Game.state.player='fra';assert.equal(Game.resolveAttack('fra',allyFrom,to,1),true);Game.state.player='ger';
+  Game.state.wars.push({a:'ger',b:'pol',since:'1936-1'});
+  UI.navigate('war');
+  const targets=descendants(panel).find(node=>node.attributes['aria-label']==='选择出征目标');
+  assert.ok(!targets||targets.children.every(option=>option.value!==String(to)),'the war planner does not offer a second assault on an occupied battlefield');
+  UI.selectCity(to);
+  assert.match(panel.textContent,/法国正在行军接敌/);assert.equal(button('进攻这座城市'),undefined);assert.doesNotMatch(panel.textContent,/推荐从/);
+  UI.selectCity(from);UI.beginBattle('attack',to);
+  assert.equal(button('确认进攻'),undefined);assert.equal(Game.state.activeCombats.length,1);assert.equal(Game.province(to).owner,'pol');
+});
+
+test('clearing occupation uses its own progress label without claiming ownership before completion',()=>{
+  const {Game,UI,panel,descendants}=setup(),from=Game.provinceById('ger_berlin'),to=Game.provinceById('neu_poland');
+  Game.state.adj[from]=[to];Game.state.adj[to]=[from];Game.province(to).garrison=[];
+  Game.state.wars=[{a:'ger',b:Game.province(to).owner,since:'1936-1'}];
+  assert.equal(Game.resolveAttack('ger',from,to,1),true);
+  const combat=Game.state.activeCombats[0];combat.phase='engagement';combat.days=combat.preparationDays;combat.progress=60;
+  UI.navigate('war');
+  const progress=descendants(panel).find(node=>node.tagName==='progress');
+  assert.equal(progress.attributes['aria-label'],'攻击方清扫占领进度');
+  assert.match(panel.textContent,/占领推进 60%/);assert.match(panel.textContent,/尚未占领/);
+  assert.equal(Game.province(to).owner,'pol');
+});
+
 test('manual city training submits a paid order without disabling or resetting automatic recruitment', () => {
   const {Game,UI,panel,descendants,button,click}=setup();
   const player=Game.country('ger');player.res=player.equipment=player.manpower=999;

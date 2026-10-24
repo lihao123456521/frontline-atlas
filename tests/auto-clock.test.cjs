@@ -151,9 +151,11 @@ test('navigating away from a deployment resumes the prior pace without restartin
   get('btnTech').click();assert.equal(UI.getSpeed(),3);assert.equal(activeTimers().length,1);assert.equal(Game.save(),before);
   UI.togglePause();UI.beginBattle('attack',to);get('btnTech').click();assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);assert.equal(Game.save(),before);
   assert.equal(Game.resolveAttack('ger',from,to,2),true);const combat=Game.getCombats()[0];assert.ok(combat);
+  const pendingTo=Game.state.provinces.findIndex((province,index)=>index!==to&&index!==from&&province.owner!==Game.state.player&&!Game.isAllied(Game.state.player,province.owner));
+  assert.ok(pendingTo>=0);Game.state.adj[from].push(pendingTo);Game.state.adj[pendingTo]=[from];
   // The frontline destination focuses an existing combat and returns early from navigate.
-  Game.state.selectedIdx=from;UI.setSpeed(2);UI.beginBattle('attack',to);assert.equal(UI.getSpeed(),0);UI.navigate('war');assert.equal(UI.getSpeed(),2);assert.equal(UI.activeCombatId,combat.id);
-  UI.togglePause();Game.state.selectedIdx=from;UI.beginBattle('attack',to);UI.navigate('war');assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);assert.equal(Game.state.daysElapsed,0);
+  Game.state.selectedIdx=from;UI.setSpeed(2);UI.beginBattle('attack',pendingTo);assert.equal(UI.getSpeed(),0);UI.navigate('war');assert.equal(UI.getSpeed(),2);assert.equal(UI.activeCombatId,combat.id);
+  UI.togglePause();Game.state.selectedIdx=from;UI.beginBattle('attack',pendingTo);UI.navigate('war');assert.equal(UI.getSpeed(),0);assert.equal(activeTimers().length,0);assert.equal(Game.state.daysElapsed,0);
 });
 
 test('a second incoming warning or required event prevents a premature resume',()=>{

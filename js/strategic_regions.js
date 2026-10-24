@@ -147,6 +147,67 @@ const StrategicRegions = (() => {
     }
     members.clear();for(const group of groups.values())members.set(group.node.id,group.list.map(node=>node.id));
   }
+  function smoothSharedBoundaries(parts,anchors){
+    const pointKey=point=>point.join(','),edgeKey=(first,second)=>[pointKey(first),pointKey(second)].sort().join('|');
+    const vertices=new Map(),segments=new Map(),buckets=new Map(),replacements=new Map(),cellSize=.6;
+    for(const [partIndex,part]of parts.entries())for(const ring of part.rings)for(let index=0;index<ring.length;index++){
+      const point=ring[index],next=ring[(index+1)%ring.length],key=pointKey(point);
+      if(!vertices.has(key))vertices.set(key,{point,uses:[],edges:new Set()});
+      vertices.get(key).uses.push({partIndex,ring,index});
+      if(pointKey(next)===key)continue;
+      const id=edgeKey(point,next);
+      if(!segments.has(id))segments.set(id,{first:point,second:next,uses:[]});
+      segments.get(id).uses.push(partIndex);vertices.get(key).edges.add(id);
+    }
+    for(const [id,segment]of segments){
+      vertices.get(pointKey(segment.second)).edges.add(id);
+      const first=segment.first,second=segment.second;
+      for(let column=Math.floor(Math.min(first[0],second[0])/cellSize);column<=Math.floor(Math.max(first[0],second[0])/cellSize);column++){
+        for(let row=Math.floor(Math.min(first[1],second[1])/cellSize);row<=Math.floor(Math.max(first[1],second[1])/cellSize);row++){
+          const key=column+','+row;if(!buckets.has(key))buckets.set(key,[]);buckets.get(key).push(segment);
+        }
+      }
+    }
+    const distance=(point,first,second)=>{
+      const dx=second[0]-first[0],dy=second[1]-first[1],ratio=Math.max(0,Math.min(1,((point[0]-first[0])*dx+(point[1]-first[1])*dy)/(dx*dx+dy*dy||1)));
+      return Math.hypot(point[0]-first[0]-ratio*dx,point[1]-first[1]-ratio*dy);
+    };
+    const orientation=(first,second,third)=>(second[0]-first[0])*(third[1]-first[1])-(second[1]-first[1])*(third[0]-first[0]);
+    const crosses=(first,second)=>orientation(first.first,first.second,second.first)*orientation(first.first,first.second,second.second)<0&&
+      orientation(second.first,second.second,first.first)*orientation(second.first,second.second,first.second)<0;
+    for(const [key,vertex]of vertices){
+      if(vertex.uses.length!==2||vertex.edges.size!==2)continue;
+      const [firstUse,secondUse]=vertex.uses,firstPart=parts[firstUse.partIndex],secondPart=parts[secondUse.partIndex];
+      if(firstPart.owner===secondPart.owner||firstPart.shapeOwner!==secondPart.shapeOwner)continue;
+      const incident=[...vertex.edges].map(id=>segments.get(id));
+      if(incident.some(segment=>segment.uses.length!==2||!segment.uses.includes(firstUse.partIndex)||!segment.uses.includes(secondUse.partIndex)))continue;
+      const point=vertex.point,ring=firstUse.ring,index=firstUse.index;
+      const before=ring[(index+ring.length-1)%ring.length],after=ring[(index+1)%ring.length];
+      const firstLength=Math.hypot(before[0]-point[0],before[1]-point[1]),secondLength=Math.hypot(after[0]-point[0],after[1]-point[1]);
+      const cosine=((before[0]-point[0])*(after[0]-point[0])+(before[1]-point[1])*(after[1]-point[1]))/(firstLength*secondLength||1);
+      if(cosine<-.86||cosine>.85)continue;
+      let cut=Math.min(cellSize,firstLength*.3,secondLength*.3);
+      const nearby=new Set();
+      const box=[Math.min(point[0]-cut,before[0],after[0]),Math.min(point[1]-cut,before[1],after[1]),Math.max(point[0]+cut,before[0],after[0]),Math.max(point[1]+cut,before[1],after[1])];
+      for(let column=Math.floor(box[0]/cellSize);column<=Math.floor(box[2]/cellSize);column++){
+        for(let row=Math.floor(box[1]/cellSize);row<=Math.floor(box[3]/cellSize);row++){
+          for(const segment of buckets.get(column+','+row)||[])nearby.add(segment);
+        }
+      }
+      if([...nearby].some(segment=>!incident.includes(segment)&&incident.some(edge=>crosses(edge,segment))))continue;
+      for(const segment of nearby)if(!incident.includes(segment))cut=Math.min(cut,distance(point,segment.first,segment.second)*.3);
+      for(const anchor of anchors)cut=Math.min(cut,Math.hypot(point[0]-anchor.x,point[1]-anchor.y)*.3);
+      if(cut<1e-5)continue;
+      const start=[point[0]+(before[0]-point[0])*cut/firstLength,point[1]+(before[1]-point[1])*cut/firstLength];
+      const end=[point[0]+(after[0]-point[0])*cut/secondLength,point[1]+(after[1]-point[1])*cut/secondLength];
+      const curve=[0,1/3,2/3,1].map(ratio=>[(1-ratio)**2*start[0]+2*(1-ratio)*ratio*point[0]+ratio**2*end[0],(1-ratio)**2*start[1]+2*(1-ratio)*ratio*point[1]+ratio**2*end[1]]);
+      replacements.set(key,{before:pointKey(before),curve});
+    }
+    for(const part of parts)part.rings=part.rings.map(ring=>ring.flatMap((point,index)=>{
+      const replacement=replacements.get(pointKey(point));if(!replacement)return [point];
+      return pointKey(ring[(index+ring.length-1)%ring.length])===replacement.before?replacement.curve:[...replacement.curve].reverse();
+    }));
+  }
   function continuousGeometry(base){
     if(!base)return null;
     const inRing=(ring,x,y)=>{let inside=false;for(let index=0,previous=ring.length-1;index<ring.length;previous=index++){
@@ -159,18 +220,21 @@ const StrategicRegions = (() => {
       const depths=region.rings.map((ring,index)=>region.rings.reduce((depth,other,next)=>depth+(index!==next&&inRing(other,...ring[0])?1:0),0));
       region.rings.forEach((ring,index)=>{if(depths[index]%2)return;
         const indexes=[index,...region.rings.map((_,next)=>next).filter(next=>depths[next]===depths[index]+1&&inRing(ring,...region.rings[next][0]))];
-        const rings=indexes.map(next=>region.rings[next]),bounds=indexes.map(next=>region.bounds[next]);
+        const rings=indexes.map(next=>region.rings[next].map(point=>point.slice())),bounds=indexes.map(next=>region.bounds[next].slice());
         parts.push({...region,rings,bounds,owner:node.id,original:node.id,area:rings.reduce((sum,value,next)=>sum+(next?-1:1)*area(value),0),neighbors:new Map()});
       });
     }
-    const segments=new Map();
-    for(const [index,part]of parts.entries())for(const ring of part.rings)for(let next=0;next<ring.length;next++){
-      const first=ring[next],second=ring[(next+1)%ring.length],key=[first.map(value=>value.toFixed(6)).join(','),second.map(value=>value.toFixed(6)).join(',')].sort().join('|');
-      const other=segments.get(key);if(other!==undefined&&parts[other].shapeOwner===part.shapeOwner){
-        const length=Math.hypot(first[0]-second[0],first[1]-second[1]),point=[(first[0]+second[0])/2,(first[1]+second[1])/2];
-        for(const [from,to]of [[index,other],[other,index]]){const previous=parts[from].neighbors.get(to);parts[from].neighbors.set(to,{length:(previous?.length||0)+length,point});}
-      }else if(other===undefined)segments.set(key,index);
-    }
+    const connectParts=()=>{
+      const segments=new Map();for(const part of parts)part.neighbors.clear();
+      for(const [index,part]of parts.entries())for(const ring of part.rings)for(let next=0;next<ring.length;next++){
+        const first=ring[next],second=ring[(next+1)%ring.length],key=[first.join(','),second.join(',')].sort().join('|');
+        const other=segments.get(key);if(other!==undefined&&parts[other].shapeOwner===part.shapeOwner){
+          const length=Math.hypot(first[0]-second[0],first[1]-second[1]),point=[(first[0]+second[0])/2,(first[1]+second[1])/2];
+          for(const [from,to]of [[index,other],[other,index]]){const previous=parts[from].neighbors.get(to);parts[from].neighbors.set(to,{length:(previous?.length||0)+length,point});}
+        }else if(other===undefined)segments.set(key,index);
+      }
+    };
+    connectParts();
     const primary=new Set();
     for(const node of base.nodes){
       const own=parts.map((part,index)=>({part,index})).filter(value=>value.part.owner===node.id).sort((first,second)=>second.part.area-first.part.area);
@@ -188,6 +252,12 @@ const StrategicRegions = (() => {
         part.owner=into;primary.add(index);changed=true;
       }
     }
+    smoothSharedBoundaries(parts,legacy.nodes);
+    for(const part of parts){
+      part.bounds=part.rings.map(ring=>ring.reduce((box,point)=>[Math.min(box[0],point[0]),Math.min(box[1],point[1]),Math.max(box[2],point[0]),Math.max(box[3],point[1])],[Infinity,Infinity,-Infinity,-Infinity]));
+      part.area=part.rings.reduce((sum,ring,index)=>sum+(index?-1:1)*area(ring),0);
+    }
+    connectParts();
     const byId=new Map(base.nodes.map(node=>[node.id,[]]));
     for(const part of parts)byId.get(part.owner).push({...part,playableProvinceId:part.owner,strategicApproximation:true});
     const idOf=value=>typeof value==='string'?value:value?.id;

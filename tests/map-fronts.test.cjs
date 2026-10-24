@@ -90,6 +90,18 @@ test('continental strategic edges use broad bends instead of a fixed tiny bow',(
   assert.ok(Math.max(...offsets.map(Math.abs))<13,'the strategic shape stays subordinate to the country outline');
 });
 
+test('strategic curves ease into shared junctions without a sharp sideways kick',()=>{
+  const {map}=setup();
+  for(const length of [12,40,100]){
+    const edge=edgePoints(map.smoothCell([[0,0],[0,length],[90,length],[90,0]],
+      [{x:-35,y:length/2},{x:35,y:length/2}]),[0,0],[0,length]);
+    const first=edge[1],last=edge.at(-2);
+    assert.ok(Math.abs(first[0])/first[1]<.08,'gentle entry at the first junction');
+    assert.ok(Math.abs(last[0])/(length-last[1])<.08,'gentle exit at the second junction');
+    assert.ok(Math.max(...edge.map(point=>Math.abs(point[0])))>length*.035,'the middle still has a visible natural bend');
+  }
+});
+
 test('shared province curves partition country bounds without overlaps or coastline gaps',()=>{
   const c=setup();c.map.renderTerritory();
   const [left,right]=c.map.getCells();
@@ -267,4 +279,20 @@ test('real animation callbacks keep march badges at the current route position a
   combat.days=3;assert.ok(frame().attrs.transform.startsWith('translate(57.5,50)'));
   combat.phase='engagement';combat.progress=20;assert.ok(frame().attrs.transform.startsWith('translate(70,50)'));
   c.Game.state.activeCombats=[];assert.equal(frame(),undefined);
+});
+
+test('map battle badges distinguish clearing occupation and encircled resistance from ordinary fighting',()=>{
+  const fixture=setup(),combat=fixture.Game.state.activeCombats[0];
+  fixture.Game.state.activeCombats=[combat];
+  const summary={...combat,name:'B',playerSide:'attack',aPersonnel:2000,dPersonnel:0,status:'occupation',days:8};
+  fixture.Game.getCombats=()=>[summary];
+  fixture.map.renderBattleEffects();
+  const badge=()=>fixture.layers.get('layerBattles').children.find(node=>node.attrs['data-combat-id']===combat.id);
+  assert.match(badge().attrs['aria-label'],/清扫占领 25%/);
+  assert.equal(badge().children.find(node=>node.attrs.y==='-40').textContent,'清扫占领 25%');
+  summary.status='包围坚守';summary.holdout=true;summary.dPersonnel=1800;
+  fixture.map.renderBattleEffects();assert.match(badge().attrs['aria-label'],/包围坚守 25%/);
+  summary.status='推进';summary.holdout=false;
+  fixture.map.renderBattleEffects();assert.match(badge().attrs['aria-label'],/交战 25%/);
+  assert.equal(fixture.Game.state.provinces[combat.to].owner,'b');
 });

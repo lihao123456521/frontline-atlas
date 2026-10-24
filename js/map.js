@@ -439,7 +439,7 @@ const MapView = (() => {
     let bow=Math.min(4+6*continental,length*.15,nearest*.36);
     const steps=Math.max(24,Math.min(80,Math.ceil(length*2)));
     const phase=.22*Math.sin(start[0]*.31+start[1]*.19);
-    const profile=t=>Math.sin(Math.PI*t)*((1-continental)*(1+.2*Math.sin(2*Math.PI*t))+
+    const profile=t=>Math.sin(Math.PI*t)**2*((1-continental)*(1+.2*Math.sin(2*Math.PI*t))+
       continental*(.4+1.05*Math.cos(2*Math.PI*t+phase)));
     for(let j=1;j<steps && (nearby.length||shore);j++){
       const t=j/steps,x=start[0]+dx*t,y=start[1]+dy*t;
@@ -1077,7 +1077,7 @@ const MapView = (() => {
       g.setAttribute('data-combat-id',b.id);
       g.setAttribute('transform',`translate(${pt.vx},${position.y}) scale(${1/k})`);
       g.setAttribute('role','button');g.setAttribute('tabindex','0');
-      const phase=b.phase==='preparation'||b.phase==='naval'?'行军':b.playerSide==='attack'&&(p.isCapital||p.terrain==='urban')?'攻城':'交战';
+      const phase=b.phase==='preparation'||b.phase==='naval'?'行军':b.holdout?'包围坚守':b.status==='occupation'?'清扫占领':b.playerSide==='attack'&&(p.isCapital||p.terrain==='urban')?'攻城':'交战';
       const progress=march?Math.round(march.fraction*100):Math.max(0,Math.min(100,Math.round(b.progress||0)));
       const forceLine=`攻 ${formatPersonnel(b.aPersonnel)} / 守 ${formatPersonnel(b.dPersonnel)}`;
       g.setAttribute('aria-label',`${b.name}：${phase} ${progress}%，${forceLine}，已进行${b.days}天；回车聚焦战斗`);

@@ -191,7 +191,9 @@ test('map border strokes remove retired internal boundaries and rebuild for an o
   assert.ok(segments.every(segment=>!active.has(segment)),'merged administrative interiors have no visible dividing stroke');
   assert.equal(f.Game.load(old.Game.save()),true);f.MapView.render();
   const legacy=new Set(paths().flatMap(node=>node.attrs.d.split(' ')));
-  assert.ok(legacy.size>active.size,'legacy save rebuilds its independent province borders');
+  const segmentId=segment=>segment.slice(1).split('L').sort().join('|');
+  const legacyEdges=new Set([...legacy].map(segmentId));
+  assert.ok(segments.every(segment=>legacyEdges.has(segmentId(segment))),'legacy save restores every retired independent province border regardless of curve sampling density');
 });
 test('a continuing administrative campaign retains its legal frontline battle and every in-transit unit',()=>{
   const old=setup({balanced:false,scenario:'poland39'}),G=old.Game;
